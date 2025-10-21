@@ -1,0 +1,9 @@
+node_modules/
+.next/
+dist/
+.local/
+.env
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
