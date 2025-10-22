@@ -1,6 +1,7 @@
+// app/dashboard/DashboardContext.tsx
 'use client';
 
-import React, { createContext, useContext, useMemo } from 'react';
+import React, { createContext, useContext, useMemo, useState } from 'react';
 import { apiFetch } from '../actions'; 
 
 const useQuery = <T,>(endpoint: string, method: 'GET' | 'POST') => ({ data: null as T | null, isLoading: false, error: null as string | null }); 
@@ -95,6 +96,7 @@ type UpdateUserStatusData = { userId: string; status: 'active' | 'inactive' | 's
 
 interface DashboardContextType {
   user: User | null;
+  setUser: (user: User | null) => void;
   apiFetch: typeof apiFetch; 
 
   useQuery: typeof useQuery;
@@ -124,6 +126,7 @@ interface DashboardContextType {
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
 
 const defaultContextValue: Omit<DashboardContextType, 
+  'user' | 'setUser' | // Remove user from defaults since we'll manage it with state
   'useQuery' | 'useMutation' | 
   'spinMutation' | 'referralEarningsMutation' | 'surveyEarningsMutation' |
   'approveUserMutation' | 'rejectUserMutation' | 'processWithdrawalMutation' |
@@ -132,26 +135,27 @@ const defaultContextValue: Omit<DashboardContextType,
   'usePendingWithdrawals' | 'useAuditLogs' |
   'isAdmin' | 'isSupport' | 'hasAdminAccess'
 > = {
-  user: null,
   apiFetch: apiFetch,
 };
+
+interface DashboardProviderProps {
+  children: React.ReactNode;
+  value?: {
+    user: User | null;
+  };
+}
 
 export function DashboardProvider({
   children,
   value
-}: {
-  children: React.ReactNode;
-  value?: Omit<DashboardContextType, 
-    'useQuery' | 'useMutation' | 
-    'spinMutation' | 'referralEarningsMutation' | 'surveyEarningsMutation' |
-    'approveUserMutation' | 'rejectUserMutation' | 'processWithdrawalMutation' |
-    'updateUserRoleMutation' | 'updateUserStatusMutation' |
-    'useAdminStats' | 'useAdminUsers' | 'usePendingApprovals' | 
-    'usePendingWithdrawals' | 'useAuditLogs' |
-    'isAdmin' | 'isSupport' | 'hasAdminAccess'
-  >;
-}) {
-  const safeValue = value || defaultContextValue;
+}: DashboardProviderProps) {
+  // Manage user state internally
+  const [user, setUser] = useState<User | null>(value?.user || null);
+
+  const safeValue = {
+    user: user,
+    ...defaultContextValue
+  };
 
   const spinMutation = useMutation<any, SpinData>('/api/spin', 'POST');
   const referralEarningsMutation = useMutation<any, ReferralEarningsData>('/api/referral/earnings', 'POST');
@@ -190,12 +194,14 @@ export function DashboardProvider({
     return { data: data || [], isLoading, error };
   };
 
-  const isAdmin = safeValue.user?.role === 'admin';
-  const isSupport = safeValue.user?.role === 'support';
+  const isAdmin = user?.role === 'admin';
+  const isSupport = user?.role === 'support';
   const hasAdminAccess = isAdmin || isSupport;
 
   const contextValue: DashboardContextType = useMemo(() => ({
     ...safeValue,
+    user,
+    setUser,
     apiFetch: apiFetch, 
     useQuery: useQuery,
     useMutation: useMutation,
@@ -220,11 +226,20 @@ export function DashboardProvider({
     isSupport,
     hasAdminAccess,
   }), [
-    safeValue, apiFetch, 
-    spinMutation, referralEarningsMutation, surveyEarningsMutation,
-    approveUserMutation, rejectUserMutation, processWithdrawalMutation,
-    updateUserRoleMutation, updateUserStatusMutation,
-    isAdmin, isSupport, hasAdminAccess
+    safeValue, 
+    user, 
+    apiFetch, 
+    spinMutation, 
+    referralEarningsMutation, 
+    surveyEarningsMutation,
+    approveUserMutation, 
+    rejectUserMutation, 
+    processWithdrawalMutation,
+    updateUserRoleMutation, 
+    updateUserStatusMutation,
+    isAdmin, 
+    isSupport, 
+    hasAdminAccess
   ]);
 
   return (

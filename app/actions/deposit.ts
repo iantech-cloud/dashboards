@@ -2,7 +2,6 @@
 'use server';
 
 import { getServerSession } from 'next-auth';
-import { Session } from 'next-auth';
 import { revalidatePath } from 'next/cache';
 import { connectToDatabase, Profile, MpesaTransaction, Transaction } from '../lib/models';
 import { authOptions } from '@/auth';
@@ -16,6 +15,95 @@ const MPESA_CONFIG = {
     callbackURL: process.env.MPESA_CALLBACK_URL!,
     environment: process.env.MPESA_ENVIRONMENT || 'sandbox',
 };
+
+// Type definitions for M-Pesa responses
+interface MpesaSTKPushResponse {
+    ResponseCode: string;
+    ResponseDescription: string;
+    CustomerMessage: string;
+    CheckoutRequestID?: string;
+    MerchantRequestID?: string;
+}
+
+interface MpesaQueryResponse {
+    ResultCode: string;
+    ResultDesc: string;
+    MpesaReceiptNumber?: string;
+}
+
+interface DepositHistoryItem {
+    id: string;
+    type: string;
+    amount: number;
+    description: string;
+    date: string;
+    status: string;
+    mpesaReceiptNumber?: string;
+}
+
+interface UserBalance {
+    balance: number;
+    balance_cents: number;
+}
+
+interface ValidationResult {
+    valid: boolean;
+    message: string;
+    data?: { formattedPhone: string };
+}
+
+interface ProcessDepositResponse {
+    success: boolean;
+    data?: any;
+    message: string;
+}
+
+interface PaymentStatusResponse {
+    success: boolean;
+    data?: any;
+    message: string;
+}
+
+interface DepositHistoryResponse {
+    success: boolean;
+    data?: DepositHistoryItem[];
+    message: string;
+    pagination?: {
+        page: number;
+        limit: number;
+        total: number;
+        pages: number;
+    };
+}
+
+interface BalanceResponse {
+    success: boolean;
+    data?: UserBalance;
+    message: string;
+}
+
+// Session type guard
+interface SessionWithUser {
+    user: {
+        email?: string | null;
+        name?: string | null;
+        image?: string | null;
+    };
+    expires: string;
+}
+
+function isValidSession(session: unknown): session is SessionWithUser {
+    return (
+        session !== null &&
+        typeof session === 'object' &&
+        'user' in session &&
+        session.user !== null &&
+        typeof session.user === 'object' &&
+        'email' in session.user &&
+        typeof session.user.email === 'string' &&
+        session.user.email.length > 0
+    );
+}
 
 /**
  * Generate M-Pesa access token
@@ -75,7 +163,7 @@ async function validateDeposit(
     userId: string, 
     amount: number, 
     phoneNumber: string
-): Promise<{ valid: boolean; message: string; data?: { formattedPhone: string } }> {
+): Promise<ValidationResult> {
     if (amount < 10 || amount > 70000) {
         return { valid: false, message: 'Amount must be between KES 10 and KES 70,000' };
     }
@@ -93,13 +181,13 @@ async function validateDeposit(
     }
 
     await connectToDatabase();
-    const user = await Profile.findById(userId);
+    const user = await (Profile as any).findOne({ _id: userId });
     if (!user) {
         return { valid: false, message: 'User not found' };
     }
 
     // Check for pending M-Pesa transactions
-    const pendingMpesaTransaction = await MpesaTransaction.findOne({
+    const pendingMpesaTransaction = await (MpesaTransaction as any).findOne({
         user_id: userId,
         status: { $in: ['initiated', 'pending'] },
         phone_number: formattedPhone,
@@ -192,29 +280,25 @@ function mapMpesaStatus(resultCode: string): string {
 export async function processMpesaDeposit(depositData: {
     amount: number;
     phoneNumber: string;
-}): Promise<{    
-    success: boolean;    
-    data?: any;    
-    message: string    
-}> {
+}): Promise<ProcessDepositResponse> {
     try {
         console.log('🎯 Starting M-Pesa deposit process:', depositData);
 
-        const session = (await getServerSession(authOptions)) as Session | null;
+        const session = await getServerSession(authOptions);
         
-        if (!session?.user?.email) {
+        if (!isValidSession(session)) {
             return { success: false, message: 'User not authenticated' };
         }
 
         await connectToDatabase();
-        const currentUser = await Profile.findOne({ email: session.user.email });
+        const currentUser = await (Profile as any).findOne({ email: session.user.email });
 
         if (!currentUser) {
             return { success: false, message: 'User profile not found' };
         }
 
         // Validate deposit parameters
-        const validationResult = await validateDeposit(currentUser._id, depositData.amount, depositData.phoneNumber);
+        const validationResult = await validateDeposit(currentUser._id.toString(), depositData.amount, depositData.phoneNumber);
         if (!validationResult.valid) {
             return { success: false, message: validationResult.message };
         }
@@ -274,12 +358,12 @@ export async function processMpesaDeposit(depositData: {
             return { success: false, message: 'Failed to initiate M-Pesa payment. Please try again.' };
         }
 
-        const stkData = await stkResponse.json();
+        const stkData: MpesaSTKPushResponse = await stkResponse.json();
         console.log('📨 STK Push response:', stkData);
 
         if (stkData.ResponseCode === '0') {
             // Create M-Pesa transaction record
-            const mpesaTransaction = await MpesaTransaction.create({
+            const mpesaTransaction = await (MpesaTransaction as any).create({
                 user_id: currentUser._id,
                 amount_cents: amountCents,
                 phone_number: formattedPhone,
@@ -300,7 +384,7 @@ export async function processMpesaDeposit(depositData: {
             });
 
             // Create pending transaction record linked to M-Pesa transaction
-            const transaction = await Transaction.create({
+            const transaction = await (Transaction as any).create({
                 user_id: currentUser._id,
                 amount_cents: amountCents,
                 type: 'DEPOSIT',
@@ -358,24 +442,20 @@ export async function processMpesaDeposit(depositData: {
 /**
  * Check M-Pesa payment status - COMPLETELY FIXED VERSION
  */
-export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promise<{    
-    success: boolean;    
-    data?: any;    
-    message: string    
-}> {
+export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promise<PaymentStatusResponse> {
     try {
         console.log('🔍 Checking M-Pesa payment status:', checkoutRequestId);
 
-        const session = (await getServerSession(authOptions)) as Session | null;
+        const session = await getServerSession(authOptions);
         
-        if (!session?.user?.email) {
+        if (!isValidSession(session)) {
             return { success: false, message: 'User not authenticated' };
         }
 
         await connectToDatabase();
 
         // First check database for existing status
-        const mpesaTransaction = await MpesaTransaction.findOne({
+        const mpesaTransaction = await (MpesaTransaction as any).findOne({
             checkout_request_id: checkoutRequestId
         });
 
@@ -449,7 +529,7 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
             };
         }
 
-        const queryData = await queryResponse.json();
+        const queryData: MpesaQueryResponse = await queryResponse.json();
         console.log('📨 M-Pesa query response:', queryData);
 
         // Use ONLY VALID enum values for your schema
@@ -506,7 +586,7 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
         // If payment completed, update the transaction status and user balance
         if (safeStatus === 'completed') {
             try {
-                await Transaction.findOneAndUpdate(
+                await (Transaction as any).findOneAndUpdate(
                     { mpesa_transaction_id: mpesaTransaction._id },
                     { 
                         status: 'completed',
@@ -519,7 +599,7 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
                 );
 
                 // Update user balance
-                const user = await Profile.findById(mpesaTransaction.user_id);
+                const user = await (Profile as any).findById(mpesaTransaction.user_id);
                 if (user) {
                     user.balance_cents += mpesaTransaction.amount_cents;
                     await user.save();
@@ -560,21 +640,16 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
 /**
  * Get deposit history
  */
-export async function getDepositHistory(limit: number = 20, page: number = 1): Promise<{    
-    success: boolean;    
-    data?: any[];    
-    message: string;
-    pagination?: any;
-}> {
+export async function getDepositHistory(limit: number = 20, page: number = 1): Promise<DepositHistoryResponse> {
     try {
-        const session = (await getServerSession(authOptions)) as Session | null;
+        const session = await getServerSession(authOptions);
         
-        if (!session?.user?.email) {
+        if (!isValidSession(session)) {
             return { success: false, message: 'User not authenticated' };
         }
 
         await connectToDatabase();
-        const currentUser = await Profile.findOne({ email: session.user.email });
+        const currentUser = await (Profile as any).findOne({ email: session.user.email });
 
         if (!currentUser) {
             return { success: false, message: 'User not found' };
@@ -583,7 +658,7 @@ export async function getDepositHistory(limit: number = 20, page: number = 1): P
         const skip = (page - 1) * limit;
 
         // Get deposit transactions
-        const deposits = await Transaction.find({
+        const deposits = await (Transaction as any).find({
             user_id: currentUser._id,
             type: 'DEPOSIT'
         })
@@ -592,13 +667,13 @@ export async function getDepositHistory(limit: number = 20, page: number = 1): P
         .limit(limit)
         .lean();
 
-        const total = await Transaction.countDocuments({
+        const total = await (Transaction as any).countDocuments({
             user_id: currentUser._id,
             type: 'DEPOSIT'
         });
 
         // Transform data for frontend
-        const transformedDeposits = deposits.map(deposit => ({
+        const transformedDeposits: DepositHistoryItem[] = deposits.map((deposit: any) => ({
             id: deposit._id?.toString(),
             type: deposit.type,
             amount: deposit.amount_cents / 100,
@@ -633,20 +708,16 @@ export async function getDepositHistory(limit: number = 20, page: number = 1): P
 /**
  * Get user balance
  */
-export async function getUserBalance(): Promise<{    
-    success: boolean;    
-    data?: any;    
-    message: string    
-}> {
+export async function getUserBalance(): Promise<BalanceResponse> {
     try {
-        const session = (await getServerSession(authOptions)) as Session | null;
+        const session = await getServerSession(authOptions);
         
-        if (!session?.user?.email) {
+        if (!isValidSession(session)) {
             return { success: false, message: 'User not authenticated' };
         }
 
         await connectToDatabase();
-        const currentUser = await Profile.findOne({ email: session.user.email });
+        const currentUser = await (Profile as any).findOne({ email: session.user.email });
 
         if (!currentUser) {
             return { success: false, message: 'User not found' };
@@ -674,10 +745,7 @@ export async function getUserBalance(): Promise<{
 /**
  * Validate deposit amount
  */
-export async function validateDepositAmount(amount: number): Promise<{    
-    valid: boolean;    
-    message: string    
-}> {
+export async function validateDepositAmount(amount: number): Promise<ValidationResult> {
     try {
         if (amount < 10 || amount > 70000) {
             return {

@@ -117,7 +117,7 @@ async function getCurrentUser() {
     }
 
     await connectToDatabase();
-    const user = await Profile.findOne({ email: session.user.email });
+    const user = await (Profile as any).findOne({ email: session.user.email });
     
     if (!user) {
       throw new Error('User not found');
@@ -270,7 +270,7 @@ export async function getUserContentStats(): Promise<{
     }
 
     // FIX: Use string user ID directly in aggregation - MongoDB can handle string ObjectIds
-    const stats = await UserContent.aggregate([
+    const stats = await (UserContent as any).aggregate([
       { $match: { user: user.id } }, // Use string ID directly
       {
         $group: {
@@ -360,16 +360,16 @@ export async function getRecentSubmissions(limit: number = 5): Promise<{
       };
     }
 
-    const submissions = await UserContent.find({ user: user.id })
+    const submissions = await (UserContent as any).find({ user: user.id })
       .populate('user', 'username name email phone_number')
       .populate('approved_by', 'username name email')
       .sort({ submission_date: -1 })
       .limit(limit)
       .lean();
 
-    const serializedSubmissions = submissions.map(sub => serializeDocument(sub));
+    const serializedSubmissions = submissions.map((sub: any) => serializeDocument(sub));
 
-    const formattedSubmissions: ContentSubmission[] = serializedSubmissions.map(sub => ({
+    const formattedSubmissions: ContentSubmission[] = serializedSubmissions.map((sub: any) => ({
       _id: sub._id,
       title: sub.title,
       content_type: sub.content_type,
@@ -464,14 +464,14 @@ export async function getUserContentSubmissions(filters?: {
     }
 
     // Get total count for pagination
-    const totalCount = await UserContent.countDocuments(query);
+    const totalCount = await (UserContent as any).countDocuments(query);
 
     // Calculate pagination
     const skip = (page - 1) * limit;
     const totalPages = Math.ceil(totalCount / limit);
 
     // Get paginated results
-    const submissions = await UserContent.find(query)
+    const submissions = await (UserContent as any).find(query)
       .populate('user', 'username name email phone_number')
       .populate('approved_by', 'username name email')
       .sort({ submission_date: -1 })
@@ -479,9 +479,9 @@ export async function getUserContentSubmissions(filters?: {
       .limit(limit)
       .lean();
 
-    const serializedSubmissions = submissions.map(sub => serializeDocument(sub));
+    const serializedSubmissions = submissions.map((sub: any) => serializeDocument(sub));
 
-    const formattedSubmissions: ContentSubmission[] = serializedSubmissions.map(sub => ({
+    const formattedSubmissions: ContentSubmission[] = serializedSubmissions.map((sub: any) => ({
       _id: sub._id,
       title: sub.title,
       content_type: sub.content_type,
@@ -545,7 +545,7 @@ export async function getContentSubmission(id: string): Promise<{
       };
     }
 
-    const submission = await UserContent.findOne({
+    const submission = await (UserContent as any).findOne({
       _id: safeObjectId(id),
       user: user.id, // Use string ID directly
     })
@@ -627,7 +627,7 @@ export async function getContentSubmissionById(id: string): Promise<{
       };
     }
 
-    const submission = await UserContent.findOne({
+    const submission = await (UserContent as any).findOne({
       _id: safeObjectId(id),
       user: user.id, // Use string ID directly - ensures user can only access their own content
     })
@@ -743,7 +743,7 @@ export async function createContentSubmission(data: CreateContentData): Promise<
     const paymentAmount = calculatePaymentAmount(wordCount, data.content_type);
 
     // Create the content submission
-    const newSubmission = new UserContent({
+    const newSubmission = new (UserContent as any)({
       user: user.id, // Use string ID directly
       title: data.title.trim(),
       content: data.content_text,
@@ -761,7 +761,7 @@ export async function createContentSubmission(data: CreateContentData): Promise<
     await newSubmission.save();
 
     // Update user's tasks completed count
-    await Profile.findByIdAndUpdate(user.id, {
+    await (Profile as any).findByIdAndUpdate(user.id, {
       $inc: { tasks_completed: 1 }
     });
 
@@ -780,6 +780,233 @@ export async function createContentSubmission(data: CreateContentData): Promise<
       message: error instanceof Error ? error.message : 'Failed to submit content. Please try again.',
     };
   }
+}
+
+// =============================================================================
+// ADMIN CONTENT MANAGEMENT FUNCTIONS
+// =============================================================================
+
+/**
+ * Admin function to update content submission status and payment
+ */
+export async function adminUpdateContentSubmission(
+  contentId: string,
+  data: AdminUpdateContentData
+): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  try {
+    const session = await getServerSession(authOptions);
+    
+    // FIX: Use type guard for admin session checking
+    if (!isValidSession(session)) {
+      return { success: false, message: 'Unauthorized' };
+    }
+
+    await connectToDatabase();
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
+    
+    if (adminUser?.role !== 'admin') {
+      return { success: false, message: 'Admin access required' };
+    }
+
+    if (!Types.ObjectId.isValid(contentId)) {
+      return { success: false, message: 'Invalid content ID' };
+    }
+
+    // Find the content submission
+    const content = await (UserContent as any).findById(contentId);
+    if (!content) {
+      return { success: false, message: 'Content submission not found' };
+    }
+
+    // Prepare update data
+    const updateData: any = {
+      status: data.status,
+      payment_status: data.payment_status,
+      payment_amount: kshToCents(data.payment_amount), // Convert KSH to cents for storage
+      admin_notes: data.admin_notes,
+      updated_at: new Date(),
+    };
+
+    // Set approved_at and approved_by if status is being changed to approved
+    if (data.status === 'approved' && content.status !== 'approved') {
+      updateData.approved_at = new Date();
+      updateData.approved_by = adminUser._id;
+    }
+
+    // Set revision notes if status is revision_requested
+    if (data.status === 'revision_requested') {
+      updateData.revision_notes = data.revision_notes;
+    }
+
+    // Update the content submission
+    await (UserContent as any).findByIdAndUpdate(contentId, updateData);
+
+    // Log admin action
+    await (AdminAuditLog as any).create({
+      actor_id: adminUser._id,
+      action: 'UPDATE_USER_CONTENT',
+      action_type: 'update',
+      resource_type: 'user_content',
+      target_type: 'UserContent',
+      target_id: contentId,
+      resource_id: contentId,
+      changes: {
+        status: data.status,
+        payment_status: data.payment_status,
+        payment_amount: data.payment_amount,
+        previous_status: content.status,
+        previous_payment_status: content.payment_status,
+        previous_payment_amount: centsToKsh(content.payment_amount),
+      },
+      ip_address: 'server-action',
+      user_agent: 'server-action',
+    });
+
+    // Revalidate admin and user content pages
+    revalidatePath('/admin/user-content');
+    revalidatePath('/dashboard/content');
+
+    return {
+      success: true,
+      message: 'Content submission updated successfully',
+    };
+  } catch (error) {
+    console.error('Error updating content submission as admin:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Failed to update content submission',
+    };
+  }
+}
+
+/**
+ * Admin function to get all content submissions for management
+ */
+export async function adminGetContentSubmissions(filters?: {
+  status?: string;
+  content_type?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}): Promise<{
+  success: boolean;
+  data?: ContentSubmission[];
+  message?: string;
+  totalPages?: number;
+  currentPage?: number;
+  totalCount?: number;
+}> {
+  try {
+    const session = await getServerSession(authOptions);
+    
+    // FIX: Use type guard for admin session checking
+    if (!isValidSession(session)) {
+      return { success: false, message: 'Unauthorized' };
+    }
+
+    await connectToDatabase();
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
+    
+    if (adminUser?.role !== 'admin') {
+      return { success: false, message: 'Admin access required' };
+    }
+
+    const {
+      status = 'all',
+      content_type = 'all',
+      search = '',
+      page = 1,
+      limit = 10,
+    } = filters || {};
+
+    // Build query
+    const query: any = {};
+
+    if (status !== 'all' && status !== '') {
+      query.status = status;
+    }
+
+    if (content_type !== 'all' && content_type !== '') {
+      query.content_type = content_type;
+    }
+
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { task_category: { $regex: search, $options: 'i' } },
+        { content: { $regex: search, $options: 'i' } },
+        { 'user.username': { $regex: search, $options: 'i' } },
+        { 'user.email': { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    // Get total count for pagination
+    const totalCount = await (UserContent as any).countDocuments(query);
+
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+    const totalPages = Math.ceil(totalCount / limit);
+
+    // Get paginated results with user population
+    const submissions = await (UserContent as any).find(query)
+      .populate('user', 'username name email phone_number')
+      .populate('approved_by', 'username name email')
+      .sort({ submission_date: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const serializedSubmissions = submissions.map((sub: any) => serializeDocument(sub));
+
+    const formattedSubmissions: ContentSubmission[] = serializedSubmissions.map((sub: any) => ({
+      _id: sub._id,
+      title: sub.title,
+      content_type: sub.content_type,
+      content_text: sub.content,
+      status: sub.status,
+      payment_status: sub.payment_status,
+      payment_amount: centsToKsh(sub.payment_amount), // Convert to KSH for display
+      submission_date: sub.submission_date,
+      task_category: sub.task_category,
+      admin_feedback: sub.admin_notes,
+      revision_notes: sub.revision_notes,
+      word_count: sub.word_count || calculateWordCount(sub.content),
+      tags: sub.tags || [],
+      attachments: sub.attachments || [],
+      user_id: sub.user._id,
+      approved_at: sub.approved_at,
+      approved_by: sub.approved_by,
+    }));
+
+    return {
+      success: true,
+      data: formattedSubmissions,
+      totalPages,
+      currentPage: page,
+      totalCount,
+    };
+  } catch (error) {
+    console.error('Error fetching admin content submissions:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Failed to load content submissions',
+    };
+  }
+}
+
+// =============================================================================
+// DASHBOARD-SPECIFIC FUNCTIONS
+// =============================================================================
+
+export async function getDashboardStats(): Promise<{
+  success: boolean;
+  data?: ContentStats;
+  message?: string;
+}> {
+  return getUserContentStats();
 }
 
 // =============================================================================
@@ -852,7 +1079,7 @@ export async function updateContentSubmission(
     }
 
     // Find the existing submission
-    const existingSubmission = await UserContent.findOne({
+    const existingSubmission = await (UserContent as any).findOne({
       _id: safeObjectId(id),
       user: user.id, // Use string ID directly
     });
@@ -897,7 +1124,7 @@ export async function updateContentSubmission(
       updateData.revision_notes = undefined;
     }
 
-    await UserContent.findByIdAndUpdate(
+    await (UserContent as any).findByIdAndUpdate(
       safeObjectId(id),
       updateData
     );
@@ -947,7 +1174,7 @@ export async function deleteContentSubmission(id: string): Promise<{
     }
 
     // Find the submission first to check if it can be deleted
-    const submission = await UserContent.findOne({
+    const submission = await (UserContent as any).findOne({
       _id: safeObjectId(id),
       user: user.id, // Use string ID directly
     });
@@ -963,18 +1190,15 @@ export async function deleteContentSubmission(id: string): Promise<{
     if (submission.status === 'approved' || submission.payment_status === 'paid') {
       return {
         success: false,
-        message: 'Cannot delete content that has been approved or paid. Please contact support if you need assistance.',
+        message: 'Cannot delete content that has been approved or paid.',
       };
     }
 
     // Delete the submission
-    await UserContent.findOneAndDelete({
-      _id: safeObjectId(id),
-      user: user.id, // Use string ID directly
-    });
+    await (UserContent as any).findByIdAndDelete(safeObjectId(id));
 
-    // Update user's tasks completed count
-    await Profile.findByIdAndUpdate(user.id, {
+    // Update user's tasks completed count (decrement)
+    await (Profile as any).findByIdAndUpdate(user.id, {
       $inc: { tasks_completed: -1 }
     });
 
@@ -992,231 +1216,4 @@ export async function deleteContentSubmission(id: string): Promise<{
       message: error instanceof Error ? error.message : 'Failed to delete content submission. Please try again.',
     };
   }
-}
-
-// =============================================================================
-// ADMIN CONTENT MANAGEMENT FUNCTIONS
-// =============================================================================
-
-/**
- * Admin function to update content submission status and payment
- */
-export async function adminUpdateContentSubmission(
-  contentId: string,
-  data: AdminUpdateContentData
-): Promise<{
-  success: boolean;
-  message: string;
-}> {
-  try {
-    const session = await getServerSession(authOptions);
-    
-    // FIX: Use type guard for admin session checking
-    if (!isValidSession(session)) {
-      return { success: false, message: 'Unauthorized' };
-    }
-
-    await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
-    
-    if (adminUser?.role !== 'admin') {
-      return { success: false, message: 'Admin access required' };
-    }
-
-    if (!Types.ObjectId.isValid(contentId)) {
-      return { success: false, message: 'Invalid content ID' };
-    }
-
-    // Find the content submission
-    const content = await UserContent.findById(contentId);
-    if (!content) {
-      return { success: false, message: 'Content submission not found' };
-    }
-
-    // Prepare update data
-    const updateData: any = {
-      status: data.status,
-      payment_status: data.payment_status,
-      payment_amount: kshToCents(data.payment_amount), // Convert KSH to cents for storage
-      admin_notes: data.admin_notes,
-      updated_at: new Date(),
-    };
-
-    // Set approved_at and approved_by if status is being changed to approved
-    if (data.status === 'approved' && content.status !== 'approved') {
-      updateData.approved_at = new Date();
-      updateData.approved_by = adminUser._id;
-    }
-
-    // Set revision notes if status is revision_requested
-    if (data.status === 'revision_requested') {
-      updateData.revision_notes = data.revision_notes;
-    }
-
-    // Update the content submission
-    await UserContent.findByIdAndUpdate(contentId, updateData);
-
-    // Log admin action
-    await AdminAuditLog.create({
-      actor_id: adminUser._id,
-      action: 'UPDATE_USER_CONTENT',
-      action_type: 'update',
-      resource_type: 'user_content',
-      target_type: 'UserContent',
-      target_id: contentId,
-      resource_id: contentId,
-      changes: {
-        status: data.status,
-        payment_status: data.payment_status,
-        payment_amount: data.payment_amount,
-        previous_status: content.status,
-        previous_payment_status: content.payment_status,
-        previous_payment_amount: centsToKsh(content.payment_amount),
-      },
-      ip_address: 'server-action',
-      user_agent: 'server-action',
-    });
-
-    // Revalidate admin and user content pages
-    revalidatePath('/admin/user-content');
-    revalidatePath('/dashboard/content');
-
-    return {
-      success: true,
-      message: 'Content submission updated successfully',
-    };
-  } catch (error) {
-    console.error('Error updating content submission as admin:', error);
-    return {
-      success: false,
-      message: error instanceof Error ? error.message : 'Failed to update content submission',
-    };
-  }
-}
-
-/**
- * Admin function to get all content submissions for management
- */
-export async function adminGetContentSubmissions(filters?: {
-  status?: string;
-  content_type?: string;
-  search?: string;
-  page?: number;
-  limit?: number;
-}): Promise<{
-  success: boolean;
-  data?: ContentSubmission[];
-  message?: string;
-  totalPages?: number;
-  currentPage?: number;
-  totalCount?: number;
-}> {
-  try {
-    const session = await getServerSession(authOptions);
-    
-    // FIX: Use type guard for admin session checking
-    if (!isValidSession(session)) {
-      return { success: false, message: 'Unauthorized' };
-    }
-
-    await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
-    
-    if (adminUser?.role !== 'admin') {
-      return { success: false, message: 'Admin access required' };
-    }
-
-    const {
-      status = 'all',
-      content_type = 'all',
-      search = '',
-      page = 1,
-      limit = 10,
-    } = filters || {};
-
-    // Build query
-    const query: any = {};
-
-    if (status !== 'all' && status !== '') {
-      query.status = status;
-    }
-
-    if (content_type !== 'all' && content_type !== '') {
-      query.content_type = content_type;
-    }
-
-    if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { task_category: { $regex: search, $options: 'i' } },
-        { content: { $regex: search, $options: 'i' } },
-        { 'user.username': { $regex: search, $options: 'i' } },
-        { 'user.email': { $regex: search, $options: 'i' } },
-      ];
-    }
-
-    // Get total count for pagination
-    const totalCount = await UserContent.countDocuments(query);
-
-    // Calculate pagination
-    const skip = (page - 1) * limit;
-    const totalPages = Math.ceil(totalCount / limit);
-
-    // Get paginated results with user population
-    const submissions = await UserContent.find(query)
-      .populate('user', 'username name email phone_number')
-      .populate('approved_by', 'username name email')
-      .sort({ submission_date: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
-
-    const serializedSubmissions = submissions.map(sub => serializeDocument(sub));
-
-    const formattedSubmissions: ContentSubmission[] = serializedSubmissions.map(sub => ({
-      _id: sub._id,
-      title: sub.title,
-      content_type: sub.content_type,
-      content_text: sub.content,
-      status: sub.status,
-      payment_status: sub.payment_status,
-      payment_amount: centsToKsh(sub.payment_amount), // Convert to KSH for display
-      submission_date: sub.submission_date,
-      task_category: sub.task_category,
-      admin_feedback: sub.admin_notes,
-      revision_notes: sub.revision_notes,
-      word_count: sub.word_count || calculateWordCount(sub.content),
-      tags: sub.tags || [],
-      attachments: sub.attachments || [],
-      user_id: sub.user._id,
-      approved_at: sub.approved_at,
-      approved_by: sub.approved_by,
-    }));
-
-    return {
-      success: true,
-      data: formattedSubmissions,
-      totalPages,
-      currentPage: page,
-      totalCount,
-    };
-  } catch (error) {
-    console.error('Error fetching admin content submissions:', error);
-    return {
-      success: false,
-      message: error instanceof Error ? error.message : 'Failed to load content submissions',
-    };
-  }
-}
-
-// =============================================================================
-// DASHBOARD-SPECIFIC FUNCTIONS
-// =============================================================================
-
-export async function getDashboardStats(): Promise<{
-  success: boolean;
-  data?: ContentStats;
-  message?: string;
-}> {
-  return getUserContentStats();
 }

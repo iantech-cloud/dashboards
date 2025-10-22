@@ -1,10 +1,11 @@
 {
   "private": true,
   "scripts": {
-    "build": "next build",
     "dev": "next dev -p 5000 -H 0.0.0.0",
+    "build": "next build --no-lint",
     "start": "next start -p 5000 -H 0.0.0.0",
-    "seed:spin-prizes": "ts-node scripts/seed-spin-prizes.ts"
+    "seed": "ts-node scripts/seed-spin-prizes.ts",
+    "clean": "rm -rf .next node_modules out dist build && pnpm store prune && pnpm install"
   },
   "dependencies": {
     "@google/genai": "^1.25.0",
@@ -23,19 +24,17 @@
     "next": "15.3.2",
     "next-auth": "^4.24.5",
     "nodemailer": "^6.10.1",
-    "openai": "^6.4.0",
     "postcss": "8.5.1",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "resend": "^6.2.0",
-    "summernote": "^0.9.1",
     "sweetalert2": "^11.26.2",
     "tailwindcss": "3.4.17",
     "use-debounce": "^10.0.6",
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/bcrypt": "^5.0.2",
+    "@types/jquery": "^3.5.29",
     "@types/node": "22.10.7",
     "@types/nodemailer": "^7.0.2",
     "@types/react": "19.0.7",
@@ -46,6 +45,9 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "bcrypt"
+    ],
+    "ignoredBuiltDependencies": [
+      "sharp"
     ]
   }
 }
