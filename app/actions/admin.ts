@@ -12,8 +12,9 @@ import {
   AdminAuditLog,
   SpinSettings
 } from '../lib/models';
-import { getServerSession } from 'next-auth';
+import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/auth';
+import type { AuthOptions } from 'next-auth';
 
 interface AdminStats {
   totalUsers: number;
@@ -34,7 +35,7 @@ export async function getAdminStats(): Promise<{
   message: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -108,7 +109,7 @@ export async function toggleSpinWheel(activate: boolean): Promise<{
   message: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -203,7 +204,7 @@ export async function getSpinWheelStatus(): Promise<{
   message: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -262,7 +263,7 @@ export async function updateSpinSchedule(settings: {
   message: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -340,7 +341,7 @@ export async function getAdminUsers(filters?: {
   message: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -400,7 +401,7 @@ export async function approveUser(userId: string, approvalNotes?: string): Promi
   message: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -467,7 +468,7 @@ export async function rejectUser(userId: string, rejectionReason: string): Promi
   message: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };

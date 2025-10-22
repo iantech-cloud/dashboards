@@ -20,7 +20,11 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"] 
+      "@/*": ["./*"],
+      "@/auth": ["./auth.ts"],
+      "@/app/*": ["./app/*"],
+      "@/components/*": ["./components/*"],
+      "@/lib/*": ["./lib/*"]
     }
   },
   "include": [
@@ -29,7 +33,9 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     "app/lib/placeholder-data.ts",
-    "scripts/seed.js"
+    "scripts/seed.js",
+    "auth.ts",
+    "types/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

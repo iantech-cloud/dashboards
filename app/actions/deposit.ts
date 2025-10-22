@@ -2,6 +2,7 @@
 'use server';
 
 import { getServerSession } from 'next-auth';
+import { Session } from 'next-auth';
 import { revalidatePath } from 'next/cache';
 import { connectToDatabase, Profile, MpesaTransaction, Transaction } from '../lib/models';
 import { authOptions } from '@/auth';
@@ -70,7 +71,11 @@ function generateMpesaPassword(timestamp: string): string {
 /**
  * Validate deposit parameters
  */
-async function validateDeposit(userId: string, amount: number, phoneNumber: string): Promise<{ valid: boolean; message: string }> {
+async function validateDeposit(
+    userId: string, 
+    amount: number, 
+    phoneNumber: string
+): Promise<{ valid: boolean; message: string; data?: { formattedPhone: string } }> {
     if (amount < 10 || amount > 70000) {
         return { valid: false, message: 'Amount must be between KES 10 and KES 70,000' };
     }
@@ -137,8 +142,6 @@ function mapMpesaResultCode(resultCode: string): number {
         1032,   // Request cancelled by user
         1037,   // Request timeout
         2001,   // Invalid phone number
-        // REMOVED: 4999, 1001, 1019, 1025, 1026, 1031, 1033, 1034, 1035, 1036, 9999
-        // These are NOT in your schema enum based on the error
     ];
     
     if (validSchemaCodes.includes(code)) {
@@ -173,7 +176,6 @@ function mapMpesaStatus(resultCode: string): string {
         '1032': 'cancelled',   // Request cancelled by user
         '1037': 'timeout',     // Request timeout
         '2001': 'failed',      // Invalid phone number
-        // REMOVED: 'processing' status - it's NOT in your schema
         // Map "in progress" codes to 'initiated' instead
         '1026': 'initiated',   // Transaction in progress
         '1031': 'initiated',   // Request already in progress
@@ -198,7 +200,7 @@ export async function processMpesaDeposit(depositData: {
     try {
         console.log('🎯 Starting M-Pesa deposit process:', depositData);
 
-        const session = await getServerSession(authOptions);
+        const session = (await getServerSession(authOptions)) as Session | null;
         
         if (!session?.user?.email) {
             return { success: false, message: 'User not authenticated' };
@@ -364,7 +366,7 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
     try {
         console.log('🔍 Checking M-Pesa payment status:', checkoutRequestId);
 
-        const session = await getServerSession(authOptions);
+        const session = (await getServerSession(authOptions)) as Session | null;
         
         if (!session?.user?.email) {
             return { success: false, message: 'User not authenticated' };
@@ -565,7 +567,7 @@ export async function getDepositHistory(limit: number = 20, page: number = 1): P
     pagination?: any;
 }> {
     try {
-        const session = await getServerSession(authOptions);
+        const session = (await getServerSession(authOptions)) as Session | null;
         
         if (!session?.user?.email) {
             return { success: false, message: 'User not authenticated' };
@@ -637,7 +639,7 @@ export async function getUserBalance(): Promise<{
     message: string    
 }> {
     try {
-        const session = await getServerSession(authOptions);
+        const session = (await getServerSession(authOptions)) as Session | null;
         
         if (!session?.user?.email) {
             return { success: false, message: 'User not authenticated' };

@@ -4,6 +4,39 @@
 import { connectToDatabase, Profile, Referral, Transaction } from '../lib/models';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/auth';
+import type { Session } from 'next-auth';
+import type { Types } from 'mongoose';
+
+interface ReferredUserData {
+  _id: Types.ObjectId;
+  username?: string;
+  email?: string;
+  status?: string;
+  created_at?: Date;
+  level?: number;
+  rank?: string;
+  total_earnings_cents?: number;
+  balance_cents?: number;
+  tasks_completed?: number;
+}
+
+interface ReferralDocument {
+  _id: Types.ObjectId;
+  referrer_id: Types.ObjectId;
+  referred_id: ReferredUserData;
+  created_at: Date;
+}
+
+interface TransactionDocument {
+  _id: Types.ObjectId;
+  user_id: Types.ObjectId;
+  type: string;
+  amount_cents: number;
+  metadata?: {
+    referredUser?: string;
+    level?: number;
+  };
+}
 
 export async function getReferrals(filters?: {
   page?: number;
@@ -16,7 +49,7 @@ export async function getReferrals(filters?: {
   message: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as Session | null;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -54,9 +87,9 @@ export async function getReferrals(filters?: {
     }).lean();
 
     // Transform data for frontend
-    const transformedReferrals = userReferrals.map(ref => {
+    const transformedReferrals = (userReferrals as unknown as ReferralDocument[]).map(ref => {
       const referredUser = ref.referred_id;
-      const earnings = referralTransactions
+      const earnings = (referralTransactions as unknown as TransactionDocument[])
         .filter(tx => tx.metadata?.referredUser === referredUser?._id.toString())
         .reduce((sum, tx) => sum + tx.amount_cents, 0);
 
@@ -98,7 +131,7 @@ export async function getReferralCommissionStats(): Promise<{
   message: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as Session | null;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };

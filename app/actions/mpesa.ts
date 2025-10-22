@@ -1,9 +1,10 @@
 // app/actions/mpesa.ts
 'use server';
 
-import { connectToDatabase, MpesaChangeRequest } from '../lib/models';
+import { connectToDatabase, MpesaChangeRequest, Profile } from '../lib/models';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/auth';
+import type { Session } from 'next-auth';
 
 export async function getMpesaChangeRequests(): Promise<{ 
   success: boolean; 
@@ -11,7 +12,7 @@ export async function getMpesaChangeRequests(): Promise<{
   message: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as Session | null;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -51,7 +52,7 @@ export async function createMpesaChangeRequest(requestData: {
   message: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as Session | null;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };

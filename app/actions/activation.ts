@@ -353,7 +353,7 @@ async function initiateMpesaSTKPush(
     const CallbackUrl = process.env.MPESA_CALLBACK_URL;
     const Environment = process.env.MPESA_ENVIRONMENT || 'sandbox';
 
-    console.log('🔐 Environment Variables Check:');
+    console.log('🔍 Environment Variables Check:');
     console.log('  BusinessShortCode:', BusinessShortCode ? '✅ Set' : '❌ Missing');
     console.log('  PassKey:', PassKey ? '✅ Set' : '❌ Missing');
     console.log('  CallbackUrl:', CallbackUrl ? '✅ Set' : '❌ Missing');
@@ -383,7 +383,7 @@ async function initiateMpesaSTKPush(
     const password = Buffer.from(`${BusinessShortCode}${PassKey}${timestamp}`).toString('base64');
 
     console.log('⏰ Timestamp:', timestamp);
-    console.log('🔑 Password (base64):', password.substring(0, 20) + '...');
+    console.log('🔐 Password (base64):', password.substring(0, 20) + '...');
 
     // Prepare STK Push payload with enhanced metadata and proper URL registration
     const amountInShillings = Math.floor(amount / 100);
@@ -590,7 +590,7 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string) {
     console.log('🔍 Querying M-Pesa API directly for status...');
     const apiStatus = await queryMpesaTransactionStatus(checkoutRequestId);
     
-    if (apiStatus.success) {
+    if (apiStatus.success && apiStatus.data) {
       console.log('📡 M-Pesa API returned status:', apiStatus.data.status);
       
       // Update the database with the API response (with proper enum values)

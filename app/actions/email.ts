@@ -2,11 +2,12 @@
 'use server';
 
 import nodemailer from 'nodemailer';
+import type { Transporter } from 'nodemailer';
 
 // Create transporter (cached for better performance)
-let transporter: nodemailer.Transporter | null = null;
+let transporter: Transporter | null = null;
 
-function getTransporter() {
+function getTransporter(): Transporter {
   if (!transporter) {
     transporter = nodemailer.createTransport({
       service: 'gmail',
@@ -32,7 +33,7 @@ export async function sendVerificationEmail(email: string, token: string) {
       };
     }
 
-    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    const baseUrl = process.env.NEXTAUTH_URL || process.env.AUTH_URL || 'http://localhost:3000';
     const verificationUrl = `${baseUrl}/auth/confirm?token=${token}`;
     
     console.log('🔗 Verification URL:', verificationUrl);

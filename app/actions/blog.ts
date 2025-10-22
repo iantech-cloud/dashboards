@@ -4,6 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/auth';
+import type { AuthOptions } from 'next-auth';
 // Importing connectToDatabase, BlogPost, Profile, AdminAuditLog from the lib/models.ts file provided
 import { connectToDatabase, BlogPost, Profile, AdminAuditLog, UserContent } from '../lib/models';
 import { slugify } from '../lib/utils';
@@ -86,7 +87,7 @@ function parsePaymentAmount(paymentAmount: string | null): number | null {
  */
 export async function createBlogPost(formData: FormData) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -222,7 +223,7 @@ export async function createBlogPost(formData: FormData) {
  */
 export async function updateBlogPost(postId: string, formData: FormData) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -328,7 +329,7 @@ export async function updateBlogPost(postId: string, formData: FormData) {
  */
 export async function deleteBlogPost(postId: string) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -390,7 +391,7 @@ export async function deleteBlogPost(postId: string) {
  */
 export async function getBlogPosts(page: number = 1, limit: number = 10, search?: string, status?: string) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -465,7 +466,7 @@ export async function getBlogPosts(page: number = 1, limit: number = 10, search?
  */
 export async function getBlogPostById(postId: string) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -591,7 +592,7 @@ export async function getPublishedBlogPostBySlug(slug: string) {
  */
 export async function archiveBlogPost(postId: string) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -651,7 +652,7 @@ export async function archiveBlogPost(postId: string) {
  */
 export async function getBlogStats() {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };

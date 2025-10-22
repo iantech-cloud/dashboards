@@ -1,4 +1,4 @@
-// app/actions/spin.ts - COMPLETELY FIXED VERSION
+// app/actions/spin.ts - COMPLETELY FIXED VERSION WITH TYPESCRIPT FIX
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -32,6 +32,82 @@ interface PrizeProbability {
   adjustedProbability: number;
   accessibleRanks: string[];
   minReferrals: number;
+}
+
+interface SpinSettingsLean {
+  _id?: any;
+  is_active?: boolean;
+  activation_mode?: 'manual' | 'scheduled';
+  scheduled_days?: string[];
+  start_time?: string;
+  end_time?: string;
+  timezone?: string;
+  spins_per_session?: number;
+  spins_cost_per_spin?: number;
+  cooldown_minutes?: number;
+  require_tasks_completion?: boolean;
+  maintenance_mode?: boolean;
+  maintenance_message?: string;
+  probability_multipliers?: {
+    bronze: number;
+    silver: number;
+    gold: number;
+    platinum: number;
+    diamond: number;
+  };
+  last_activated_by?: string;
+  last_updated_by?: string;
+  last_activated_at?: Date;
+  change_history?: any[];
+  version?: number;
+}
+
+// FIX: Add proper type definition for UserSpinEligibility
+interface UserSpinEligibilityLean {
+  _id?: any;
+  user_id?: string;
+  spins_used_today?: number;
+  current_session_spins?: number;
+  session_started_at?: Date;
+  tasks_completed_this_week?: {
+    referral: boolean;
+    writing: boolean;
+    last_updated?: Date;
+  };
+  is_eligible?: boolean;
+  total_spins?: number;
+  total_wins?: number;
+  total_prize_value_cents?: number;
+  manual_override?: boolean;
+  override_until?: Date;
+  cooldown_until?: Date;
+  win_streak?: number;
+  best_win_streak?: number;
+  last_spin_at?: Date;
+  __v?: number;
+}
+
+// FIX: Add proper type definition for user profile
+interface UserProfileLean {
+  _id: any;
+  email?: string;
+  rank?: string;
+  level?: number;
+  available_spins?: number;
+  total_spins_used?: number;
+  total_prizes_won?: number;
+  is_active?: boolean;
+  is_approved?: boolean;
+  balance_cents?: number;
+  total_earnings_cents?: number;
+  spin_streak?: number;
+  max_spin_streak?: number;
+  referral_count?: number;
+  referrals_completed?: number;
+  role?: string;
+  username?: string;
+  spin_tier?: string;
+  __v?: number;
 }
 
 // User rank definitions - all lowercase for internal consistency
@@ -110,7 +186,7 @@ function parseTime(timeString: string): number {
 /**
  * Check scheduled activation based on settings or default
  */
-function checkScheduledActivation(settings?: any): boolean {
+function checkScheduledActivation(settings?: SpinSettingsLean): boolean {
   const now = new Date();
   const timezone = settings?.timezone || 'Africa/Nairobi';
   
@@ -140,7 +216,7 @@ function checkScheduledActivation(settings?: any): boolean {
 export async function checkSpinActivation(): Promise<{ active: boolean; message: string }> {
   try {
     await connectToDatabase();
-    const spinSettings = await SpinSettings.findOne({}).lean(); 
+    const spinSettings = await SpinSettings.findOne({}).lean() as SpinSettingsLean | null;
     
     if (!spinSettings) {
       const scheduledActive = checkScheduledActivation();
@@ -199,7 +275,7 @@ export async function performSpin() {
   try {
     console.log('🎯 Starting performSpin...');
     
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as any;
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
     }
@@ -306,7 +382,7 @@ export async function getAvailablePrizes(): Promise<{
   message: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as any;
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
     }
@@ -338,7 +414,7 @@ export async function getSpinSettings(): Promise<{
   message: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as any;
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
     }
@@ -349,12 +425,12 @@ export async function getSpinSettings(): Promise<{
       return { success: false, message: 'User not found' };
     }
 
-    const spinSettings = await SpinSettings.findOne({}).lean(); 
+    const spinSettings = await SpinSettings.findOne({}).lean() as SpinSettingsLean | null;
     
     if (!spinSettings) {
       const defaultSettings = {
         is_active: false,
-        activation_mode: 'scheduled',
+        activation_mode: 'scheduled' as const,
         scheduled_days: ['wednesday', 'friday'],
         start_time: '19:00',
         end_time: '22:00',
@@ -490,7 +566,7 @@ export async function getUserTaskStatus(userId: string): Promise<{
 // --- CORE HELPER FUNCTIONS ---
 
 /**
- * Check if user is eligible to spin
+ * FIXED: Check if user is eligible to spin with proper type assertion
  */
 async function checkSpinEligibility(userId: string): Promise<{ 
   eligible: boolean; 
@@ -498,20 +574,27 @@ async function checkSpinEligibility(userId: string): Promise<{
   referralCount: number 
 }> {
   try {
-    const userProfile = await Profile.findById(userId).lean();
+    // FIX: Cast to UserProfileLean to ensure proper typing
+    const userProfile = await Profile.findById(userId).lean() as UserProfileLean | null;
     if (!userProfile) {
       return { eligible: false, message: 'User not found', referralCount: 0 };
     }
 
+    // FIX: Now TypeScript knows userProfile has is_active and is_approved properties
     if (!userProfile.is_active || !userProfile.is_approved) {
       return { eligible: false, message: 'Account not active or approved', referralCount: 0 };
     }
 
-    const spinSettings = await SpinSettings.findOne({}).lean();
+    const spinSettings = await SpinSettings.findOne({}).lean() as SpinSettingsLean | null;
     const spinsRequired = spinSettings?.spins_cost_per_spin || 5;
 
-    if (userProfile.available_spins < spinsRequired) {
-      return { eligible: false, message: `Not enough spins available. You need ${spinsRequired} spins but only have ${userProfile.available_spins}.`, referralCount: 0 };
+    const availableSpins = userProfile.available_spins || 0;
+    if (availableSpins < spinsRequired) {
+      return { 
+        eligible: false, 
+        message: `Not enough spins available. You need ${spinsRequired} spins but only have ${availableSpins}.`, 
+        referralCount: 0 
+      };
     }
 
     const referralCount = await getReferralCount(userId);
@@ -571,14 +654,14 @@ async function getReferralCount(userId: string): Promise<number> {
       status: { $in: ['active', 'completed', 'pending'] } 
     });
     
-    const userProfile = await Profile.findById(userId).select('referral_count referrals_completed').lean();
+    const userProfile = await Profile.findById(userId).select('referral_count referrals_completed').lean() as UserProfileLean | null;
     const profileReferralCount = userProfile?.referral_count || userProfile?.referrals_completed || 0;
     
     return Math.max(completedReferrals, activeReferrals, profileReferralCount);
   } catch (error) {
     console.error('Error getting referral count:', error);
     try {
-      const userProfile = await Profile.findById(userId).select('referral_count').lean();
+      const userProfile = await Profile.findById(userId).select('referral_count').lean() as UserProfileLean | null;
       return userProfile?.referral_count || 0;
     } catch {
       return 0;
@@ -590,7 +673,7 @@ async function getReferralCount(userId: string): Promise<number> {
  * Get available prizes for user from database - FIXED CASE-INSENSITIVE RANK HANDLING
  */
 async function getAvailablePrizesForUser(userId: string): Promise<any[]> {
-  const userProfile = await Profile.findById(userId).lean();
+  const userProfile = await Profile.findById(userId).lean() as UserProfileLean | null;
   if (!userProfile) {
     return [];
   }
@@ -650,7 +733,7 @@ async function selectPrizeWithProbability(availablePrizes: any[], userRank: stri
     throw new Error('No prizes available');
   }
 
-  const spinSettings = await SpinSettings.findOne({}).lean(); 
+  const spinSettings = await SpinSettings.findOne({}).lean() as SpinSettingsLean | null;
   const probabilityMultipliers = spinSettings?.probability_multipliers || {
     bronze: 1.0,
     silver: 1.1,
@@ -710,7 +793,7 @@ async function selectPrizeWithProbability(availablePrizes: any[], userRank: stri
  */
 async function deductSpinCost(userId: string): Promise<{ success: boolean; message: string; cost: number }> {
   try {
-    const spinSettings = await SpinSettings.findOne({}).lean();
+    const spinSettings = await SpinSettings.findOne({}).lean() as SpinSettingsLean | null;
     const cost = spinSettings?.spins_cost_per_spin || 5;
 
     const user = await Profile.findById(userId);
@@ -958,7 +1041,7 @@ async function logSpin(data: {
   won: boolean;
 }) {
   try {
-    const userProfile = await Profile.findById(data.userId).lean(); 
+    const userProfile = await Profile.findById(data.userId).lean() as UserProfileLean | null; 
     const availablePrizes = await getAvailablePrizesForUser(data.userId); 
     const probabilityMultiplier = await getProbabilityMultiplier(data.userRank);
 
@@ -1037,7 +1120,7 @@ async function logSpin(data: {
 
 async function getProbabilityMultiplier(userRank: string): Promise<number> {
   try {
-    const spinSettings = await SpinSettings.findOne({}).lean();
+    const spinSettings = await SpinSettings.findOne({}).lean() as SpinSettingsLean | null;
     const probabilityMultipliers = spinSettings?.probability_multipliers || {
       bronze: 1.0,
       silver: 1.1,
@@ -1056,7 +1139,7 @@ async function getProbabilityMultiplier(userRank: string): Promise<number> {
 
 async function getCurrentTaskStatus(userId: string): Promise<{ referral: boolean; writing: boolean }> {
   try {
-    const userEligibility = await UserSpinEligibility.findOne({ user_id: userId }).lean();
+    const userEligibility = await UserSpinEligibility.findOne({ user_id: userId }).lean() as UserSpinEligibilityLean | null;
     return userEligibility?.tasks_completed_this_week || { referral: false, writing: false };
   } catch (error) {
     return { referral: false, writing: false };
@@ -1103,7 +1186,7 @@ export async function getUserSpinStats(userId: string): Promise<{
     console.log('🔍 Getting user spin stats for:', userId);
     
     // Get user profile for available_spins and total_spins_used
-    const userProfile = await Profile.findById(userId).lean();
+    const userProfile = await Profile.findById(userId).lean() as UserProfileLean | null;
     if (!userProfile) {
       return {
         success: false,
@@ -1122,7 +1205,7 @@ export async function getUserSpinStats(userId: string): Promise<{
     }
 
     // Get user eligibility for streak data
-    const userEligibility = await UserSpinEligibility.findOne({ user_id: userId }).lean();
+    const userEligibility = await UserSpinEligibility.findOne({ user_id: userId }).lean() as UserSpinEligibilityLean | null;
     
     // Calculate stats from SpinLog for accurate counts
     const spinLogs = await SpinLog.find({ user_id: userId }).lean();
@@ -1178,6 +1261,7 @@ export async function getUserSpinStats(userId: string): Promise<{
     };
   }
 }
+
 /**
  * Admin function to update spin settings - now uses enhanced models
  * FIX: Converts oldSettings to a plain object using .toObject() before comparison.
@@ -1203,7 +1287,7 @@ export async function updateSpinSettings(settings: {
   };
 }) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as any;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -1223,8 +1307,6 @@ export async function updateSpinSettings(settings: {
     if (!spinSettings) {
       spinSettings = new SpinSettings(settings);
     } else {
-      // NOTE: In an ideal scenario, the 'settings' object passed here should
-      // match the Mongoose schema structure exactly.
       Object.assign(spinSettings, settings);
     }
 
@@ -1303,7 +1385,7 @@ export async function getSpinLogs(
   }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as any;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -1345,23 +1427,19 @@ export async function getSpinLogs(
     }
 
     const [logs, total] = await Promise.all([
-      // Use .lean() for the query to return plain objects directly
       SpinLog.find(query) 
         .populate('user_id', 'username email spin_tier level')
         .populate('prize_id', 'display_name value_cents credit_type')
         .sort({ created_at: -1 })
         .skip(skip)
         .limit(limit)
-        .lean(), // <--- Crucial fix: returns plain objects, including populated fields
+        .lean(),
       SpinLog.countDocuments(query)
     ]);
 
-    // Since .lean() was used, we only need to safely serialize the IDs to strings
-    // to ensure there are no BSON ObjectId objects sent to the client.
     const serializedLogs = logs.map(log => ({
       ...log,
-      _id: log._id.toString(), // Ensure _id is a string
-      // Populated fields are already plain objects, just ensure _id is string
+      _id: (log._id as any).toString(),
       user_id: log.user_id ? {
         ...(log.user_id as any),
         _id: (log.user_id as any)._id.toString()
@@ -1370,12 +1448,10 @@ export async function getSpinLogs(
         ...(log.prize_id as any),
         _id: (log.prize_id as any)._id.toString()
       } : null,
-      // Handle change_history if it exists and contains object IDs
       change_history: (log as any).change_history?.map((historyItem: any) => ({
         ...historyItem,
         _id: historyItem._id?.toString()
       }))
-      // Add other complex fields like created_at, updated_at etc. to be safe
     }));
 
     return {
@@ -1400,7 +1476,7 @@ export async function getSpinLogs(
  */
 export async function addUserSpins(userId: string, spins: number, reason: string) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as any;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -1413,7 +1489,6 @@ export async function addUserSpins(userId: string, spins: number, reason: string
       return { success: false, message: 'Admin access required' };
     }
 
-    // Fetch as Mongoose document for update
     const user = await Profile.findById(userId); 
     if (!user) {
       return { success: false, message: 'User not found' };
@@ -1423,7 +1498,6 @@ export async function addUserSpins(userId: string, spins: number, reason: string
     user.available_spins += spins;
     await user.save();
 
-    // Log admin action with enhanced audit
     await AdminAuditLog.create({
       actor_id: adminUser._id.toString(),
       action: 'ADD_SPINS',
@@ -1454,11 +1528,10 @@ export async function addUserSpins(userId: string, spins: number, reason: string
 
 /**
  * Admin function to toggle spin wheel activation - integrates with admin.ts
- * NOTE: Assumes `toggleSpinWheel` returns a plain object.
  */
 export async function adminToggleSpinWheel(activate: boolean) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as any;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -1471,7 +1544,6 @@ export async function adminToggleSpinWheel(activate: boolean) {
       return { success: false, message: 'Admin access required' };
     }
 
-    // Use the admin.ts function for consistency
     const result = await toggleSpinWheel(activate);
     
     if (result.success) {
@@ -1488,11 +1560,10 @@ export async function adminToggleSpinWheel(activate: boolean) {
 
 /**
  * Get spin analytics for admin dashboard
- * FIX: Added .lean() to ensure a plain object is returned.
  */
 export async function getSpinAnalytics(period: 'daily' | 'weekly' | 'monthly' = 'daily', date?: Date) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as any;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -1508,7 +1579,6 @@ export async function getSpinAnalytics(period: 'daily' | 'weekly' | 'monthly' = 
     const targetDate = date || new Date();
     targetDate.setHours(0, 0, 0, 0);
 
-    // Use .lean() to return a plain object
     const analytics = await SpinAnalytics.findOne({
       date: targetDate,
       period
@@ -1516,7 +1586,7 @@ export async function getSpinAnalytics(period: 'daily' | 'weekly' | 'monthly' = 
 
     return {
       success: true,
-      data: analytics, // Plain object
+      data: analytics,
       message: 'Spin analytics fetched successfully'
     };
   } catch (error) {

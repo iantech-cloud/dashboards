@@ -79,6 +79,29 @@ export interface AdminUpdateContentData {
   revision_notes?: string;
 }
 
+// Session type guard
+interface SessionWithUser {
+  user: {
+    email?: string | null;
+    name?: string | null;
+    image?: string | null;
+  };
+  expires: string;
+}
+
+function isValidSession(session: unknown): session is SessionWithUser {
+  return (
+    session !== null &&
+    typeof session === 'object' &&
+    'user' in session &&
+    session.user !== null &&
+    typeof session.user === 'object' &&
+    'email' in session.user &&
+    typeof session.user.email === 'string' &&
+    session.user.email.length > 0
+  );
+}
+
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
@@ -88,7 +111,8 @@ async function getCurrentUser() {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session?.user?.email) {
+    // FIX: Use type guard to properly check session structure
+    if (!isValidSession(session)) {
       throw new Error('User not authenticated');
     }
 
@@ -987,7 +1011,8 @@ export async function adminUpdateContentSubmission(
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session?.user?.email) {
+    // FIX: Use type guard for admin session checking
+    if (!isValidSession(session)) {
       return { success: false, message: 'Unauthorized' };
     }
 
@@ -1089,7 +1114,8 @@ export async function adminGetContentSubmissions(filters?: {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session?.user?.email) {
+    // FIX: Use type guard for admin session checking
+    if (!isValidSession(session)) {
       return { success: false, message: 'Unauthorized' };
     }
 

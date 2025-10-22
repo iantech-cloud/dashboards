@@ -1,4 +1,4 @@
-import NextAuth, { DefaultSession } from "next-auth";
+import NextAuth, { DefaultSession, NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { MongoDBAdapter } from "@next-auth/mongodb-adapter";
 import bcrypt from 'bcryptjs';
@@ -48,9 +48,9 @@ function getUserStatusRedirect(user: any): string {
 }
 
 /**
- * The configuration object for NextAuth.js (Auth.js v4).
+ * The configuration object for NextAuth.js (Auth.js v5).
  */
-export const authOptions = {
+export const authOptions: NextAuthConfig = {
     // 1. Adapter Setup (Connects NextAuth to MongoDB)
     adapter: MongoDBAdapter(clientPromise),
     

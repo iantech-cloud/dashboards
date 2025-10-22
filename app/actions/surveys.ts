@@ -3,6 +3,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
+import { Session } from 'next-auth';
 import { authOptions } from '@/auth';
 import { connectToDatabase, Survey, SurveyResponse, SurveyAssignment, Profile, Transaction, Earning, Referral } from '@/app/lib/models';
 import { Types } from 'mongoose';
@@ -86,7 +87,7 @@ export async function generateAISurvey(
   questionCount: number = 5
 ): Promise<{ success: boolean; data?: any; message?: string }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as Session | null;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -164,6 +165,10 @@ export async function generateAISurvey(
       },
     });
 
+    if (!response.text) {
+      return { success: false, message: 'Failed to generate survey content from AI.' };
+    }
+
     const responseText = response.text.trim();
     if (!responseText) {
       return { success: false, message: 'Failed to generate survey content from AI.' };
@@ -217,7 +222,7 @@ export async function createSurvey(surveyData: {
   scheduled_for: Date;
 }): Promise<{ success: boolean; message: string; surveyId?: string }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as Session | null;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -282,7 +287,7 @@ export async function getSurveyDetails(surveyId: string): Promise<{
   message?: string;
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as Session | null;
 
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -323,15 +328,15 @@ export async function getSurveyDetails(surveyId: string): Promise<{
     const existingResponse = await SurveyResponse.findOne({
       survey_id: surveyObjectId,
       user_id: userId
-    }).lean();
+    }).lean() as any;
 
     const serializedSurvey: Survey = serializeDocument(surveyDoc);
     const result: Survey & { response_status?: string; response_id?: string; } = serializedSurvey;
     
     // Attach response status and ID if it exists
     if (existingResponse) {
-      result.response_status = existingResponse.status;
-      result.response_id = existingResponse._id.toString();
+      result.response_status = existingResponse.status as string;
+      result.response_id = existingResponse._id?.toString();
     } else {
         result.response_status = 'not_started';
     }
@@ -359,7 +364,7 @@ export async function getAvailableSurveys(): Promise<{
   message?: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as Session | null;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -467,7 +472,7 @@ export async function startSurvey(surveyId: string): Promise<{
   responseId?: string;
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as Session | null;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -585,7 +590,7 @@ export async function submitSurveyAnswers(
   }>
 ): Promise<SurveyCompletionResult> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as Session | null;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -805,7 +810,7 @@ export async function getSurveyHistory(): Promise<{
   message?: string 
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as Session | null;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -873,7 +878,7 @@ export async function getSurveyHistory(): Promise<{
  */
 export async function getAdminSurveys(page: number = 1, limit: number = 10, search?: string) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as Session | null;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
@@ -940,7 +945,7 @@ export async function getAdminSurveyResponses(
   search?: string
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions) as Session | null;
     
     if (!session?.user?.email) {
       return { success: false, message: 'Unauthorized' };
