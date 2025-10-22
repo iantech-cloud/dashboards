@@ -1,7 +1,6 @@
 // app/actions/auth.ts
 'use server';
 
-import { redirect } from 'next/navigation';
 import { connectToDatabase, Profile, VerificationToken, Referral, DownlineUser } from '../lib/models';
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
@@ -24,7 +23,7 @@ export async function registerUser(userData: {
     const { username, email, phone, password, referralId } = userData;
 
     // Check for existing users
-    const existingUser = await Profile.findOne({ 
+    const existingUser = await (Profile as any).findOne({ 
       $or: [{ username }, { email }] 
     });
 
@@ -40,7 +39,7 @@ export async function registerUser(userData: {
     // Handle referral
     let referrerProfile = null;
     if (referralId) {
-      referrerProfile = await Profile.findOne({ 
+      referrerProfile = await (Profile as any).findOne({ 
         referral_id: referralId.toUpperCase(),
         approval_status: 'approved',
         status: 'active'
@@ -56,7 +55,7 @@ export async function registerUser(userData: {
     const newUserId = randomUUID();
     const newUserReferralId = generateReferralId();
 
-    const newUser = await Profile.create({
+    const newUser = await (Profile as any).create({
       _id: newUserId,
       username,
       email,
@@ -113,17 +112,17 @@ async function generateVerificationToken(userId: string): Promise<{ success: boo
     const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
     // Delete any existing tokens for this user
-    await VerificationToken.deleteMany({ user_id: userId });
+    await (VerificationToken as any).deleteMany({ user_id: userId });
 
     // Create new verification token
-    await VerificationToken.create({
+    await (VerificationToken as any).create({
       token: verificationToken,
       user_id: userId,
       expires: tokenExpiry,
     });
 
     // Get user email for sending verification
-    const user = await Profile.findById(userId);
+    const user = await (Profile as any).findById(userId);
     if (!user) {
       return { success: false };
     }
@@ -156,7 +155,7 @@ export async function verifyEmailToken(token: string): Promise<{
     }
 
     // Find the verification token
-    const verificationToken = await VerificationToken.findOne({
+    const verificationToken = await (VerificationToken as any).findOne({
       token,
       expires: { $gt: new Date() }
     });
@@ -166,7 +165,7 @@ export async function verifyEmailToken(token: string): Promise<{
     }
 
     // Update user verification status
-    const user = await Profile.findByIdAndUpdate(
+    const user = await (Profile as any).findByIdAndUpdate(
       verificationToken.user_id,
       {
         is_verified: true,
@@ -181,7 +180,7 @@ export async function verifyEmailToken(token: string): Promise<{
     }
 
     // Delete the used verification token
-    await VerificationToken.deleteOne({ _id: verificationToken._id });
+    await (VerificationToken as any).deleteOne({ _id: verificationToken._id });
 
     return {
       success: true,
@@ -207,7 +206,7 @@ export async function resendVerificationEmail(email: string): Promise<{
   try {
     await connectToDatabase();
 
-    const user = await Profile.findOne({ email });
+    const user = await (Profile as any).findOne({ email });
     if (!user) {
       return { success: false, message: 'User not found' };
     }
@@ -246,7 +245,7 @@ export async function checkUserStatus(userId: string): Promise<{
   try {
     await connectToDatabase();
 
-    const user = await Profile.findById(userId).select('-password');
+    const user = await (Profile as any).findById(userId).select('-password');
     if (!user) {
       return { success: false, message: 'User not found' };
     }
@@ -303,7 +302,7 @@ export async function activateUserAccount(userId: string, transactionData?: any)
   try {
     await connectToDatabase();
 
-    const user = await Profile.findByIdAndUpdate(
+    const user = await (Profile as any).findByIdAndUpdate(
       userId,
       {
         is_active: true,
@@ -343,7 +342,7 @@ export async function activateUserAccount(userId: string, transactionData?: any)
 async function createReferralStructure(referrerId: string, referredId: string): Promise<void> {
   try {
     // Create referral record
-    await Referral.create({
+    await (Referral as any).create({
       referrer_id: referrerId,
       referred_id: referredId,
       earning_cents: 0,
@@ -351,20 +350,20 @@ async function createReferralStructure(referrerId: string, referredId: string): 
 
     // Build downline structure
     // Level 1 - direct referral
-    await DownlineUser.create({
+    await (DownlineUser as any).create({
       main_user_id: referrerId,
       downline_user_id: referredId,
       level: 1,
     });
 
     // Find upline for level 2+ referrals
-    const uplineReferrals = await DownlineUser.find({ 
+    const uplineReferrals = await (DownlineUser as any).find({ 
       downline_user_id: referrerId 
     }).sort({ level: 1 });
 
     for (const upline of uplineReferrals) {
       if (upline.level < 10) { // Limit to 10 levels
-        await DownlineUser.create({
+        await (DownlineUser as any).create({
           main_user_id: upline.main_user_id,
           downline_user_id: referredId,
           level: upline.level + 1,
@@ -387,7 +386,7 @@ export async function getUserByEmail(email: string): Promise<{
   try {
     await connectToDatabase();
 
-    const user = await Profile.findOne({ email }).select('+password');
+    const user = await (Profile as any).findOne({ email }).select('+password');
     if (!user) {
       return { success: false, message: 'User not found' };
     }
@@ -458,7 +457,7 @@ export async function updateUserPassword(userId: string, newPassword: string): P
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     
-    await Profile.findByIdAndUpdate(userId, {
+    await (Profile as any).findByIdAndUpdate(userId, {
       password: hashedPassword,
     });
 
@@ -478,7 +477,7 @@ export async function requestPasswordReset(email: string): Promise<{
   try {
     await connectToDatabase();
 
-    const user = await Profile.findOne({ email });
+    const user = await (Profile as any).findOne({ email });
     if (!user) {
       // Don't reveal if email exists or not
       return { 
@@ -492,7 +491,7 @@ export async function requestPasswordReset(email: string): Promise<{
     const tokenExpiry = new Date(Date.now() + 1 * 60 * 60 * 1000); // 1 hour
 
     // Store reset token (you might want a separate ResetToken model)
-    await VerificationToken.create({
+    await (VerificationToken as any).create({
       token: resetToken,
       user_id: user._id,
       expires: tokenExpiry,

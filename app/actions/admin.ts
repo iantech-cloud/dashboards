@@ -42,7 +42,7 @@ export async function getAdminStats(): Promise<{
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
@@ -62,24 +62,24 @@ export async function getAdminStats(): Promise<{
       todayRegistrations,
       spinSettings
     ] = await Promise.all([
-      Profile.countDocuments(),
-      Profile.countDocuments({ approval_status: 'pending' }),
-      Withdrawal.countDocuments({ status: 'pending' }),
-      Profile.countDocuments({ 
+      (Profile as any).countDocuments(),
+      (Profile as any).countDocuments({ approval_status: 'pending' }),
+      (Withdrawal as any).countDocuments({ status: 'pending' }),
+      (Profile as any).countDocuments({ 
         approval_status: 'approved', 
         status: 'active',
         is_active: true 
       }),
-      Transaction.countDocuments(),
-      ActivationPayment.aggregate([
+      (Transaction as any).countDocuments(),
+      (ActivationPayment as any).aggregate([
         { $match: { status: 'completed' } },
         { $group: { _id: null, total: { $sum: '$amount_cents' } } }
       ]),
-      Referral.countDocuments(),
-      Profile.countDocuments({
+      (Referral as any).countDocuments(),
+      (Profile as any).countDocuments({
         created_at: { $gte: startOfToday }
       }),
-      SpinSettings.findOne({})
+      (SpinSettings as any).findOne({})
     ]);
 
     const stats: AdminStats = {
@@ -116,17 +116,17 @@ export async function toggleSpinWheel(activate: boolean): Promise<{
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
     }
 
-    let spinSettings = await SpinSettings.findOne({});
+    let spinSettings = await (SpinSettings as any).findOne({});
     
     if (!spinSettings) {
       // Create default settings if they don't exist
-      spinSettings = new SpinSettings({
+      spinSettings = new (SpinSettings as any)({
         is_active: activate,
         activation_mode: activate ? 'manual' : 'scheduled',
         scheduled_days: ['wednesday', 'friday'],
@@ -148,7 +148,7 @@ export async function toggleSpinWheel(activate: boolean): Promise<{
     await spinSettings.save();
 
     // Log admin action with correct fields
-    await AdminAuditLog.create({
+    await (AdminAuditLog as any).create({
       actor_id: adminUser._id.toString(),
       action: activate ? 'ACTIVATE_SPIN_WHEEL' : 'DEACTIVATE_SPIN_WHEEL',
       action_type: activate ? 'spin_wheel_activated' : 'spin_wheel_deactivated',
@@ -211,13 +211,13 @@ export async function getSpinWheelStatus(): Promise<{
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
     }
 
-    const spinSettings = await SpinSettings.findOne({});
+    const spinSettings = await (SpinSettings as any).findOne({});
     
     if (!spinSettings) {
       // Return default settings if none exist
@@ -270,16 +270,16 @@ export async function updateSpinSchedule(settings: {
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
     }
 
-    let spinSettings = await SpinSettings.findOne({});
+    let spinSettings = await (SpinSettings as any).findOne({});
     
     if (!spinSettings) {
-      spinSettings = new SpinSettings({
+      spinSettings = new (SpinSettings as any)({
         ...settings,
         is_active: false,
         activation_mode: 'scheduled',
@@ -298,7 +298,7 @@ export async function updateSpinSchedule(settings: {
     await spinSettings.save();
 
     // Log admin action with correct fields
-    await AdminAuditLog.create({
+    await (AdminAuditLog as any).create({
       actor_id: adminUser._id.toString(),
       action: 'UPDATE_SPIN_SCHEDULE',
       action_type: 'spin_settings_update',
@@ -348,7 +348,7 @@ export async function getAdminUsers(filters?: {
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
@@ -369,14 +369,14 @@ export async function getAdminUsers(filters?: {
       ];
     }
 
-    const users = await Profile.find(query)
+    const users = await (Profile as any).find(query)
       .select('-password')
       .sort({ created_at: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
-    const total = await Profile.countDocuments(query);
+    const total = await (Profile as any).countDocuments(query);
 
     return {
       success: true,
@@ -408,13 +408,13 @@ export async function approveUser(userId: string, approvalNotes?: string): Promi
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
     }
 
-    const user = await Profile.findByIdAndUpdate(
+    const user = await (Profile as any).findByIdAndUpdate(
       userId,
       {
         approval_status: 'approved',
@@ -432,7 +432,7 @@ export async function approveUser(userId: string, approvalNotes?: string): Promi
     }
 
     // Log the approval action with correct fields
-    await AdminAuditLog.create({
+    await (AdminAuditLog as any).create({
       actor_id: adminUser._id.toString(),
       action: 'APPROVE_USER',
       action_type: 'approve',
@@ -475,13 +475,13 @@ export async function rejectUser(userId: string, rejectionReason: string): Promi
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
     }
 
-    const user = await Profile.findByIdAndUpdate(
+    const user = await (Profile as any).findByIdAndUpdate(
       userId,
       {
         approval_status: 'rejected',
@@ -499,7 +499,7 @@ export async function rejectUser(userId: string, rejectionReason: string): Promi
     }
 
     // Log the rejection action with correct fields
-    await AdminAuditLog.create({
+    await (AdminAuditLog as any).create({
       actor_id: adminUser._id.toString(),
       action: 'REJECT_USER',
       action_type: 'reject',

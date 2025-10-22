@@ -10,6 +10,7 @@ import {
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/auth';
 import { revalidatePath } from 'next/cache';
+import type { Session } from 'next-auth';
 
 // M-Pesa Daraja API configuration
 const MPESA_CONFIG = {
@@ -70,7 +71,7 @@ function generateMpesaTimestamp(): string {
 function transformTransaction(transaction: any): any {
 	const plainTransaction = transaction.toObject ? transaction.toObject() : transaction;
     
-    const serializeValue = (value: any) => {
+    const serializeValue = (value: any): any => {
         if (value && typeof value === 'object') {
             if (value.constructor.name === 'ObjectId' || (value.buffer && value.constructor.name === 'ObjectID')) {
                 return value.toString();
@@ -140,7 +141,7 @@ async function validateDeposit(userId: string, amount: number, phoneNumber: stri
 	}
 
 	await resetDailyLimitsIfNeeded(user);
-	const updatedUser = await Profile.findById(userId).lean();
+	const updatedUser: any = await Profile.findById(userId).lean();
 	if (!updatedUser) {
 		return { valid: false, message: 'User data refresh failed' };
 	}
@@ -180,7 +181,7 @@ export async function getTransactions(limit: number = 50): Promise<{
 	message: string	
 }> {
 	try {
-		const session = await getServerSession(authOptions);
+		const session = await getServerSession(authOptions) as Session | null;
 		
 		if (!session?.user?.email) {
 			return { success: false, message: 'Unauthorized' };
@@ -221,7 +222,7 @@ export async function processMpesaDeposit(depositData: {
 	message: string	
 }> {
 	try {
-		const session = await getServerSession(authOptions);
+		const session = await getServerSession(authOptions) as Session | null;
 		
 		if (!session?.user?.email) {
 			return { success: false, message: 'Unauthorized' };
@@ -360,14 +361,14 @@ export async function processWithdrawal(withdrawalData: {
 	message: string	
 }> {
 	try {
-		const session = await getServerSession(authOptions);
+		const session = await getServerSession(authOptions) as Session | null;
 		
 		if (!session?.user?.email) {
 			return { success: false, message: 'Unauthorized' };
 		}
 
 		await connectToDatabase();
-		const currentUser = await Profile.findOne({ email: session.user.email }).lean(); 
+		const currentUser: any = await Profile.findOne({ email: session.user.email }).lean(); 
 
 		if (!currentUser) {
 			return { success: false, message: 'User not found' };

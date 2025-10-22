@@ -3,6 +3,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
+import type { Session } from 'next-auth';
 import { authOptions } from '@/auth';
 import { connectToDatabase, UserContent, Profile, Transaction, BlogPost, AdminAuditLog } from '../lib/models';
 
@@ -82,6 +83,29 @@ export interface AdminUpdateContentData {
     revision_notes?: string;
 }
 
+interface CurrentUser {
+    id: string;
+    email: string;
+    name: string;
+    username?: string;
+    role: string;
+    is_active: boolean;
+    approval_status: string;
+    status: string;
+}
+
+interface ApiResponse<T = void> {
+    success: boolean;
+    data?: T;
+    message?: string;
+}
+
+interface PaginatedResponse<T> extends ApiResponse<T> {
+    totalPages?: number;
+    currentPage?: number;
+    totalCount?: number;
+}
+
 // =============================================================================
 // CONSTANTS
 // =============================================================================
@@ -93,16 +117,16 @@ const MIN_CONTENT_AMOUNT = 0;
 // HELPER FUNCTIONS
 // =============================================================================
 
-async function getCurrentUser() {
+async function getCurrentUser(): Promise<CurrentUser> {
     try {
-        const session = await getServerSession(authOptions);
+        const session = await getServerSession(authOptions) as Session | null;
         
         if (!session?.user?.email) {
             throw new Error('User not authenticated');
         }
 
         await connectToDatabase();
-        const user = await Profile.findOne({ email: session.user.email });
+        const user: any = await Profile.findOne({ email: session.user.email });
         
         if (!user) {
             throw new Error('User profile not found');
@@ -141,7 +165,7 @@ async function getCurrentUser() {
     }
 }
 
-async function checkAdminAccess() {
+async function checkAdminAccess(): Promise<CurrentUser> {
     const user = await getCurrentUser();
     if (user.role !== 'admin') {
         console.warn(`Unauthorized admin access attempt by user: ${user.email} (role: ${user.role})`);
@@ -160,7 +184,7 @@ function calculateWordCount(htmlContent: string): number {
 }
 
 function getMinimumWordCount(contentType: ContentType): number {
-    const minWordCounts = {
+    const minWordCounts: Record<ContentType, number> = {
         blog_post: 400,
         social_media: 150,
         product_review: 150,
@@ -171,12 +195,12 @@ function getMinimumWordCount(contentType: ContentType): number {
     return minWordCounts[contentType];
 }
 
-// FIXED: Calculate payment amount in KSH (not cents)
+// Calculate payment amount in KSH (not cents)
 function calculatePaymentAmount(wordCount: number, contentType: ContentType): number {
     const baseRate = 0.5; // KES per word
     const baseAmount = wordCount * baseRate;
     
-    const typeMultipliers = {
+    const typeMultipliers: Record<ContentType, number> = {
         blog_post: 1.2,
         product_review: 1.1,
         video: 1.3,
@@ -240,7 +264,7 @@ function generateSlug(title: string): string {
         .replace(/^-+|-+$/g, '');
 }
 
-function serializeDocument(doc: any) {
+function serializeDocument(doc: any): any {
     if (!doc) return null;
 
     const serialized = JSON.parse(JSON.stringify(doc));
@@ -267,7 +291,7 @@ function serializeDocument(doc: any) {
     return serialized;
 }
 
-// FIXED: Properly handle amount conversion for display
+// Properly handle amount conversion for display
 function formatContentSubmission(sub: any): ContentSubmission {
     // Convert stored cents to KSH for display
     const baseAmount = centsToKsh(sub.payment_amount || 0);
@@ -312,7 +336,6 @@ function isValidContentType(type: string): type is ContentType {
     return ['blog_post', 'social_media', 'product_review', 'video', 'other'].includes(type);
 }
 
-// FIXED: Remove safeObjectId function since we're using UUIDs
 // Simply return the string ID as-is for UUIDs
 function safeId(id: string): string {
     if (!id || typeof id !== 'string') {
@@ -321,7 +344,7 @@ function safeId(id: string): string {
     return id;
 }
 
-async function createBlogPostFromSubmission(submission: any, adminUser: any) {
+async function createBlogPostFromSubmission(submission: any, adminUser: CurrentUser): Promise<void> {
     try {
         const slug = generateSlug(submission.title);
         const wordCount = calculateWordCount(submission.content);
@@ -330,7 +353,7 @@ async function createBlogPostFromSubmission(submission: any, adminUser: any) {
         const textContent = submission.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
         const excerpt = textContent.length > 150 ? textContent.substring(0, 150) + '...' : textContent;
         
-        const existingBlogPost = await BlogPost.findOne({ 
+        const existingBlogPost: any = await BlogPost.findOne({ 
             source_submission_id: submission._id 
         });
         
@@ -380,11 +403,7 @@ async function createBlogPostFromSubmission(submission: any, adminUser: any) {
 // USER/DASHBOARD CONTENT ACTIONS
 // =============================================================================
 
-export async function getUserContentStats(): Promise<{
-    success: boolean;
-    data?: ContentStats;
-    message?: string;
-}> {
+export async function getUserContentStats(): Promise<ApiResponse<ContentStats>> {
     try {
         const user = await getCurrentUser();
         await connectToDatabase();
@@ -474,11 +493,7 @@ export async function getUserContentStats(): Promise<{
     }
 }
 
-export async function getRecentSubmissions(limit: number = 5): Promise<{
-    success: boolean;
-    data?: ContentSubmission[];
-    message?: string;
-}> {
+export async function getRecentSubmissions(limit: number = 5): Promise<ApiResponse<ContentSubmission[]>> {
     try {
         const user = await getCurrentUser();
         await connectToDatabase();
@@ -519,14 +534,7 @@ export async function getUserContentSubmissions(filters?: {
     search?: string;
     page?: number;
     limit?: number;
-}): Promise<{
-    success: boolean;
-    data?: ContentSubmission[];
-    message?: string;
-    totalPages?: number;
-    currentPage?: number;
-    totalCount?: number;
-}> {
+}): Promise<PaginatedResponse<ContentSubmission[]>> {
     try {
         const user = await getCurrentUser();
         
@@ -599,11 +607,7 @@ export async function getUserContentSubmissions(filters?: {
     }
 }
 
-export async function getContentSubmission(id: string): Promise<{
-    success: boolean;
-    data?: ContentSubmission;
-    message?: string;
-}> {
+export async function getContentSubmission(id: string): Promise<ApiResponse<ContentSubmission>> {
     try {
         const user = await getCurrentUser();
         await connectToDatabase();
@@ -653,11 +657,7 @@ export async function getContentSubmission(id: string): Promise<{
     }
 }
 
-export async function createContentSubmission(data: CreateContentData): Promise<{
-    success: boolean;
-    message: string;
-    data?: { id: string };
-}> {
+export async function createContentSubmission(data: CreateContentData): Promise<ApiResponse<{ id: string }>> {
     try {
         const user = await getCurrentUser();
 
@@ -738,10 +738,7 @@ export async function createContentSubmission(data: CreateContentData): Promise<
 export async function updateContentSubmission(
     id: string,
     data: UpdateContentData
-): Promise<{
-    success: boolean;
-    message: string;
-}> {
+): Promise<ApiResponse> {
     try {
         const user = await getCurrentUser();
 
@@ -774,7 +771,7 @@ export async function updateContentSubmission(
             return { success: false, message: 'Invalid content ID' };
         }
 
-        const existingSubmission = await UserContent.findOne({
+        const existingSubmission: any = await UserContent.findOne({
             _id: safeId(id),
             user: safeId(user.id),
         });
@@ -828,10 +825,7 @@ export async function updateContentSubmission(
     }
 }
 
-export async function deleteContentSubmission(id: string): Promise<{
-    success: boolean;
-    message: string;
-}> {
+export async function deleteContentSubmission(id: string): Promise<ApiResponse> {
     try {
         const user = await getCurrentUser();
         await connectToDatabase();
@@ -847,7 +841,7 @@ export async function deleteContentSubmission(id: string): Promise<{
             return { success: false, message: 'Invalid content ID' };
         }
 
-        const submission = await UserContent.findOne({
+        const submission: any = await UserContent.findOne({
             _id: safeId(id),
             user: safeId(user.id),
         });
@@ -897,14 +891,7 @@ export async function getAllUserContentSubmissions(filters?: {
   search?: string;
   page?: number;
   limit?: number;
-}): Promise<{
-  success: boolean;
-  data?: ContentSubmission[];
-  message?: string;
-  totalPages?: number;
-  currentPage?: number;
-  totalCount?: number;
-}> {
+}): Promise<PaginatedResponse<ContentSubmission[]>> {
   try {
     const admin = await checkAdminAccess();
     
@@ -970,19 +957,14 @@ export async function getAllUserContentSubmissions(filters?: {
   }
 }
 
-// FIXED: Proper stats aggregation with amount handling
-export async function getAdminContentStats(): Promise<{
-  success: boolean;
-  data?: {
-    totalSubmissions: number;
-    pending: number;
-    approved: number;
-    rejected: number;
-    revisionRequested: number;
-    totalPaid: number;
-  };
-  message?: string;
-}> {
+export async function getAdminContentStats(): Promise<ApiResponse<{
+  totalSubmissions: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  revisionRequested: number;
+  totalPaid: number;
+}>> {
   try {
     await checkAdminAccess();
     await connectToDatabase();
@@ -1049,11 +1031,7 @@ export async function getAdminContentStats(): Promise<{
   }
 }
 
-export async function getUserContentById(id: string): Promise<{
-    success: boolean;
-    data?: ContentSubmission;
-    message?: string;
-}> {
+export async function getUserContentById(id: string): Promise<ApiResponse<ContentSubmission>> {
     try {
         const admin = await checkAdminAccess();
 
@@ -1088,7 +1066,7 @@ export async function getUserContentById(id: string): Promise<{
     }
 }
 
-export async function approveUserContent(id: string, adminNotes: string, bonusAmount: number = 0): Promise<{ success: boolean; message: string }> {
+export async function approveUserContent(id: string, adminNotes: string, bonusAmount: number = 0): Promise<ApiResponse> {
     try {
         const admin = await checkAdminAccess();
         await connectToDatabase();
@@ -1097,7 +1075,7 @@ export async function approveUserContent(id: string, adminNotes: string, bonusAm
             return { success: false, message: 'Invalid submission ID' }; 
         }
 
-        const submission = await UserContent.findOne({
+        const submission: any = await UserContent.findOne({
             _id: safeId(id),
             status: { $in: ['pending', 'revision_requested'] }
         });
@@ -1186,7 +1164,7 @@ export async function approveUserContent(id: string, adminNotes: string, bonusAm
     }
 }
 
-export async function rejectUserContent(id: string, rejectionReason: string): Promise<{ success: boolean; message: string }> {
+export async function rejectUserContent(id: string, rejectionReason: string): Promise<ApiResponse> {
     try {
         const admin = await checkAdminAccess();
         await connectToDatabase();
@@ -1194,7 +1172,7 @@ export async function rejectUserContent(id: string, rejectionReason: string): Pr
         if (!id) { return { success: false, message: 'Invalid submission ID' }; }
         if (!rejectionReason.trim()) { return { success: false, message: 'Rejection reason is required.' }; }
 
-        const submission = await UserContent.findOne({
+        const submission: any = await UserContent.findOne({
             _id: safeId(id),
             status: { $in: ['pending', 'revision_requested'] }
         });
@@ -1243,7 +1221,7 @@ export async function rejectUserContent(id: string, rejectionReason: string): Pr
     }
 }
 
-export async function requestContentRevision(id: string, revisionNotes: string): Promise<{ success: boolean; message: string }> {
+export async function requestContentRevision(id: string, revisionNotes: string): Promise<ApiResponse> {
     try {
         const admin = await checkAdminAccess();
         await connectToDatabase();
@@ -1251,7 +1229,7 @@ export async function requestContentRevision(id: string, revisionNotes: string):
         if (!id) { return { success: false, message: 'Invalid submission ID' }; }
         if (!revisionNotes.trim()) { return { success: false, message: 'Revision instructions are required.' }; }
 
-        const submission = await UserContent.findOne({
+        const submission: any = await UserContent.findOne({
             _id: safeId(id),
             status: { $in: ['pending', 'revision_requested'] }
         });
@@ -1300,10 +1278,7 @@ export async function requestContentRevision(id: string, revisionNotes: string):
 export async function adminUpdateContentSubmission(
     contentId: string,
     data: AdminUpdateContentData
-): Promise<{
-    success: boolean;
-    message: string;
-}> {
+): Promise<ApiResponse> {
     try {
         const admin = await checkAdminAccess();
 
@@ -1318,7 +1293,7 @@ export async function adminUpdateContentSubmission(
 
         await connectToDatabase();
 
-        const content = await UserContent.findById(safeId(contentId));
+        const content: any = await UserContent.findById(safeId(contentId));
         if (!content) {
             return { success: false, message: 'Content submission not found' };
         }

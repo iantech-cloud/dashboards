@@ -94,7 +94,7 @@ export async function createBlogPost(formData: FormData) {
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
@@ -122,7 +122,7 @@ export async function createBlogPost(formData: FormData) {
     }
 
     const slug = slugify(title);
-    const existingPost = await BlogPost.findOne({ slug });
+    const existingPost = await (BlogPost as any).findOne({ slug });
     if (existingPost) {
       return { success: false, message: 'A blog post with this title already exists' };
     }
@@ -163,11 +163,11 @@ export async function createBlogPost(formData: FormData) {
       };
     }
 
-    const blogPost = await BlogPost.create(blogPostData);
+    const blogPost = await (BlogPost as any).create(blogPostData);
 
     // If this was created from a user content submission, update the UserContent record
     if (source_submission_id) {
-      await UserContent.findByIdAndUpdate(source_submission_id, {
+      await (UserContent as any).findByIdAndUpdate(source_submission_id, {
         blog_post_id: blogPost._id,
         status: 'approved',
         approved_at: new Date(),
@@ -181,7 +181,7 @@ export async function createBlogPost(formData: FormData) {
     }
 
     // Log creation action
-    await AdminAuditLog.create({
+    await (AdminAuditLog as any).create({
       actor_id: adminUser._id,
       action: 'CREATE_BLOG_POST',
       action_type: 'create',
@@ -230,7 +230,7 @@ export async function updateBlogPost(postId: string, formData: FormData) {
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
@@ -250,14 +250,14 @@ export async function updateBlogPost(postId: string, formData: FormData) {
       return { success: false, message: 'Title and content are required' };
     }
 
-    const existingPost = await BlogPost.findById(postId);
+    const existingPost = await (BlogPost as any).findById(postId);
     if (!existingPost) {
       return { success: false, message: 'Blog post not found' };
     }
 
     const slug = slugify(title);
     // Check for duplicate slug, excluding the current post
-    const duplicatePost = await BlogPost.findOne({ slug, _id: { $ne: postId } });
+    const duplicatePost = await (BlogPost as any).findOne({ slug, _id: { $ne: postId } });
     if (duplicatePost) {
       return { success: false, message: 'A blog post with this title already exists' };
     }
@@ -287,10 +287,10 @@ export async function updateBlogPost(postId: string, formData: FormData) {
       updateData.published_at = undefined;
     }
 
-    const updatedPost = await BlogPost.findByIdAndUpdate(postId, updateData, { new: true });
+    const updatedPost = await (BlogPost as any).findByIdAndUpdate(postId, updateData, { new: true });
 
     // Log update action
-    await AdminAuditLog.create({
+    await (AdminAuditLog as any).create({
       actor_id: adminUser._id,
       action: 'UPDATE_BLOG_POST',
       action_type: 'update',
@@ -336,29 +336,29 @@ export async function deleteBlogPost(postId: string) {
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
     }
 
-    const post = await BlogPost.findById(postId);
+    const post = await (BlogPost as any).findById(postId);
     if (!post) {
       return { success: false, message: 'Blog post not found' };
     }
 
     // If this blog post was created from a user content submission, unlink it
     if (post.source_submission_id) {
-      await UserContent.findByIdAndUpdate(post.source_submission_id, {
+      await (UserContent as any).findByIdAndUpdate(post.source_submission_id, {
         $unset: { blog_post_id: 1 },
         status: 'approved' // Keep it approved but unlinked
       });
     }
 
-    await BlogPost.findByIdAndDelete(postId);
+    await (BlogPost as any).findByIdAndDelete(postId);
 
     // Log deletion action
-    await AdminAuditLog.create({
+    await (AdminAuditLog as any).create({
       actor_id: adminUser._id,
       action: 'DELETE_BLOG_POST',
       action_type: 'delete',
@@ -398,7 +398,7 @@ export async function getBlogPosts(page: number = 1, limit: number = 10, search?
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
@@ -423,18 +423,18 @@ export async function getBlogPosts(page: number = 1, limit: number = 10, search?
     }
 
     const [posts, total] = await Promise.all([
-      BlogPost.find(query)
+      (BlogPost as any).find(query)
         .populate('author', 'username email')
         .populate('source_submission_id', 'title user content_type') // Populate source submission
         .sort({ created_at: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      BlogPost.countDocuments(query)
+      (BlogPost as any).countDocuments(query)
     ]);
 
     // Convert payment amounts from cents to KSH for display
-    const serializedPosts = posts.map(post => {
+    const serializedPosts = posts.map((post: any) => {
       const serialized = serializeDocument(post);
       if (serialized.metadata?.payment_amount) {
         serialized.metadata.payment_amount = centsToKsh(serialized.metadata.payment_amount);
@@ -473,13 +473,13 @@ export async function getBlogPostById(postId: string) {
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
     }
 
-    const post = await BlogPost.findById(postId)
+    const post = await (BlogPost as any).findById(postId)
       .populate('author', 'username email')
       .populate('source_submission_id', 'title user content_type task_category') // Populate source submission details
       .lean();
@@ -525,14 +525,14 @@ export async function getPublishedBlogPosts(page: number = 1, limit: number = 10
     }
 
     const [posts, total] = await Promise.all([
-      BlogPost.find(query)
+      (BlogPost as any).find(query)
         .populate('author', 'username')
         .select('-content') // Don't include full content in list view
         .sort({ published_at: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      BlogPost.countDocuments(query)
+      (BlogPost as any).countDocuments(query)
     ]);
 
     const serializedPosts = posts.map(serializeDocument);
@@ -563,7 +563,7 @@ export async function getPublishedBlogPostBySlug(slug: string) {
   try {
     await connectToDatabase();
 
-    const post = await BlogPost.findOne({ 
+    const post = await (BlogPost as any).findOne({ 
       slug, 
       status: 'published',
       published_at: { $lte: new Date() }
@@ -599,13 +599,13 @@ export async function archiveBlogPost(postId: string) {
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
     }
 
-    const post = await BlogPost.findByIdAndUpdate(
+    const post = await (BlogPost as any).findByIdAndUpdate(
       postId, 
       { 
         status: 'archived',
@@ -619,7 +619,7 @@ export async function archiveBlogPost(postId: string) {
     }
 
     // Log archiving action
-    await AdminAuditLog.create({
+    await (AdminAuditLog as any).create({
       actor_id: adminUser._id,
       action: 'UPDATE_BLOG_POST',
       action_type: 'update',
@@ -659,13 +659,13 @@ export async function getBlogStats() {
     }
 
     await connectToDatabase();
-    const adminUser = await Profile.findOne({ email: session.user.email });
+    const adminUser = await (Profile as any).findOne({ email: session.user.email });
     
     if (adminUser?.role !== 'admin') {
       return { success: false, message: 'Admin access required' };
     }
 
-    const stats = await BlogPost.aggregate([
+    const stats = await (BlogPost as any).aggregate([
       {
         $group: {
           _id: '$status',
@@ -674,13 +674,13 @@ export async function getBlogStats() {
       }
     ]);
 
-    const totalPosts = await BlogPost.countDocuments();
-    const publishedPosts = await BlogPost.countDocuments({ status: 'published' });
-    const postsThisMonth = await BlogPost.countDocuments({
+    const totalPosts = await (BlogPost as any).countDocuments();
+    const publishedPosts = await (BlogPost as any).countDocuments({ status: 'published' });
+    const postsThisMonth = await (BlogPost as any).countDocuments({
       created_at: { $gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) }
     });
 
-    const categories = await BlogPost.aggregate([
+    const categories = await (BlogPost as any).aggregate([
       { $match: { category: { $exists: true, $ne: '' } } },
       { $group: { _id: '$category', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
@@ -692,8 +692,8 @@ export async function getBlogStats() {
       data: {
         total: totalPosts,
         published: publishedPosts,
-        draft: stats.find(s => s._id === 'draft')?.count || 0,
-        archived: stats.find(s => s._id === 'archived')?.count || 0,
+        draft: stats.find((s: any) => s._id === 'draft')?.count || 0,
+        archived: stats.find((s: any) => s._id === 'archived')?.count || 0,
         thisMonth: postsThisMonth,
         categories
       },
