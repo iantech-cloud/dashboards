@@ -314,14 +314,15 @@ async function updateUserAccuracyRate(userId: string, wasCorrect: boolean) {
     const correctCount = (user.correct_surveys_count || 0) + (wasCorrect ? 1 : 0)
     const accuracyRate = totalCompleted > 0 ? (correctCount / totalCompleted) * 100 : 0
 
+    // FIXED: Use direct update without returning query
     await Profile.updateOne(
       { _id: userId },
       {
         total_surveys_completed: totalCompleted,
         correct_surveys_count: correctCount,
-        survey_accuracy_rate: Math.round(accuracyRate * 100) / 100, // Round to 2 decimals
+        survey_accuracy_rate: Math.round(accuracyRate * 100) / 100,
       }
-    )
+    ).exec()
   } catch (error) {
     console.error("Error updating user accuracy rate:", error)
   }
@@ -404,193 +405,242 @@ export async function submitSurveyAnswers(
     const userId = user._id
     const responseObjectId = new Types.ObjectId(responseId)
 
-    const sessionMongo = await (SurveyResponse.startSession() as Promise<any>)
+    // FIXED: Don't use transactions at all - they're causing the abort issue
+    // MongoDB transactions are overkill for this use case
+    
+    const surveyResponse = await SurveyResponse.findOne({
+      _id: responseObjectId,
+      user_id: userId,
+      status: "in_progress",
+    }).populate("survey_id")
 
-    return await sessionMongo.withTransaction(async () => {
-      const surveyResponseQuery = SurveyResponse.findOne({
-        _id: responseObjectId,
-        user_id: userId,
-        status: "in_progress",
-      }).populate("survey_id") as Query<ISurveyResponsePopulated | null, any>
-      
-      const surveyResponse = await executeQuery<ISurveyResponsePopulated>(surveyResponseQuery.session(sessionMongo))
+    if (!surveyResponse) {
+      return { success: false, message: "Survey response not found or already completed." }
+    }
 
-      if (!surveyResponse) {
-        throw new Error("Survey response not found or already completed.")
-      }
+    const survey = surveyResponse.survey_id as any
 
-      const survey = surveyResponse.survey_id
+    const currentTime = new Date()
+    const timeElapsed = (currentTime.getTime() - new Date(surveyResponse.started_at).getTime()) / 1000
+    const timeLimit = survey.duration_minutes * 60
 
-      const currentTime = new Date()
-      const timeElapsed = (currentTime.getTime() - new Date(surveyResponse.started_at).getTime()) / 1000
-      const timeLimit = survey.duration_minutes * 60
-
-      if (timeElapsed > timeLimit) {
-        await (SurveyResponse.updateOne(
-          { _id: responseObjectId },
-          {
-            status: "timeout",
-            completed_at: currentTime,
-            time_taken_seconds: Math.floor(timeElapsed),
-          },
-          { session: sessionMongo },
-        ) as Query<any, any>)
-        
-        // Update user accuracy rate for timeout
-        await updateUserAccuracyRate(userId, false)
-        throw new Error("Survey time expired. Payment not credited.")
-      }
-
-      // Validate answers
-      let allCorrect = true
-      let correctAnswers = 0
-      const validatedAnswers: any[] = []
-
-      for (let i = 0; i < answers.length; i++) {
-        const answer = answers[i]
-        const question = survey.questions[answer.question_index]
-
-        if (!question) {
-          throw new Error(`Invalid question index: ${answer.question_index}`)
-        }
-
-        const isCorrect = answer.selected_option_index === question.correct_answer_index
-        if (!isCorrect) {
-          allCorrect = false
-          await (SurveyResponse.updateOne(
-            { _id: responseObjectId },
-            {
-              status: "wrong_answer",
-              completed_at: currentTime,
-              time_taken_seconds: Math.floor(timeElapsed),
-              answers: validatedAnswers,
-            },
-            { session: sessionMongo },
-          ) as Query<any, any>)
-          
-          // Update user accuracy rate for wrong answer
-          await updateUserAccuracyRate(userId, false)
-          throw new Error("Incorrect answer. Survey closed. Payment not credited.")
-        }
-
-        correctAnswers++
-        validatedAnswers.push({
-          question_index: answer.question_index,
-          selected_option_index: answer.selected_option_index,
-          is_correct: isCorrect,
-          answered_at: currentTime,
-        })
-      }
-
-      const score = (correctAnswers / survey.questions.length) * 100
-
-      await (SurveyResponse.updateOne(
+    // Check timeout
+    if (timeElapsed > timeLimit) {
+      await SurveyResponse.updateOne(
         { _id: responseObjectId },
         {
-          answers: validatedAnswers,
+          status: "timeout",
           completed_at: currentTime,
           time_taken_seconds: Math.floor(timeElapsed),
-          all_correct: allCorrect,
-          score: score,
-          status: "completed",
-        },
-        { session: sessionMongo },
-      ) as Query<any, any>)
+        }
+      )
+      
+      await updateUserAccuracyRate(userId, false)
+      
+      return {
+        success: false,
+        message: "Survey time expired. Payment not credited.",
+        score: 0,
+        all_correct: false
+      }
+    }
 
-      if (allCorrect && timeElapsed <= timeLimit) {
-        await (Profile.updateOne(
-          { _id: userId },
-          {
-            $inc: {
-              balance_cents: survey.payout_cents,
-              total_earnings_cents: survey.payout_cents,
-            },
-          },
-          { session: sessionMongo },
-        ) as Query<any, any>)
+    // Validate answers
+    let allCorrect = true
+    let correctAnswers = 0
+    const validatedAnswers: any[] = []
 
-        const transaction = new Transaction({
-          user_id: userId,
-          amount_cents: survey.payout_cents,
-          type: "SURVEY",
-          description: `Survey completion: ${survey.title}`,
-          status: "completed",
-          metadata: {
-            survey_id: survey._id.toString(),
-            survey_response_id: responseObjectId.toString(),
-            score: score,
-            time_taken: Math.floor(timeElapsed),
-          },
-        })
+    for (let i = 0; i < answers.length; i++) {
+      const answer = answers[i]
+      const question = survey.questions[answer.question_index]
 
-        await transaction.save({ session: sessionMongo })
+      if (!question) {
+        return { 
+          success: false, 
+          message: `Invalid question index: ${answer.question_index}` 
+        }
+      }
 
-        const earning = new Earning({
-          user_id: userId,
-          amount_cents: survey.payout_cents,
-          type: "SURVEY",
-          description: `Completed survey: ${survey.title} (Score: ${score}%)`,
-        })
+      const isCorrect = answer.selected_option_index === question.correct_answer_index
+      
+      validatedAnswers.push({
+        question_index: answer.question_index,
+        selected_option_index: answer.selected_option_index,
+        is_correct: isCorrect,
+        answered_at: currentTime,
+      })
 
-        await earning.save({ session: sessionMongo })
-
-        await (SurveyResponse.updateOne({ _id: responseObjectId }, { payout_credited: true }, { session: sessionMongo }) as Query<any, any>)
-
-        await (Survey.updateOne(
-          { _id: survey._id },
-          {
-            $inc: {
-              current_responses: 1,
-              successful_responses: 1,
-            },
-          },
-          { session: sessionMongo },
-        ) as Query<any, any>)
-        
-        // Update user accuracy rate for correct answer
-        await updateUserAccuracyRate(userId, true)
+      if (isCorrect) {
+        correctAnswers++
       } else {
-        await (Survey.updateOne(
+        allCorrect = false
+        // FIXED: Break on first wrong answer and update immediately
+        const score = (correctAnswers / survey.questions.length) * 100
+        
+        await SurveyResponse.updateOne(
+          { _id: responseObjectId },
+          {
+            status: "wrong_answer",
+            completed_at: currentTime,
+            time_taken_seconds: Math.floor(timeElapsed),
+            answers: validatedAnswers,
+            score: score,
+            all_correct: false,
+          }
+        )
+        
+        await Survey.updateOne(
           { _id: survey._id },
           {
             $inc: {
               current_responses: 1,
               failed_responses: 1,
             },
-          },
-          { session: sessionMongo },
-        ) as Query<any, any>)
+          }
+        )
         
-        // Update user accuracy rate for failed survey
         await updateUserAccuracyRate(userId, false)
+        
+        return {
+          success: false,
+          message: "Incorrect answer. Survey closed. Payment not credited.",
+          score: score,
+          all_correct: false
+        }
       }
+    }
 
-      const updatedProfileQuery = Profile.findById(userId).session(sessionMongo) as Query<IProfileLean | null, any>
-      const updatedProfile = await executeLeanQuery<IProfileLean>(updatedProfileQuery)
+    const score = (correctAnswers / survey.questions.length) * 100
+
+    // All answers correct - process payment
+    if (allCorrect && timeElapsed <= timeLimit) {
+      // Update survey response
+      await SurveyResponse.updateOne(
+        { _id: responseObjectId },
+        {
+          answers: validatedAnswers,
+          completed_at: currentTime,
+          time_taken_seconds: Math.floor(timeElapsed),
+          all_correct: true,
+          score: score,
+          status: "completed",
+          payout_credited: true,
+        }
+      )
+
+      // Credit user balance
+      await Profile.updateOne(
+        { _id: userId },
+        {
+          $inc: {
+            balance_cents: survey.payout_cents,
+            total_earnings_cents: survey.payout_cents,
+          },
+        }
+      )
+
+      // Create transaction record
+      const transaction = new Transaction({
+        user_id: userId,
+        amount_cents: survey.payout_cents,
+        type: "SURVEY",
+        description: `Survey completion: ${survey.title}`,
+        status: "completed",
+        metadata: {
+          survey_id: survey._id.toString(),
+          survey_response_id: responseObjectId.toString(),
+          score: score,
+          time_taken: Math.floor(timeElapsed),
+        },
+      })
+      await transaction.save()
+
+      // Create earning record
+      const earning = new Earning({
+        user_id: userId,
+        amount_cents: survey.payout_cents,
+        type: "SURVEY",
+        description: `Completed survey: ${survey.title} (Score: ${score}%)`,
+      })
+      await earning.save()
+
+      // Update survey stats
+      await Survey.updateOne(
+        { _id: survey._id },
+        {
+          $inc: {
+            current_responses: 1,
+            successful_responses: 1,
+          },
+        }
+      )
+      
+      await updateUserAccuracyRate(userId, true)
+
+      // Get updated balance
+      const updatedProfile = await Profile.findById(userId)
 
       revalidatePath("/dashboard/surveys")
       revalidatePath("/dashboard")
 
       return {
         success: true,
-        message: allCorrect
-          ? `Survey completed successfully! KES ${(survey.payout_cents / 100).toFixed(2)} has been added to your balance.`
-          : "Survey completed but payment not credited due to incorrect answers.",
-        payout_cents: allCorrect ? survey.payout_cents : 0,
+        message: `Survey completed successfully! KES ${(survey.payout_cents / 100).toFixed(2)} has been added to your balance.`,
+        payout_cents: survey.payout_cents,
         balance_cents: updatedProfile?.balance_cents || 0,
         score: score,
-        all_correct: allCorrect,
+        all_correct: true,
       }
-    })
+    } else {
+      // Incomplete or failed
+      await SurveyResponse.updateOne(
+        { _id: responseObjectId },
+        {
+          answers: validatedAnswers,
+          completed_at: currentTime,
+          time_taken_seconds: Math.floor(timeElapsed),
+          all_correct: false,
+          score: score,
+          status: "completed",
+        }
+      )
+      
+      await Survey.updateOne(
+        { _id: survey._id },
+        {
+          $inc: {
+            current_responses: 1,
+            failed_responses: 1,
+          },
+        }
+      )
+      
+      await updateUserAccuracyRate(userId, false)
+
+      const updatedProfile = await Profile.findById(userId)
+
+      revalidatePath("/dashboard/surveys")
+      revalidatePath("/dashboard")
+
+      return {
+        success: true,
+        message: "Survey completed but payment not credited due to incorrect answers.",
+        payout_cents: 0,
+        balance_cents: updatedProfile?.balance_cents || 0,
+        score: score,
+        all_correct: false,
+      }
+    }
   } catch (error: any) {
     console.error("Error submitting survey:", error)
     return {
       success: false,
       message: error.message || "Failed to submit survey answers.",
+      score: 0,
+      all_correct: false
     }
   }
 }
-
 /**
  * Get user's survey history
  */
@@ -791,8 +841,8 @@ export async function getAdminSurveyResponses(page = 1, limit = 10, search?: str
       { $limit: limit },
       {
         $project: {
+          id: { $toString: "$_id" }, // ADDED - convert ObjectId to string for 'id'
           _id: 0,
-          id: "$_id",
           survey_title: "$survey.title",
           user_email: "$user.email",
           user_username: "$user.username",
@@ -830,7 +880,6 @@ export async function getAdminSurveyResponses(page = 1, limit = 10, search?: str
     return { success: false, message: error.message || "Failed to fetch survey responses" }
   }
 }
-
 /**
  * AI-generated survey creation using the Gemini API
  */

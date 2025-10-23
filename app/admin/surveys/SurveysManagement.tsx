@@ -14,6 +14,7 @@ import Alert from '@/app/ui/Alert';
 
 // --- Type Definitions ---
 interface AdminSurvey {
+  id?: string;
   _id: string;
   title: string;
   category: string;
@@ -26,7 +27,7 @@ interface AdminSurvey {
 }
 
 interface AdminSurveyResponse {
-  _id: string;
+  id: string;
   survey_title: string;
   user_email: string;
   user_username: string;
@@ -72,7 +73,6 @@ function ManageSurveysList({ initialData }: { initialData: { data: AdminSurvey[]
     const result = await toggleSurveyAvailability(surveyId);
     
     if (result.success) {
-      // Refresh the list
       await fetchData(currentPage);
     } else {
       alert(result.message);
@@ -102,54 +102,56 @@ function ManageSurveysList({ initialData }: { initialData: { data: AdminSurvey[]
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {data.map((survey) => (
-                  <tr key={survey._id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{survey.title}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <div className="flex flex-col gap-1">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          survey.status === 'active' ? 'bg-green-100 text-green-800' :
-                          survey.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {survey.status.charAt(0).toUpperCase() + survey.status.slice(1)}
-                        </span>
-                        {survey.is_manually_enabled && (
-                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
-                            Manual Override
+                {data.map((survey) => {
+                  const surveyId = survey.id || survey._id;
+                  return (
+                    <tr key={surveyId}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{survey.title}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <div className="flex flex-col gap-1">
+                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            survey.status === 'active' ? 'bg-green-100 text-green-800' :
+                            survey.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {survey.status.charAt(0).toUpperCase() + survey.status.slice(1)}
                           </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {survey.current_responses} / {survey.max_responses || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      KES {(survey.payout_cents / 100).toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(survey.scheduled_for).toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <button
-                        onClick={() => handleToggleAvailability(survey._id)}
-                        disabled={toggling === survey._id}
-                        className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                          survey.is_manually_enabled
-                            ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                            : 'bg-green-100 text-green-700 hover:bg-green-200'
-                        } disabled:opacity-50`}
-                      >
-                        {toggling === survey._id ? 'Processing...' : 
-                         survey.is_manually_enabled ? 'Disable' : 'Enable'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                          {survey.is_manually_enabled && (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
+                              Manual Override
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {survey.current_responses} / {survey.max_responses || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        KES {(survey.payout_cents / 100).toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(survey.scheduled_for).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <button
+                          onClick={() => handleToggleAvailability(surveyId)}
+                          disabled={toggling === surveyId}
+                          className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                            survey.is_manually_enabled
+                              ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                              : 'bg-green-100 text-green-700 hover:bg-green-200'
+                          } disabled:opacity-50`}
+                        >
+                          {toggling === surveyId ? 'Processing...' : 
+                           survey.is_manually_enabled ? 'Disable' : 'Enable'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-          {/* Pagination Controls */}
           <div className="flex justify-between items-center pt-4">
             <p className="text-sm text-gray-700">
               Showing <span className="font-medium">{(currentPage - 1) * pagination.limit + 1}</span> to <span className="font-medium">{Math.min(currentPage * pagination.limit, pagination.total)}</span> of <span className="font-medium">{pagination.total}</span> results
@@ -240,16 +242,18 @@ function SurveyResponsesList({ initialData }: { initialData: { data: AdminSurvey
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {data.map((response) => (
-                  <tr key={response._id} className={response.revoked ? 'bg-red-50' : ''}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{response.survey_title}</td>
+                  <tr key={response.id} className={response.revoked ? 'bg-red-50' : ''}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {response.survey_title || 'N/A'}
+                    </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
                       <div className="flex flex-col">
-                        <span className="font-medium">{response.user_username}</span>
-                        <span className="text-xs text-gray-400">{response.user_email}</span>
+                        <span className="font-medium">{response.user_username || 'N/A'}</span>
+                        <span className="text-xs text-gray-400">{response.user_email || 'N/A'}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {response.user_accuracy_rate ? (
+                      {response.user_accuracy_rate != null ? (
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                           response.user_accuracy_rate >= 80 ? 'bg-green-100 text-green-800' :
                           response.user_accuracy_rate >= 60 ? 'bg-yellow-100 text-yellow-800' :
@@ -266,7 +270,7 @@ function SurveyResponsesList({ initialData }: { initialData: { data: AdminSurvey
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                           response.status === 'completed' ? 'bg-green-100 text-green-800' :
                           response.status === 'wrong_answer' ? 'bg-red-100 text-red-800' :
-                          response.status === 'time_expired' ? 'bg-orange-100 text-orange-800' :
+                          response.status === 'timeout' ? 'bg-orange-100 text-orange-800' :
                           'bg-yellow-100 text-yellow-800'
                         }`}>
                           {response.status.replace('_', ' ').split(' ').map(word => 
@@ -281,7 +285,7 @@ function SurveyResponsesList({ initialData }: { initialData: { data: AdminSurvey
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {response.score ? `${response.score.toFixed(0)}%` : 'N/A'}
+                      {response.score != null ? `${response.score.toFixed(0)}%` : 'N/A'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {response.payout_credited && !response.revoked ? (
@@ -296,11 +300,11 @@ function SurveyResponsesList({ initialData }: { initialData: { data: AdminSurvey
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {!response.revoked && response.payout_credited && (
                         <button
-                          onClick={() => handleRevoke(response._id)}
-                          disabled={revoking === response._id}
+                          onClick={() => handleRevoke(response.id)}
+                          disabled={revoking === response.id}
                           className="px-3 py-1 bg-red-100 text-red-700 hover:bg-red-200 rounded-md text-xs font-medium transition-colors disabled:opacity-50"
                         >
-                          {revoking === response._id ? 'Revoking...' : 'Revoke'}
+                          {revoking === response.id ? 'Revoking...' : 'Revoke'}
                         </button>
                       )}
                       {response.revoked && response.revoke_reason && (
@@ -314,7 +318,6 @@ function SurveyResponsesList({ initialData }: { initialData: { data: AdminSurvey
               </tbody>
             </table>
           </div>
-          {/* Pagination Controls */}
           <div className="flex justify-between items-center pt-4">
             <p className="text-sm text-gray-700">
               Showing <span className="font-medium">{(currentPage - 1) * pagination.limit + 1}</span> to <span className="font-medium">{Math.min(currentPage * pagination.limit, pagination.total)}</span> of <span className="font-medium">{pagination.total}</span> results
@@ -354,7 +357,6 @@ export default function SurveysManagement() {
   const [messageType, setMessageType] = useState<'success' | 'error' | 'info'>('info');
   const [generatedSurvey, setGeneratedSurvey] = useState<any>(null);
 
-  // Data states for Manage and Responses tabs
   const [adminSurveys, setAdminSurveys] = useState<{ data: AdminSurvey[], pagination: Pagination } | null>(null);
   const [adminResponses, setAdminResponses] = useState<{ data: AdminSurveyResponse[], pagination: Pagination } | null>(null);
 
@@ -547,7 +549,6 @@ export default function SurveysManagement() {
       )}
 
       <div className="min-h-[400px]">
-        {/* CREATE SURVEY TAB */}
         {activeTab === 'create' && (
           <div className="space-y-6">
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -555,8 +556,7 @@ export default function SurveysManagement() {
                 AI-Powered Survey Creation
               </h3>
               <p className="text-blue-700 text-sm">
-                Create engaging surveys using AI. Simply provide topics and let the system generate 
-                multiple-choice questions automatically. Surveys are scheduled for Tuesdays at 9:00 PM EAT.
+                Create engaging surveys using AI. Surveys are scheduled for Tuesdays at 9:00 PM EAT.
               </p>
             </div>
 
@@ -570,13 +570,10 @@ export default function SurveysManagement() {
                     <textarea
                       value={topics}
                       onChange={(e) => setTopics(e.target.value)}
-                      placeholder="Enter topics separated by commas (e.g., consumer preferences, product feedback, market trends)"
+                      placeholder="Enter topics separated by commas"
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       rows={4}
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Separate multiple topics with commas
-                    </p>
                   </div>
 
                   <div>
@@ -586,7 +583,7 @@ export default function SurveysManagement() {
                     <select 
                       value={category}
                       onChange={(e) => setCategory(e.target.value)}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                     >
                       <option value="market_research">Market Research</option>
                       <option value="consumer_insights">Consumer Insights</option>
@@ -603,7 +600,7 @@ export default function SurveysManagement() {
                     <select 
                       value={numberOfQuestions}
                       onChange={(e) => setNumberOfQuestions(e.target.value)}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                     >
                       <option value="3">3 Questions</option>
                       <option value="5">5 Questions</option>
@@ -617,10 +614,10 @@ export default function SurveysManagement() {
                   <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                     <h4 className="font-semibold text-gray-800 mb-3">Survey Rules & Schedule</h4>
                     <div className="space-y-3 text-sm text-gray-600">
-                      <p><strong>Payout:</strong> KSH 50 (5000 cents) per correctly completed survey</p>
+                      <p><strong>Payout:</strong> KSH 50 per correctly completed survey</p>
                       <p><strong>Duration:</strong> 5 minutes time limit</p>
                       <p><strong>Distribution:</strong> Automatically assigned to eligible users</p>
-                      <p><strong>Schedule:</strong> Tuesdays at 9:00 PM EAT (unless manually enabled)</p>
+                      <p><strong>Schedule:</strong> Tuesdays at 9:00 PM EAT</p>
                       <p>
                         <strong>Next Schedule Slot:</strong> 
                         <span className="font-medium text-indigo-600 ml-1">
@@ -637,22 +634,16 @@ export default function SurveysManagement() {
                   >
                     {loading ? 'Generating...' : 'Generate Survey with AI'}
                   </button>
-
-                  <div className="text-xs text-gray-500">
-                    <p>• Only fully correct responses within the time limit are credited.</p>
-                    <p>• The system automatically handles user assignment and payout.</p>
-                  </div>
                 </div>
               </div>
             ) : (
-              // Survey Review and Creation
               <div className="space-y-6">
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                   <h3 className="text-lg font-semibold text-green-800 mb-2">
                     Survey Generated Successfully! 🎉
                   </h3>
                   <p className="text-green-700 text-sm">
-                    Review the AI-generated survey below. Click Create Survey to schedule it for the next slot.
+                    Review the AI-generated survey below. Click Create Survey to schedule it.
                   </p>
                 </div>
 
@@ -734,7 +725,6 @@ export default function SurveysManagement() {
           </div>
         )}
 
-        {/* MANAGE SURVEYS TAB */}
         {activeTab === 'manage' && (
           <div className="py-4">
             {loading && (
@@ -759,7 +749,6 @@ export default function SurveysManagement() {
           </div>
         )}
 
-        {/* SURVEY RESPONSES TAB */}
         {activeTab === 'responses' && (
           <div className="py-4">
             {loading && (

@@ -26,19 +26,29 @@ export default function SurveysPage() {
   const [availabilityMessage, setAvailabilityMessage] = useState<string>('');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
 
-  // Fixed: Use useCallback to prevent recreating the function on every render
+  // Fixed: Use useCallback with proper dependencies
   const handleTimeExpired = useCallback(async () => {
     if (!currentResponseId) return;
     
     setMessage('Time expired! Survey automatically submitted.');
     setMessageType('error');
     
-    // Submit with current answers (will fail due to timeout)
-    const result = await submitSurveyAnswers(currentResponseId, answers);
-    
-    if (result.success) {
-      setMessage(result.message);
-      setMessageType('success');
+    try {
+      // Submit with current answers (will fail due to timeout)
+      const result = await submitSurveyAnswers(currentResponseId, answers);
+      
+      // FIXED: Add defensive check for result
+      if (result && result.success) {
+        setMessage(result.message || 'Survey submitted successfully!');
+        setMessageType('success');
+      } else {
+        setMessage(result?.message || 'Survey submission failed due to timeout.');
+        setMessageType('error');
+      }
+    } catch (error) {
+      console.error('Error in handleTimeExpired:', error);
+      setMessage('Failed to submit survey due to timeout.');
+      setMessageType('error');
     }
     
     // Reset survey state
@@ -54,7 +64,7 @@ export default function SurveysPage() {
     await loadSurveyHistory();
   }, [currentResponseId, answers]);
 
-  // Timer effect for active survey - FIXED: Added handleTimeExpired to dependencies
+  // Timer effect for active survey - FIXED: Proper cleanup and dependencies
   useEffect(() => {
     let timer: NodeJS.Timeout;
     
@@ -76,7 +86,7 @@ export default function SurveysPage() {
     };
   }, [activeSurvey, timeLeft, handleTimeExpired]);
 
-  // Load available surveys
+  // Load available surveys - FIXED: Added proper dependency array
   useEffect(() => {
     loadSurveys();
   }, []);
@@ -85,7 +95,7 @@ export default function SurveysPage() {
     setLoading(true);
     try {
       const result = await getAvailableSurveys();
-      if (result.success) {
+      if (result && result.success) {
         setSurveys(result.data || []);
         if (result.message && result.data?.length === 0) {
           setAvailabilityMessage(result.message);
@@ -93,9 +103,9 @@ export default function SurveysPage() {
           setAvailabilityMessage('');
         }
       } else {
-        setMessage(result.message || 'Failed to load surveys.');
+        setMessage(result?.message || 'Failed to load surveys.');
         setMessageType('error');
-        setAvailabilityMessage(result.message || '');
+        setAvailabilityMessage(result?.message || '');
       }
     } catch (error) {
       setMessage('Failed to load surveys.');
@@ -108,7 +118,7 @@ export default function SurveysPage() {
   const loadSurveyHistory = async () => {
     try {
       const result = await getSurveyHistory();
-      if (result.success && result.data) {
+      if (result && result.success && result.data) {
         setSurveyHistory(result.data);
       }
     } catch (error) {
@@ -123,7 +133,7 @@ export default function SurveysPage() {
     try {
       const result = await startSurvey(surveyId);
       
-      if (result.success && result.survey && result.responseId) {
+      if (result && result.success && result.survey && result.responseId) {
         setActiveSurvey(result.survey);
         setCurrentResponseId(result.responseId);
         setTimeLeft(result.survey.duration_minutes * 60); // Convert to seconds
@@ -133,7 +143,7 @@ export default function SurveysPage() {
         setMessage(result.message);
         setMessageType('info');
       } else {
-        setMessage(result.message);
+        setMessage(result?.message || 'Failed to start survey.');
         setMessageType('error');
       }
     } catch (error) {
@@ -175,13 +185,20 @@ export default function SurveysPage() {
   const handleSubmitSurvey = async () => {
     if (!currentResponseId || !activeSurvey) return;
 
-    // Check if all required questions are answered
-    const unansweredQuestions = activeSurvey.questions.filter((question, index) => 
-      question.required && !answers.find(a => a.question_index === index)
+    // FIXED: Check if all required questions are answered
+    const requiredQuestions = activeSurvey.questions
+      .map((q, idx) => ({ question: q, index: idx }))
+      .filter(item => item.question.required);
+
+    const answeredIndices = answers.map(a => a.question_index);
+    const unansweredRequired = requiredQuestions.filter(
+      item => !answeredIndices.includes(item.index)
     );
 
-    if (unansweredQuestions.length > 0) {
-      setMessage(`Please answer all required questions. ${unansweredQuestions.length} question(s) remaining.`);
+    if (unansweredRequired.length > 0) {
+      setMessage(
+        `Please answer all required questions. ${unansweredRequired.length} question(s) remaining.`
+      );
       setMessageType('error');
       return;
     }
@@ -190,10 +207,19 @@ export default function SurveysPage() {
     setMessage(null);
 
     try {
+      console.log('Submitting survey with:', {
+        responseId: currentResponseId,
+        answersCount: answers.length,
+        answers: answers
+      });
+
       const result = await submitSurveyAnswers(currentResponseId, answers);
       
-      if (result.success) {
-        setMessage(result.message);
+      console.log('Submit result:', result);
+
+      // FIXED: Add defensive check for result
+      if (result && result.success) {
+        setMessage(result.message || 'Survey submitted successfully!');
         setMessageType('success');
         
         // Reset survey state
@@ -204,15 +230,23 @@ export default function SurveysPage() {
         setTimeLeft(0);
         setCurrentQuestionIndex(0);
         
-        // Reload available surveys
+        // Reload data
         await loadSurveys();
         await loadSurveyHistory();
       } else {
-        setMessage(result.message);
+        // FIXED: Better error handling
+        const errorMessage = result?.message || 'Failed to submit survey. Please try again.';
+        console.error('Survey submission failed:', errorMessage);
+        setMessage(errorMessage);
         setMessageType('error');
         
-        // If survey failed due to wrong answer or timeout, close it
-        if (result.message?.includes('Incorrect answer') || result.message?.includes('time expired')) {
+        // Check if we should close the survey based on the error
+        if (
+          errorMessage.includes('Incorrect answer') || 
+          errorMessage.includes('time expired') ||
+          errorMessage.includes('already completed')
+        ) {
+          // Close survey on these specific errors
           setActiveSurvey(null);
           setCurrentResponseId(null);
           setShowSurveyForm(false);
@@ -223,7 +257,8 @@ export default function SurveysPage() {
         }
       }
     } catch (error) {
-      setMessage('Failed to submit survey.');
+      console.error('Error submitting survey:', error);
+      setMessage('An unexpected error occurred. Please try again.');
       setMessageType('error');
     } finally {
       setSubmitting(false);
@@ -343,7 +378,7 @@ export default function SurveysPage() {
       {/* Active Survey Form - SINGLE QUESTION DISPLAY */}
       {showSurveyForm && activeSurvey && currentQuestion && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
             {/* Header with Timer and Progress */}
             <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 text-white">
               <div className="flex justify-between items-center mb-4">
@@ -372,7 +407,7 @@ export default function SurveysPage() {
             </div>
 
             {/* Single Question Display */}
-            <div className="p-6">
+            <div className="p-6 overflow-y-auto flex-1">
               <div className="border border-gray-200 rounded-lg p-6">
                 <h3 className="font-semibold text-gray-800 mb-4 text-lg">
                   {currentQuestion.question_text}

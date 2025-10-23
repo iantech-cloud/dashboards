@@ -1343,7 +1343,7 @@ const SurveyAssignmentSchema = new Schema({
   assigned_at: { type: Date, default: Date.now, index: true },
   assigned_reason: {
     type: String,
-    enum: ['new_user', 'top_referrer', 'random'],
+    enum: ['new_user', 'top_referrer', 'high_accuracy', 'random'], // ADDED 'high_accuracy'
     required: true
   },
   notified: { type: Boolean, default: false },
