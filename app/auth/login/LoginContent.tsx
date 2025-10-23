@@ -25,7 +25,7 @@ const Alert: React.FC<AlertProps> = ({ type, message, onClose }) => {
       <p className="font-medium text-sm">{message}</p>
       <button 
         onClick={onClose} 
-        className={`ml-4 text-lg font-bold leading-none ${typeClasses[type].split(' ').pop()?.replace('text-', 'text-')}`}
+        className="ml-4 text-lg font-bold leading-none hover:opacity-70"
       >
         &times;
       </button>
@@ -73,6 +73,15 @@ const handleNextAuthError = (errorParam: string | null): { message: string; redi
     return { message: 'Your account is not active. Please contact support.' };
   }
 
+  // Handle 2FA specific errors
+  if (errorParam.includes('TwoFactorRequired')) {
+    return { message: 'Please enter your 2FA verification code to continue.' };
+  }
+
+  if (errorParam.includes('InvalidTwoFactorCode')) {
+    return { message: 'Invalid 2FA verification code. Please try again.' };
+  }
+
   // Handle standard NextAuth errors
   switch (errorParam) {
     case 'CredentialsSignin':
@@ -93,9 +102,13 @@ const handleNextAuthError = (errorParam: string | null): { message: string; redi
 export default function LoginContent() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [twoFAToken, setTwoFAToken] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [messageType, setMessageType] = useState<'success' | 'error' | 'info'>('info');
   const [loading, setLoading] = useState(false);
+  const [requires2FA, setRequires2FA] = useState(false);
+  const [pendingSession, setPendingSession] = useState<any>(null);
+  const [loginStep, setLoginStep] = useState<'credentials' | '2fa'>('credentials');
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -132,7 +145,7 @@ export default function LoginContent() {
     }
   }, [searchParams, router]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
@@ -140,7 +153,21 @@ export default function LoginContent() {
     try {
       console.log('Attempting login for:', email);
       
-      // Sign in with credentials
+      // First, check if user has 2FA enabled
+      const statusResponse = await fetch('/api/auth/2fa/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+
+      let user2FAStatus = false;
+      if (statusResponse.ok) {
+        const statusData = await statusResponse.json();
+        user2FAStatus = statusData.twoFAEnabled || false;
+        console.log('User 2FA status:', statusData.twoFAEnabled);
+      }
+
+      // Attempt sign in with just credentials (no 2FA token yet)
       const result = await signIn('credentials', {
         email,
         password,
@@ -150,7 +177,17 @@ export default function LoginContent() {
       console.log('SignIn result:', result);
 
       if (result?.error) {
-        // Handle authentication errors with specific messages
+        // Check if error indicates 2FA is required
+        if (result.error.includes('TwoFactorRequired')) {
+          console.log('2FA required, showing 2FA form');
+          setRequires2FA(true);
+          setLoginStep('2fa');
+          setMessage('Please enter your 6-digit verification code from Google Authenticator.');
+          setMessageType('info');
+          setLoading(false);
+          return;
+        }
+
         const errorInfo = handleNextAuthError(result.error);
         setMessage(errorInfo.message);
         setMessageType('error');
@@ -175,59 +212,23 @@ export default function LoginContent() {
             console.log('Session after login:', session);
             
             if (session?.user) {
-              setMessage('Login successful! Checking account status...');
-              setMessageType('success');
-              
-              // Check the user status through session data
               const user = session.user as any;
               
-              console.log('User status:', {
-                is_verified: user.is_verified,
-                activation_paid_at: user.activation_paid_at,
-                is_approved: user.is_approved,
-                approval_status: user.approval_status,
-                is_active: user.is_active
-              });
-
-              // Check each condition and redirect accordingly
-              if (!user.is_verified) {
-                setMessage('Email not verified. Redirecting to verification...');
-                setTimeout(() => {
-                  router.push('/auth/confirm');
-                }, 1500);
+              // Check if 2FA is required for this user
+              if (user.requires2FA || user.twoFAEnabled || user2FAStatus) {
+                console.log('2FA required for user, showing 2FA form');
+                setRequires2FA(true);
+                setLoginStep('2fa');
+                setPendingSession(session);
+                setMessage('Two-factor authentication is enabled. Please enter your verification code from Google Authenticator.');
+                setMessageType('info');
+                setLoading(false);
                 return;
               }
+
+              // Continue with normal account status checks (no 2FA required)
+              await handleSuccessfulLogin(session);
               
-              if (!user.activation_paid_at) {
-                setMessage('Account not activated. Redirecting to activation...');
-                setTimeout(() => {
-                  router.push('/auth/activate');
-                }, 1500);
-                return;
-              }
-              
-              if (!user.is_approved || user.approval_status !== 'approved') {
-                setMessage('Account pending approval. Redirecting...');
-                setTimeout(() => {
-                  router.push('/auth/pending-approval');
-                }, 1500);
-                return;
-              }
-
-              if (!user.is_active) {
-                setMessage('Account is inactive. Please contact support.');
-                setMessageType('error');
-                return;
-              }
-
-              // ALL CONDITIONS MET - Redirect to dashboard
-              setMessage('All checks passed! Redirecting to dashboard...');
-              setTimeout(() => {
-                // Use the dashboard route from session or default to /dashboard
-                const dashboardRoute = (session as any).dashboardRoute || '/dashboard';
-                console.log('Redirecting to:', dashboardRoute);
-                router.push(dashboardRoute);
-              }, 1000);
             } else {
               // Fallback if session is not available
               console.warn('No session found after successful login');
@@ -243,7 +244,7 @@ export default function LoginContent() {
               router.push('/dashboard');
             }, 1000);
           }
-        }, 500); // Wait 500ms for session to update
+        }, 500);
 
       } else {
         console.warn('Unexpected login response:', result);
@@ -255,12 +256,198 @@ export default function LoginContent() {
       setMessage('An unexpected network error occurred. Please try again.');
       setMessageType('error');
     } finally {
+      if (!requires2FA) {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handle2FASubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage(null);
+
+    try {
+      console.log('Submitting 2FA token for:', email);
+      
+      // Option 1: Verify 2FA token with the backend API
+      const response = await fetch('/api/auth/2fa/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: pendingSession?.user?.email || email,
+          token: twoFAToken,
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        
+        if (result.success) {
+          setMessage('2FA verification successful! Completing login...');
+          setMessageType('success');
+
+          // Refresh session after successful 2FA verification
+          setTimeout(async () => {
+            try {
+              const updatedSession = await getSession();
+              if (updatedSession) {
+                await handleSuccessfulLogin(updatedSession);
+              } else {
+                setMessage('Login completed! Redirecting to dashboard...');
+                setTimeout(() => {
+                  router.push('/dashboard');
+                }, 1000);
+              }
+            } catch (error) {
+              console.error('Error getting updated session:', error);
+              setMessage('Login completed! Redirecting to dashboard...');
+              setTimeout(() => {
+                router.push('/dashboard');
+              }, 1000);
+            }
+          }, 500);
+        } else {
+          setMessage(result.error || 'Invalid 2FA code. Please try again.');
+          setMessageType('error');
+          setTwoFAToken(''); // Clear the input for retry
+        }
+      } else {
+        // If API verification fails, try direct signIn with 2FA token
+        await handle2FASignIn();
+      }
+    } catch (error) {
+      console.error('2FA verification error:', error);
+      // Fallback to direct signIn method
+      await handle2FASignIn();
+    }
+  };
+
+  const handle2FASignIn = async () => {
+    try {
+      // Option 2: Direct signIn with 2FA token (fallback method)
+      const result = await signIn('credentials', {
+        email,
+        password,
+        twoFAToken: twoFAToken,
+        redirect: false,
+      });
+
+      console.log('2FA SignIn result:', result);
+
+      if (result?.error) {
+        const errorInfo = handleNextAuthError(result.error);
+        setMessage(errorInfo.message);
+        setMessageType('error');
+        setTwoFAToken(''); // Clear token for retry
+        setLoading(false);
+        return;
+      }
+
+      if (result?.ok) {
+        setMessage('2FA verification successful! Completing login...');
+        setMessageType('success');
+
+        // Get updated session
+        setTimeout(async () => {
+          const session = await getSession();
+          if (session) {
+            await handleSuccessfulLogin(session);
+          } else {
+            setMessage('Login completed! Redirecting to dashboard...');
+            setTimeout(() => {
+              router.push('/dashboard');
+            }, 1000);
+          }
+        }, 500);
+      }
+    } catch (error) {
+      console.error('2FA signin error:', error);
+      setMessage('An error occurred during 2FA verification. Please try again.');
+      setMessageType('error');
       setLoading(false);
     }
   };
 
+  const handleSuccessfulLogin = async (session: any) => {
+    setMessage('Login successful! Checking account status...');
+    setMessageType('success');
+    
+    const user = session.user as any;
+    
+    console.log('User status:', {
+      is_verified: user.is_verified,
+      activation_paid_at: user.activation_paid_at,
+      is_approved: user.is_approved,
+      approval_status: user.approval_status,
+      is_active: user.is_active,
+      role: user.role // Check user role for admin redirect
+    });
+
+    // Check each condition and redirect accordingly
+    if (!user.is_verified) {
+      setMessage('Email not verified. Redirecting to verification...');
+      setTimeout(() => {
+        router.push('/auth/confirm');
+      }, 1500);
+      return;
+    }
+    
+    if (!user.activation_paid_at) {
+      setMessage('Account not activated. Redirecting to activation...');
+      setTimeout(() => {
+        router.push('/auth/activate');
+      }, 1500);
+      return;
+    }
+    
+    if (!user.is_approved || user.approval_status !== 'approved') {
+      setMessage('Account pending approval. Redirecting...');
+      setTimeout(() => {
+        router.push('/auth/pending-approval');
+      }, 1500);
+      return;
+    }
+
+    if (!user.is_active) {
+      setMessage('Account is inactive. Please contact support.');
+      setMessageType('error');
+      setLoading(false);
+      return;
+    }
+
+    // ALL CONDITIONS MET - Check user role and redirect accordingly
+    setMessage('All checks passed! Redirecting...');
+    setTimeout(() => {
+      // Determine redirect route based on user role
+      let redirectRoute = '/dashboard';
+      
+      if (user.role === 'admin' || user.role === 'super_admin') {
+        redirectRoute = '/admin';
+        console.log('Admin user detected, redirecting to admin dashboard');
+      } else {
+        console.log('Regular user, redirecting to user dashboard');
+      }
+
+      console.log('Redirecting to:', redirectRoute);
+      router.push(redirectRoute);
+      router.refresh();
+    }, 1000);
+  };
+
   const clearMessage = () => {
     setMessage(null);
+  };
+
+  const backToPassword = () => {
+    setRequires2FA(false);
+    setLoginStep('credentials');
+    setTwoFAToken('');
+    setPendingSession(null);
+    setMessage(null);
+    setLoading(false);
   };
 
   return (
@@ -272,10 +459,13 @@ export default function LoginContent() {
             HH HustleHub Africa
           </div>
           <h2 className="text-3xl font-extrabold text-gray-900">
-            Welcome Back!
+            {loginStep === '2fa' ? 'Two-Factor Authentication' : 'Welcome Back!'}
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            Sign in to your account to continue
+            {loginStep === '2fa' 
+              ? 'Enter your 6-digit verification code from Google Authenticator' 
+              : 'Sign in to your account to continue'
+            }
           </p>
         </div>
         
@@ -287,106 +477,182 @@ export default function LoginContent() {
           />
         )}
         
-        <form className="space-y-4" onSubmit={handleSubmit}>
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-              Email Address
-            </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@email.com"
-              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
-              disabled={loading}
-            />
+        {loginStep === 'credentials' ? (
+          // Password Login Form
+          <form className="space-y-4" onSubmit={handlePasswordSubmit}>
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                Email Address
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@email.com"
+                className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                disabled={loading}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                Password
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                disabled={loading}
+              />
+            </div>
+
+            <div>
+              <button
+                type="submit"
+                disabled={loading}
+                className={`w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white transition-all duration-200 
+                  ${loading 
+                      ? 'bg-indigo-400 cursor-not-allowed' 
+                      : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transform hover:scale-[1.01]'
+                  }`}
+              >
+                {loading ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Signing In...
+                  </>
+                ) : (
+                  'Sign In to Your Account'
+                )}
+              </button>
+            </div>
+          </form>
+        ) : (
+          // 2FA Verification Form
+          <form className="space-y-4" onSubmit={handle2FASubmit}>
+            <div>
+              <label htmlFor="twoFAToken" className="block text-sm font-medium text-gray-700">
+                6-Digit Verification Code
+              </label>
+              <input
+                id="twoFAToken"
+                name="twoFAToken"
+                type="text"
+                inputMode="numeric"
+                required
+                maxLength={6}
+                pattern="[0-9]{6}"
+                value={twoFAToken}
+                onChange={(e) => setTwoFAToken(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="123456"
+                className="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors text-center text-xl font-mono tracking-widest"
+                disabled={loading}
+                autoFocus
+              />
+              <p className="mt-2 text-xs text-gray-500 text-center">
+                Open your Google Authenticator app and enter the 6-digit code
+              </p>
+            </div>
+
+            <div className="flex space-x-3">
+              <button
+                type="button"
+                onClick={backToPassword}
+                disabled={loading}
+                className="flex-1 py-3 px-4 border border-gray-300 rounded-xl shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+              >
+                Back to Login
+              </button>
+              <button
+                type="submit"
+                disabled={loading || twoFAToken.length !== 6}
+                className={`flex-1 flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white transition-all duration-200 
+                  ${loading || twoFAToken.length !== 6
+                      ? 'bg-indigo-400 cursor-not-allowed' 
+                      : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transform hover:scale-[1.01]'
+                  }`}
+              >
+                {loading ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Verifying...
+                  </>
+                ) : (
+                  'Verify & Continue'
+                )}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {loginStep === 'credentials' && (
+          <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
+            <h3 className="text-sm font-semibold text-blue-800 mb-2">Account Status Flow:</h3>
+            <ol className="text-xs text-blue-700 space-y-1">
+              <li className="flex items-start">
+                <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">1</span>
+                Verify your email address
+              </li>
+              <li className="flex items-start">
+                <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">2</span>
+                Pay KSH 1,000 activation fee
+              </li>
+              <li className="flex items-start">
+                <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">3</span>
+                Wait for admin approval (24-48 hours)
+              </li>
+              <li className="flex items-start">
+                <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">4</span>
+                Access your dashboard and start earning!
+              </li>
+            </ol>
           </div>
+        )}
 
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-              Password
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
-              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
-              disabled={loading}
-            />
+        {loginStep === 'credentials' && (
+          <>
+            <p className="mt-6 text-center text-sm text-gray-600">
+              Don't have an account?{' '}
+              <a 
+                href="/auth/sign-up" 
+                className="font-medium text-indigo-600 hover:text-indigo-500 transition-colors"
+              >
+                Create an account
+              </a>
+            </p>
+
+            <div className="mt-4 text-center">
+              <a 
+                href="/auth/forgot-password" 
+                className="text-sm text-indigo-600 hover:text-indigo-500 transition-colors"
+              >
+                Forgot your password?
+              </a>
+            </div>
+          </>
+        )}
+
+        {loginStep === '2fa' && (
+          <div className="mt-6 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
+            <p className="text-xs text-yellow-800">
+              <strong>Lost access to your authenticator?</strong> Contact support to disable 2FA and regain access to your account.
+            </p>
           </div>
-
-          <div>
-            <button
-              type="submit"
-              disabled={loading}
-              className={`w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white transition-all duration-200 
-                ${loading 
-                    ? 'bg-indigo-400 cursor-not-allowed' 
-                    : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transform hover:scale-[1.01]'
-                }`}
-            >
-              {loading ? (
-                <>
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Signing In...
-                </>
-              ) : (
-                'Sign In to Your Account'
-              )}
-            </button>
-          </div>
-        </form>
-
-        <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
-          <h3 className="text-sm font-semibold text-blue-800 mb-2">Account Status Flow:</h3>
-          <ol className="text-xs text-blue-700 space-y-1">
-            <li className="flex items-start">
-              <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">1</span>
-              Verify your email address
-            </li>
-            <li className="flex items-start">
-              <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">2</span>
-              Pay KSH 1,000 activation fee
-            </li>
-            <li className="flex items-start">
-              <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">3</span>
-              Wait for admin approval (24-48 hours)
-            </li>
-            <li className="flex items-start">
-              <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">4</span>
-              Access your dashboard and start earning!
-            </li>
-          </ol>
-        </div>
-
-        <p className="mt-6 text-center text-sm text-gray-600">
-          Don't have an account?{' '}
-          <a 
-            href="/auth/sign-up" 
-            className="font-medium text-indigo-600 hover:text-indigo-500 transition-colors"
-          >
-            Create an account
-          </a>
-        </p>
-
-        <div className="mt-4 text-center">
-          <a 
-            href="/auth/forgot-password" 
-            className="text-sm text-indigo-600 hover:text-indigo-500 transition-colors"
-          >
-            Forgot your password?
-          </a>
-        </div>
+        )}
       </div>
     </div>
   );

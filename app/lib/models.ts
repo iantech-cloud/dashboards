@@ -91,7 +91,7 @@ const getModel = (name: string, schema: Schema) => {
 // --- Step 2: Define Schemas & Models ---
 
 /**
- * 1. Profile Model (replaces profiles table) - ENHANCED FOR M-PESA & ACTIVATION & SPIN
+ * 1. Profile Model (replaces profiles table) - ENHANCED FOR M-PESA & ACTIVATION & SPIN & 2FA
  */
 const ProfileSchema = new Schema({
   _id: { type: String, required: true },
@@ -103,6 +103,23 @@ const ProfileSchema = new Schema({
     required: false,
     select: false
   },
+
+  // ===== 2FA FIELDS - UPDATED =====
+  twoFAEnabled: { type: Boolean, default: false },
+  twoFASecret: { 
+    type: String, 
+    default: null,
+    // NOT using select: false to avoid update issues
+  },
+  twoFABackupCodes: [{
+    code: { type: String },
+    used: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now }
+  }],
+  twoFALastUsed: { type: Date },
+  twoFASetupDate: { type: Date },
+  // ===== END 2FA FIELDS =====
+
   referral_id: { type: String, unique: true, sparse: true, maxlength: 10 },
   role: { type: String, enum: UserRoles, default: 'user', required: true },
 
@@ -183,6 +200,9 @@ const ProfileSchema = new Schema({
   profile_completed: { type: Boolean, default: false },
   completion_percentage: { type: Number, default: 0 },
 
+  // Login tracking
+  last_login: { type: Date },
+
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
   indexes: [
@@ -198,7 +218,52 @@ const ProfileSchema = new Schema({
     { fields: { referred_by: 1 } },
     { fields: { spin_tier: 1 } },
     { fields: { available_spins: 1 } },
+    // 2FA INDEXES
+    { fields: { twoFAEnabled: 1 } },
+    { fields: { twoFALastUsed: 1 } },
   ]
+});
+
+// ADD THESE METHODS to ProfileSchema (after schema definition, before export):
+ProfileSchema.methods.enable2FA = function(secret: string) {
+  this.twoFASecret = secret;
+  this.twoFAEnabled = true;
+  this.twoFASetupDate = new Date();
+  return this.save();
+};
+
+ProfileSchema.methods.disable2FA = function() {
+  this.twoFASecret = null;
+  this.twoFAEnabled = false;
+  this.twoFABackupCodes = [];
+  this.twoFASetupDate = null;
+  return this.save();
+};
+
+ProfileSchema.methods.verify2FAToken = function() {
+  this.twoFALastUsed = new Date();
+  return this.save();
+};
+
+// ADD VIRTUAL FIELDS
+ProfileSchema.virtual('twoFASetupInProgress').get(function() {
+  return !this.twoFAEnabled && !!this.twoFASecret;
+});
+
+ProfileSchema.virtual('requires2FA').get(function() {
+  return this.twoFAEnabled && !!this.twoFASecret;
+});
+
+// ENSURE JSON SERIALIZATION SECURITY
+ProfileSchema.set('toJSON', {
+  virtuals: true,
+  transform: function(doc, ret) {
+    // Remove sensitive 2FA data from JSON output
+    delete ret.twoFASecret;
+    delete ret.twoFABackupCodes;
+    delete ret.password;
+    return ret;
+  }
 });
 
 export const Profile = getModel('Profile', ProfileSchema);

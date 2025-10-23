@@ -1,22 +1,14 @@
+// auth.ts - COMPLETE VERSION WITH 2FA SUPPORT
 import NextAuth, { DefaultSession, NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { MongoDBAdapter } from "@next-auth/mongodb-adapter";
 import bcrypt from 'bcryptjs';
+import speakeasy from 'speakeasy';
 import { Profile, connectToDatabase } from '@/app/lib/models'; 
-import { MongoClient } from 'mongodb';
 
 // Validate environment variables
 if (!process.env.NEXTAUTH_SECRET) {
   throw new Error('NEXTAUTH_SECRET environment variable is required');
 }
-
-if (!process.env.MONGODB_URI) {
-  throw new Error('MONGODB_URI environment variable is required');
-}
-
-// Create MongoDB client promise for the adapter
-const client = new MongoClient(process.env.MONGODB_URI);
-const clientPromise = client.connect();
 
 // Helper function to determine the user's dashboard route based on their role.
 function getDashboardRoute(role: string): string {
@@ -48,28 +40,25 @@ function getUserStatusRedirect(user: any): string {
 }
 
 /**
- * The configuration object for NextAuth.js (Auth.js v5).
+ * The configuration object for NextAuth.js (Auth.js v5) with 2FA support.
  */
 export const authOptions: NextAuthConfig = {
-    // 1. Adapter Setup (Connects NextAuth to MongoDB)
-    adapter: MongoDBAdapter(clientPromise),
-    
-    // 2. Session Configuration
+    // Session Configuration
     session: {
         strategy: 'jwt',
         maxAge: 30 * 24 * 60 * 60, // 30 days
     },
     
-    // 3. Pages Configuration - ADDED SIGNOUT PAGE
+    // Pages Configuration
     pages: {
         signIn: '/auth/login',
-        signOut: '/auth/login', // Redirect to login after logout
+        signOut: '/auth/login',
         error: '/auth/login',
         verifyRequest: '/auth/confirm',
         newUser: '/auth/activate',
     },
     
-    // 4. Providers Configuration
+    // Providers Configuration
     providers: [
         Credentials({
             id: 'credentials',
@@ -77,121 +66,225 @@ export const authOptions: NextAuthConfig = {
             credentials: {
                 email: { label: 'Email', type: 'email' },
                 password: { label: 'Password', type: 'password' },
+                twoFAToken: { label: '2FA Token', type: 'text', optional: true },
             },
             
             async authorize(credentials) {
-                await connectToDatabase();
-                
-                if (!credentials?.email || !credentials?.password) {
-                    throw new Error('Email and password are required.');
-                }
-
-                const user = await Profile.findOne({ email: credentials.email }).select('+password');
-
-                if (!user) {
-                    throw new Error('Invalid email or password.');
-                }
-                
-                const isPasswordValid = await bcrypt.compare(
-                    credentials.password as string,
-                    user.password || ''
-                );
-
-                if (!isPasswordValid) {
-                    throw new Error('Invalid email or password.');
-                }
-                
-                // Authorization and Status Checks
-                if (user.status === 'banned') {
-                    const message = user.ban_reason || 'Your account has been permanently banned.';
-                    throw new Error(`Banned: ${message}`);
-                }
-
-                if (user.status === 'suspended' && user.suspended_at && user.suspended_at.getTime() > Date.now()) {
-                    let message = `Your account has been suspended until: ${new Date(user.suspended_at).toLocaleString()}.`;
-                    if (user.suspension_reason) {
-                        message += ` Reason: ${user.suspension_reason}`;
+                try {
+                    await connectToDatabase();
+                    
+                    if (!credentials?.email || !credentials?.password) {
+                        throw new Error('Email and password are required.');
                     }
-                    throw new Error(`Suspended: ${message}`);
-                } else if (user.status === 'suspended') {
-                    await Profile.updateOne({ _id: user._id }, { status: 'active', suspended_at: null, suspension_reason: null });
-                    user.status = 'active'; 
-                }
 
-                // Return user object with status information for proper redirect handling
-                return {
-                    id: user._id.toString(),
-                    email: user.email,
-                    name: user.username,
-                    role: user.role,
-                    dashboardRoute: getDashboardRoute(user.role),
-                    is_verified: user.is_verified,
-                    is_active: user.is_active,
-                    is_approved: user.is_approved,
-                    approval_status: user.approval_status,
-                    activation_paid_at: user.activation_paid_at,
-                    status: user.status,
-                };
+                    // Find user with password AND 2FA secret
+                    const user = await Profile.findOne({ email: credentials.email })
+                        .select('+password');
+
+                    if (!user) {
+                        throw new Error('Invalid email or password.');
+                    }
+                    
+                    // Verify password
+                    const isPasswordValid = await bcrypt.compare(
+                        credentials.password as string,
+                        user.password || ''
+                    );
+
+                    if (!isPasswordValid) {
+                        throw new Error('Invalid email or password.');
+                    }
+                    
+                    // ===== ACCOUNT STATUS CHECKS (BEFORE 2FA) =====
+                    
+                    // Check if email is verified
+                    if (!user.is_verified) {
+                        throw new Error('UnverifiedEmail: Please verify your email address before logging in.');
+                    }
+
+                    // Check if activation payment is completed
+                    if (!user.activation_paid_at) {
+                        throw new Error('PaymentRequired: Please complete the activation payment to access your account.');
+                    }
+
+                    // Check approval status
+                    if (user.approval_status !== 'approved' || !user.is_approved) {
+                        throw new Error('PendingApproval: Your account is awaiting admin approval. Please check back later.');
+                    }
+
+                    // Check if user is banned
+                    if (user.status === 'banned') {
+                        const message = user.ban_reason || 'Your account has been permanently banned.';
+                        throw new Error(`Banned: ${message}`);
+                    }
+
+                    // Check if user is suspended
+                    if (user.status === 'suspended' && user.suspended_at && user.suspended_at.getTime() > Date.now()) {
+                        let message = `Your account has been suspended until: ${new Date(user.suspended_at).toLocaleString()}.`;
+                        if (user.suspension_reason) {
+                            message += ` Reason: ${user.suspension_reason}`;
+                        }
+                        throw new Error(`Suspended: ${message}`);
+                    } else if (user.status === 'suspended') {
+                        // Suspension expired, reactivate user
+                        await Profile.updateOne(
+                            { _id: user._id }, 
+                            { 
+                                status: 'active', 
+                                suspended_at: null, 
+                                suspension_reason: null 
+                            }
+                        );
+                        user.status = 'active'; 
+                    }
+
+                    // Check if account is active
+                    if (!user.is_active || user.status === 'inactive') {
+                        throw new Error('Inactive: Your account is not active. Please contact support.');
+                    }
+
+                    // ===== 2FA VERIFICATION =====
+                    
+                    // Check if 2FA is enabled for this user
+                    if (user.twoFAEnabled && user.twoFASecret) {
+                        console.log('2FA is enabled for user:', user.email);
+                        
+                        // If no 2FA token provided, return partial user to indicate 2FA required
+                        if (!credentials.twoFAToken) {
+                            console.log('2FA token not provided, returning requires2FA flag');
+                            
+                            // Return special user object to indicate 2FA is required
+                            return {
+                                id: user._id.toString(),
+                                email: user.email,
+                                name: user.username,
+                                role: user.role,
+                                requires2FA: true,
+                                twoFAEnabled: true,
+                                // Don't include sensitive data or complete authorization
+                                dashboardRoute: getDashboardRoute(user.role),
+                            } as any;
+                        }
+
+                        // 2FA token provided, verify it
+                        console.log('2FA token provided, verifying...');
+                        
+                        const verified = speakeasy.totp.verify({
+                            secret: user.twoFASecret,
+                            encoding: 'base32',
+                            token: credentials.twoFAToken as string,
+                            window: 2, // Allow 2 time steps (60 seconds) tolerance
+                            step: 30, // 30-second steps (standard for Google Authenticator)
+                        });
+
+                        console.log('2FA verification result:', verified);
+
+                        if (!verified) {
+                            throw new Error('InvalidTwoFactorCode: Invalid 2FA verification code. Please try again.');
+                        }
+
+                        // Update last 2FA used timestamp
+                        await Profile.updateOne(
+                            { _id: user._id },
+                            { 
+                                twoFALastUsed: new Date(),
+                                last_login: new Date()
+                            }
+                        );
+
+                        console.log('2FA verification successful for user:', user.email);
+                    } else {
+                        // No 2FA required, just update last login
+                        await Profile.updateOne(
+                            { _id: user._id },
+                            { last_login: new Date() }
+                        );
+                    }
+
+                    // ===== FULL USER OBJECT (AUTHENTICATION COMPLETE) =====
+                    
+                    console.log('Full authentication successful for user:', user.email);
+                    
+                    // Return complete user object for session
+                    return {
+                        id: user._id.toString(),
+                        email: user.email,
+                        name: user.username,
+                        role: user.role,
+                        dashboardRoute: getDashboardRoute(user.role),
+                        is_verified: user.is_verified,
+                        is_active: user.is_active,
+                        is_approved: user.is_approved,
+                        approval_status: user.approval_status,
+                        activation_paid_at: user.activation_paid_at,
+                        status: user.status,
+                        twoFAEnabled: user.twoFAEnabled || false,
+                        requires2FA: false, // Authentication is now complete
+                    };
+                    
+                } catch (error: any) {
+                    console.error('Authorize error:', error);
+                    throw error;
+                }
             },
         }),
     ],
     
-    // 5. Callbacks Configuration (FIXED)
+    // Callbacks Configuration
     callbacks: {
-        async signIn({ user, account, profile }) {
-            // If using non-Credentials providers, this performs a basic verification check.
-            // For Credentials, the 'authorize' function has already run the checks.
+        async signIn({ user, account }) {
+            // For credentials provider, authorize has already handled verification
             if (account?.provider === 'credentials') {
-              return true;
+                // Check if 2FA is required but not yet verified
+                if ((user as any).requires2FA === true) {
+                    console.log('SignIn callback: 2FA required, blocking sign-in until verified');
+                    // Allow sign-in to proceed so we can show 2FA prompt
+                    return true;
+                }
+                
+                // Full authentication complete
+                console.log('SignIn callback: Full authentication complete');
+                return true;
             }
-
-            await connectToDatabase();
-            const dbUser = await Profile.findOne({ email: user.email });
             
-            if (!dbUser) return false;
-            
-            // Allow sign in only if email is verified
-            if (!dbUser.is_verified) {
-              throw new Error('Please verify your email before signing in');
-            }
-            
-            return true;
+            return false; // Only credentials provider supported
         },
         
-        async jwt({ token, user, trigger, session }) {
+        async jwt({ token, user, trigger }) {
+            // When user signs in
             if (user) {
-                // 1. Persist essential data passed from 'authorize'
                 token.id = user.id;
-                token.role = user.role; 
+                token.role = user.role;
                 token.dashboardRoute = (user as any).dashboardRoute;
-
-                // 2. Fetch full status from DB to inject into the token
-                await connectToDatabase();
-                const dbUser = await Profile.findOne({ email: user.email });
-                if (dbUser) {
-                    token.role = dbUser.role; // Ensure latest role is used
-                    token.is_verified = dbUser.is_verified;
-                    token.is_active = dbUser.is_active;
-                    token.is_approved = dbUser.is_approved;
-                    token.approval_status = dbUser.approval_status;
-                    token.activation_paid_at = dbUser.activation_paid_at;
-                    token.status = dbUser.status;
-                }
+                token.is_verified = (user as any).is_verified;
+                token.is_active = (user as any).is_active;
+                token.is_approved = (user as any).is_approved;
+                token.approval_status = (user as any).approval_status;
+                token.activation_paid_at = (user as any).activation_paid_at;
+                token.status = (user as any).status;
+                token.twoFAEnabled = (user as any).twoFAEnabled || false;
+                token.requires2FA = (user as any).requires2FA || false;
             }
 
-            // Update token when user is updated (e.g., after payment or approval)
-            if (trigger === "update" && session?.user) {
-                await connectToDatabase();
-                const updatedUser = await Profile.findById(token.id);
-                if (updatedUser) {
-                    token.role = updatedUser.role;
-                    token.dashboardRoute = getDashboardRoute(updatedUser.role);
-                    token.is_verified = updatedUser.is_verified;
-                    token.is_active = updatedUser.is_active;
-                    token.is_approved = updatedUser.is_approved;
-                    token.approval_status = updatedUser.approval_status;
-                    token.activation_paid_at = updatedUser.activation_paid_at;
-                    token.status = updatedUser.status;
+            // Refresh user data on session update
+            if (trigger === "update") {
+                try {
+                    await connectToDatabase();
+                    const updatedUser = await Profile.findById(token.id);
+                    if (updatedUser) {
+                        token.role = updatedUser.role;
+                        token.dashboardRoute = getDashboardRoute(updatedUser.role);
+                        token.is_verified = updatedUser.is_verified;
+                        token.is_active = updatedUser.is_active;
+                        token.is_approved = updatedUser.is_approved;
+                        token.approval_status = updatedUser.approval_status;
+                        token.activation_paid_at = updatedUser.activation_paid_at;
+                        token.status = updatedUser.status;
+                        token.twoFAEnabled = updatedUser.twoFAEnabled || false;
+                        // Don't update requires2FA on session update
+                    }
+                } catch (error) {
+                    console.error('JWT update error:', error);
                 }
             }
 
@@ -200,25 +293,25 @@ export const authOptions: NextAuthConfig = {
 
         async session({ session, token }) {
             if (token) {
-                // 1. Persist essential data (Original behavior)
                 session.user.id = token.id as string;
                 session.user.role = token.role as string;
                 session.user.name = token.name as string;
                 (session as any).dashboardRoute = token.dashboardRoute as string;
 
-                // 2. Add new status fields
+                // Add all status fields to session
                 session.user.is_verified = token.is_verified as boolean;
                 session.user.is_active = token.is_active as boolean;
                 session.user.is_approved = token.is_approved as boolean;
                 session.user.approval_status = token.approval_status as string;
                 session.user.activation_paid_at = token.activation_paid_at as Date;
                 session.user.status = token.status as string;
+                session.user.twoFAEnabled = token.twoFAEnabled as boolean;
+                session.user.requires2FA = token.requires2FA as boolean;
             }
             return session;
         },
         
         async redirect({ url, baseUrl }) {
-            // FIXED: Handle relative URLs properly
             try {
                 // If URL is already absolute, return it
                 if (url.startsWith('http')) {
@@ -239,33 +332,23 @@ export const authOptions: NextAuthConfig = {
         },
     },
 
-    // 6. Debugging (enable in development)
+    // Debugging
     debug: process.env.NODE_ENV === 'development',
     
-    // 7. Secret for JWT encryption
+    // Secret for JWT encryption
     secret: process.env.NEXTAUTH_SECRET,
 
-    // 8. Events for better error handling - FIXED SIGNOUT
+    // Events for better error handling
     events: {
-        async signIn({ user, account, profile, isNewUser }) {
+        async signIn({ user }) {
             console.log('User signed in:', user.email);
         },
-        async signOut({ token, session }) {
+        async signOut() {
             console.log('User signed out successfully');
-            // Clear any custom cookies or sessions if needed
-        },
-        async createUser({ user }) {
-            console.log('User created:', user.email);
-        },
-        async linkAccount({ user, account, profile }) {
-            console.log('Account linked:', user.email);
-        },
-        async session({ session, token }) {
-            // Session is being created or updated
         },
     },
 
-    // 9. ADDED: Proper logout configuration
+    // Logger configuration
     logger: {
         error(code, metadata) {
             console.error('NextAuth error:', code, metadata);
@@ -287,7 +370,7 @@ const { handlers, auth, signIn, signOut } = NextAuth(authOptions);
 // Export the instance methods
 export { handlers, auth, signIn, signOut };
 
-// Type declarations (UPDATED)
+// Type declarations
 declare module 'next-auth' {
     interface Session {
         dashboardRoute: string;
@@ -300,6 +383,8 @@ declare module 'next-auth' {
             approval_status: string;
             activation_paid_at?: Date;
             status: string;
+            twoFAEnabled: boolean;
+            requires2FA: boolean;
         } & DefaultSession['user'];
     }
     interface User {
@@ -311,6 +396,8 @@ declare module 'next-auth' {
         approval_status: string;
         activation_paid_at?: Date;
         status: string;
+        twoFAEnabled: boolean;
+        requires2FA: boolean;
     }
 }
 
@@ -325,5 +412,7 @@ declare module 'next-auth/jwt' {
         approval_status: string;
         activation_paid_at?: Date;
         status: string;
+        twoFAEnabled: boolean;
+        requires2FA: boolean;
     }
 }

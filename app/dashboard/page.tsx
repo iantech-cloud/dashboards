@@ -346,9 +346,9 @@ export default function DashboardPage() {
     }
   };
 
-  // Format payment amount
+  // Format payment amount - FIXED: Remove division by 100 since amounts are already in KSH
   const formatPayment = (amount: number) => {
-    return `KES ${(amount / 100).toFixed(2)}`;
+    return `KES ${amount.toFixed(2)}`;
   };
 
   // Debug effect to monitor stats changes
@@ -807,8 +807,9 @@ export default function DashboardPage() {
                 <div className="text-sm text-green-800 font-medium">Approved</div>
               </div>
               <div className="text-center p-4 bg-purple-50 rounded-lg border border-purple-200">
+                {/* FIXED: Remove division by 100 since totalEarned is already in KSH */}
                 <div className="text-2xl font-bold text-purple-600">
-                  KES {(contentStats.totalEarned / 100).toFixed(2)}
+                  KES {contentStats.totalEarned.toFixed(2)}
                 </div>
                 <div className="text-sm text-purple-800 font-medium">Total Earned</div>
               </div>
@@ -856,6 +857,7 @@ export default function DashboardPage() {
                     <span>•</span>
                     <span>{submission.task_category}</span>
                     <span>•</span>
+                    {/* FIXED: Use the corrected formatPayment function */}
                     <span className="font-semibold text-green-600">{formatPayment(submission.payment_amount)}</span>
                   </div>
                 </div>
