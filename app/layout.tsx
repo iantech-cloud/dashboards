@@ -12,6 +12,27 @@ export const metadata: Metadata = {
     default: 'Hustle Hub Africa - Your Gateway to Digital Earning',
   },
   description: 'Explore diverse opportunities to earn income, build skills, and achieve financial freedom with Hustle Hub Africa.',
+  icons: {
+    icon: [
+      {
+        url: '/favicon.ico',
+        sizes: 'any',
+      },
+      {
+        url: '/icon.png',
+        type: 'image/png',
+        sizes: '32x32',
+      },
+    ],
+    shortcut: ['/favicon.ico'],
+    apple: [
+      {
+        url: '/apple-icon.png',
+        sizes: '180x180',
+        type: 'image/png',
+      },
+    ],
+  },
 };
 
 export const viewport: Viewport = {
