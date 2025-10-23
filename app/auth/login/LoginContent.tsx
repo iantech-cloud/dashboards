@@ -107,7 +107,6 @@ export default function LoginContent() {
   const [messageType, setMessageType] = useState<'success' | 'error' | 'info'>('info');
   const [loading, setLoading] = useState(false);
   const [requires2FA, setRequires2FA] = useState(false);
-  const [pendingSession, setPendingSession] = useState<any>(null);
   const [loginStep, setLoginStep] = useState<'credentials' | '2fa'>('credentials');
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -202,50 +201,32 @@ export default function LoginContent() {
           return;
         }
       } else if (result?.ok) {
-        // Login successful - check session to determine next steps
-        console.log('Login successful, checking session...');
+        // Login successful - check if 2FA is required
+        console.log('Login successful, checking if 2FA is required...');
         
-        // Wait a moment for the session to be updated
-        setTimeout(async () => {
-          try {
-            const session = await getSession();
-            console.log('Session after login:', session);
-            
-            if (session?.user) {
-              const user = session.user as any;
-              
-              // Check if 2FA is required for this user
-              if (user.requires2FA || user.twoFAEnabled || user2FAStatus) {
-                console.log('2FA required for user, showing 2FA form');
-                setRequires2FA(true);
-                setLoginStep('2fa');
-                setPendingSession(session);
-                setMessage('Two-factor authentication is enabled. Please enter your verification code from Google Authenticator.');
-                setMessageType('info');
-                setLoading(false);
-                return;
-              }
+        if (user2FAStatus) {
+          // User has 2FA enabled, show 2FA form
+          console.log('2FA required for user, showing 2FA form');
+          setRequires2FA(true);
+          setLoginStep('2fa');
+          setMessage('Two-factor authentication is enabled. Please enter your verification code from Google Authenticator.');
+          setMessageType('info');
+          setLoading(false);
+          return;
+        }
 
-              // Continue with normal account status checks (no 2FA required)
-              await handleSuccessfulLogin(session);
-              
-            } else {
-              // Fallback if session is not available
-              console.warn('No session found after successful login');
-              setMessage('Login successful! Redirecting to dashboard...');
-              setTimeout(() => {
-                router.push('/dashboard');
-              }, 1000);
-            }
-          } catch (sessionError) {
-            console.error('Error getting session:', sessionError);
-            setMessage('Login successful! Redirecting to dashboard...');
-            setTimeout(() => {
-              router.push('/dashboard');
-            }, 1000);
+        // No 2FA required, proceed with normal login
+        setMessage('Login successful! Redirecting...');
+        setMessageType('success');
+        
+        setTimeout(async () => {
+          const session = await getSession();
+          if (session?.user) {
+            await handleSuccessfulLogin(session);
+          } else {
+            router.push('/dashboard');
           }
         }, 500);
-
       } else {
         console.warn('Unexpected login response:', result);
         setMessage('An unexpected login response occurred.');
@@ -268,66 +249,9 @@ export default function LoginContent() {
     setMessage(null);
 
     try {
-      console.log('Submitting 2FA token for:', email);
+      console.log('Submitting 2FA verification with credentials for:', email);
       
-      // Option 1: Verify 2FA token with the backend API
-      const response = await fetch('/api/auth/2fa/verify', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: pendingSession?.user?.email || email,
-          token: twoFAToken,
-        }),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        
-        if (result.success) {
-          setMessage('2FA verification successful! Completing login...');
-          setMessageType('success');
-
-          // Refresh session after successful 2FA verification
-          setTimeout(async () => {
-            try {
-              const updatedSession = await getSession();
-              if (updatedSession) {
-                await handleSuccessfulLogin(updatedSession);
-              } else {
-                setMessage('Login completed! Redirecting to dashboard...');
-                setTimeout(() => {
-                  router.push('/dashboard');
-                }, 1000);
-              }
-            } catch (error) {
-              console.error('Error getting updated session:', error);
-              setMessage('Login completed! Redirecting to dashboard...');
-              setTimeout(() => {
-                router.push('/dashboard');
-              }, 1000);
-            }
-          }, 500);
-        } else {
-          setMessage(result.error || 'Invalid 2FA code. Please try again.');
-          setMessageType('error');
-          setTwoFAToken(''); // Clear the input for retry
-        }
-      } else {
-        // If API verification fails, try direct signIn with 2FA token
-        await handle2FASignIn();
-      }
-    } catch (error) {
-      console.error('2FA verification error:', error);
-      // Fallback to direct signIn method
-      await handle2FASignIn();
-    }
-  };
-
-  const handle2FASignIn = async () => {
-    try {
-      // Option 2: Direct signIn with 2FA token (fallback method)
+      // IMPORTANT: Use signIn with 2FA token to create a proper authenticated session
       const result = await signIn('credentials', {
         email,
         password,
@@ -350,21 +274,25 @@ export default function LoginContent() {
         setMessage('2FA verification successful! Completing login...');
         setMessageType('success');
 
-        // Get updated session
+        // Wait for session to be established
         setTimeout(async () => {
           const session = await getSession();
-          if (session) {
+          console.log('Session after 2FA:', session);
+          
+          if (session?.user) {
             await handleSuccessfulLogin(session);
           } else {
+            // Fallback if session not available
             setMessage('Login completed! Redirecting to dashboard...');
             setTimeout(() => {
               router.push('/dashboard');
+              router.refresh();
             }, 1000);
           }
-        }, 500);
+        }, 800);
       }
     } catch (error) {
-      console.error('2FA signin error:', error);
+      console.error('2FA verification error:', error);
       setMessage('An error occurred during 2FA verification. Please try again.');
       setMessageType('error');
       setLoading(false);
@@ -383,9 +311,14 @@ export default function LoginContent() {
       is_approved: user.is_approved,
       approval_status: user.approval_status,
       is_active: user.is_active,
-      role: user.role // Check user role for admin redirect
+      role: user.role,
+      requires2FA: user.requires2FA,
+      twoFAEnabled: user.twoFAEnabled
     });
 
+    // Skip verification checks if 2FA was just completed
+    // (2FA can only be completed if account is already verified and active)
+    
     // Check each condition and redirect accordingly
     if (!user.is_verified) {
       setMessage('Email not verified. Redirecting to verification...');
@@ -445,7 +378,6 @@ export default function LoginContent() {
     setRequires2FA(false);
     setLoginStep('credentials');
     setTwoFAToken('');
-    setPendingSession(null);
     setMessage(null);
     setLoading(false);
   };

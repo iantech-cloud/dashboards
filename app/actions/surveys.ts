@@ -13,7 +13,7 @@ import {
   Transaction,
   Earning,
 } from "@/app/lib/models"
-import { Types, Query, QueryWithHelpers } from "mongoose" // 'Document' has been removed here
+import { Types, Query } from "mongoose"
 
 // Import the Google Gen AI library
 import { GoogleGenAI, Type } from "@google/genai"
@@ -51,6 +51,7 @@ export interface AdminSurvey {
   expires_at?: Date
   current_responses: number
   max_responses: number
+  is_manually_enabled?: boolean
   created_by: {
     id: string
     username: string
@@ -67,7 +68,7 @@ export interface SurveyCompletionResult {
   all_correct?: boolean
 }
 
-// Interfaces for Mongoose Lean Results (what we expect from .lean() queries)
+// Interfaces for Mongoose Lean Results
 interface IProfileLean {
   _id: string
   username: string
@@ -75,6 +76,9 @@ interface IProfileLean {
   role: string
   balance_cents: number
   total_earnings_cents: number
+  survey_accuracy_rate?: number
+  total_surveys_completed?: number
+  correct_surveys_count?: number
   [key: string]: any
 }
 
@@ -92,8 +96,21 @@ interface ISurveyLean {
   expires_at: Date
   current_responses: number
   max_responses: number
+  is_manually_enabled: boolean
   created_by: string | { _id: string; username: string; email: string }
   ai_generated: boolean
+  target_percentage: number
+  priority_new_users: boolean
+  priority_top_referrers: boolean
+  successful_responses: number
+  failed_responses: number
+  completion_rate: number
+  average_score: number
+  average_completion_time: number
+  difficulty: string
+  estimated_completion_rate: number
+  quality_score: number
+  tags: string[]
   [key: string]: any
 }
 
@@ -109,6 +126,10 @@ interface ISurveyResponseLean {
   all_correct?: boolean
   score?: number
   payout_credited?: boolean
+  revoked?: boolean
+  revoked_at?: Date
+  revoked_by?: string
+  revoke_reason?: string
   [key: string]: any
 }
 
@@ -121,67 +142,41 @@ interface ISurveyAssignmentLean {
   [key: string]: any
 }
 
-// Interface for a SurveyResponse populated with the full Survey document
 interface ISurveyResponsePopulated extends Omit<ISurveyResponseLean, 'survey_id'> {
   survey_id: ISurveyLean
 }
 
 // --- Helper Functions ---
 
-/**
- * Helper function to safely execute lean queries.
- * @param query The Mongoose query object explicitly cast as Query<T | null, any>.
- */
 async function executeLeanQuery<T>(query: Query<T | null, any>): Promise<T | null> {
   const result = await (query as any).lean().exec()
   return result as T | null
 }
 
-/**
- * Helper function to safely execute regular queries (returns full Mongoose document).
- * @param query The Mongoose query object explicitly cast as Query<T | null, any>.
- */
 async function executeQuery<T>(query: Query<T | null, any>): Promise<T | null> {
-  // T is the Mongoose document type here (or the populated type)
   const result = await (query as any).exec()
   return result as T | null
 }
 
-/**
- * Finds a user profile by email. FIXES THE "NOT CALLABLE" ERROR.
- */
 async function findProfileByEmail(email: string): Promise<IProfileLean | null> {
-  // Fix: Explicitly cast to Query<T | null, any> to resolve the 'not callable' error
   const query = Profile.findOne({ email }) as Query<IProfileLean | null, any>
   return executeLeanQuery<IProfileLean>(query)
 }
 
-/**
- * Finds a survey by its ID.
- */
 async function findSurveyById(id: Types.ObjectId): Promise<ISurveyLean | null> {
-  // Fix: Explicitly cast to Query<T | null, any>
   const query = Survey.findOne({ _id: id }) as Query<ISurveyLean | null, any>
   return executeLeanQuery<ISurveyLean>(query)
 }
 
-/**
- * Finds a survey response by its ID.
- */
 async function findSurveyResponseById(id: Types.ObjectId): Promise<ISurveyResponseLean | null> {
-  // Fix: Explicitly cast to Query<T | null, any>
   const query = SurveyResponse.findOne({ _id: id }) as Query<ISurveyResponseLean | null, any>
   return executeLeanQuery<ISurveyResponseLean>(query)
 }
 
-/**
- * Finds a survey assignment for a user.
- */
 async function findSurveyAssignment(
   surveyId: Types.ObjectId,
   userId: string,
 ): Promise<ISurveyAssignmentLean | null> {
-  // Fix: Explicitly cast to Query<T | null, any>
   const query = SurveyAssignment.findOne({
     survey_id: surveyId,
     user_id: userId,
@@ -189,14 +184,9 @@ async function findSurveyAssignment(
   return executeLeanQuery<ISurveyAssignmentLean>(query)
 }
 
-/**
- * Serializes a Mongoose document or lean object to a plain JS object,
- * ensuring all ObjectIds are converted to strings for Next.js Server Components.
- */
 function serializeDocument(doc: any): Record<string, any> | null {
   if (!doc) return null
 
-  // Ensure deep serialization of nested ObjectIds
   const serialized = JSON.parse(JSON.stringify(doc)) as Record<string, any>
 
   if (serialized._id && typeof serialized._id !== "string") {
@@ -209,7 +199,6 @@ function serializeDocument(doc: any): Record<string, any> | null {
     serialized.user_id = serialized.user_id.toString()
   }
 
-  // Handle created_by population for admin surveys
   if (serialized.created_by && typeof serialized.created_by === "object" && serialized.created_by._id) {
     serialized.created_by.id = serialized.created_by._id.toString()
     delete serialized.created_by._id
@@ -219,493 +208,169 @@ function serializeDocument(doc: any): Record<string, any> | null {
 }
 
 /**
- * AI-generated survey creation using the Gemini API
+ * Automatically assign users to a survey
+ * If active users > 20, assign 15% of active users
+ * If active users <= 20, assign all active users
  */
-export async function generateAISurvey(
-  topics: string[],
-  category: string,
-  questionCount = 5,
-): Promise<{ success: boolean; data?: any; message?: string }> {
+async function assignUsersToSurvey(surveyId: Types.ObjectId, targetPercentage: number = 15): Promise<number> {
   try {
-    const session = (await getServerSession(authOptions)) as Session | null
-
-    if (!session?.user?.email) {
-      return { success: false, message: "Unauthorized" }
-    }
-
-    await connectToDatabase()
-    const adminUser = await findProfileByEmail(session.user.email)
-
-    if (!adminUser?.role || adminUser.role !== "admin") {
-      return { success: false, message: "Admin access required" }
-    }
-
-    if (!ai) {
-      return { success: false, message: "Gemini API key not configured." }
-    }
-
-    const prompt = `
-      Create a market research survey with the following specifications:
-      - Topics: ${topics.join(", ")}
-      - Category: ${category}
-      - Number of questions: ${questionCount}
-      - Question type: multiple choice only
-      - Each question should have 4 options.
-      - Questions should be relevant to the Kenyan market and consumers.
-      - Make questions engaging and easy to understand.
-      - Ensure the 'correct_answer_index' points to one of the 4 options (0, 1, 2, or 3).
-    `
-
-    // Define the expected JSON schema for Gemini's response
-    const surveySchema = {
-      type: Type.OBJECT,
-      properties: {
-        title: {
-          type: Type.STRING,
-          description: "A compelling title for the survey.",
-        },
-        description: {
-          type: Type.STRING,
-          description: "A brief description of the survey.",
-        },
-        questions: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              question_text: {
-                type: Type.STRING,
-                description: "The main text of the question.",
-              },
-              options: {
-                type: Type.ARRAY,
-                description: "A list of exactly 4 multiple-choice options (strings).",
-                items: { type: Type.STRING },
-              },
-              correct_answer_index: {
-                type: Type.NUMBER,
-                description: "The zero-based index (0, 1, 2, or 3) of the correct option.",
-              },
-            },
-            required: ["question_text", "options", "correct_answer_index"],
-          },
-        },
-      },
-      required: ["title", "description", "questions"],
-    }
-
-    // Use the Gemini API
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: surveySchema,
-        temperature: 0.7,
-      },
-    })
-
-    if (!response.text) {
-      return { success: false, message: "Failed to generate survey content from AI." }
-    }
-
-    const responseText = response.text.trim()
-    if (!responseText) {
-      return { success: false, message: "Failed to generate survey content from AI." }
-    }
-
-    // Parse the JSON response
-    const surveyData = JSON.parse(responseText) as any
-
-    // Transform options to the required format (with is_correct flag)
-    const questions = surveyData.questions.map((q: any) => ({
-      question_text: q.question_text,
-      question_type: "multiple_choice" as const,
-      options: q.options.map((opt: string, optIndex: number) => ({
-        text: opt,
-        is_correct: optIndex === q.correct_answer_index,
-      })),
-      correct_answer_index: q.correct_answer_index,
-      required: true,
-    }))
-
-    return {
-      success: true,
-      data: {
-        title: surveyData.title,
-        description: surveyData.description,
-        questions: questions,
-        category: category,
-        topics: topics,
-      },
-    }
-  } catch (error: any) {
-    console.error("Error generating AI survey:", error)
-    return {
-      success: false,
-      message: error.message || "Failed to generate survey using AI.",
-    }
-  }
-}
-
-/**
- * Create a new survey (Admin only)
- */
-export async function createSurvey(surveyData: {
-  title: string
-  description: string
-  category: string
-  topics: string[]
-  questions: SurveyQuestion[]
-  scheduled_for: Date
-}): Promise<{ success: boolean; message: string; surveyId?: string }> {
-  try {
-    const session = (await getServerSession(authOptions)) as Session | null
-
-    if (!session?.user?.email) {
-      return { success: false, message: "Unauthorized" }
-    }
-
-    await connectToDatabase()
-    const adminUser = await findProfileByEmail(session.user.email)
-
-    if (!adminUser?.role || adminUser.role !== "admin") {
-      return { success: false, message: "Admin access required" }
-    }
-
-    // Ensure scheduled time is Tuesday 2100 hrs EAT
-    const scheduledDate = new Date(surveyData.scheduled_for)
-    if (scheduledDate.getDay() !== 2) {
-      // Tuesday is day 2
-      return { success: false, message: "Surveys must be scheduled for Tuesday." }
-    }
-
-    if (scheduledDate.getHours() !== 21 || scheduledDate.getMinutes() !== 0) {
-      return { success: false, message: "Surveys must be scheduled for 2100 hrs EAT." }
-    }
-
-    // Calculate expiration (5 minutes after activation)
-    const expiresAt = new Date(scheduledDate)
-    expiresAt.setMinutes(expiresAt.getMinutes() + 5)
-
-    const survey = new Survey({
-      ...surveyData,
-      payout_cents: 5000, // KSH 50
-      duration_minutes: 5,
-      status: "scheduled",
-      scheduled_for: scheduledDate,
-      expires_at: expiresAt,
-      created_by: adminUser._id,
-      ai_generated: true,
-    })
-
-    await survey.save()
-
-    revalidatePath("/admin/surveys")
-    return {
-      success: true,
-      message: "Survey created successfully and scheduled for next Tuesday.",
-      surveyId: survey._id.toString(),
-    }
-  } catch (error: any) {
-    console.error("Error creating survey:", error)
-    return {
-      success: false,
-      message: error.message || "Failed to create survey.",
-    }
-  }
-}
-
-/**
- * Get details for a specific survey and the user's response status.
- */
-export async function getSurveyDetails(surveyId: string): Promise<{
-  success: boolean
-  data?: AdminSurvey & { response_status?: string; response_id?: string }
-  message?: string
-}> {
-  try {
-    const session = (await getServerSession(authOptions)) as Session | null
-
-    if (!session?.user?.email) {
-      return { success: false, message: "Unauthorized" }
-    }
-
-    if (!Types.ObjectId.isValid(surveyId)) {
-      return { success: false, message: "Invalid survey ID." }
-    }
-
-    await connectToDatabase()
-    const user = await findProfileByEmail(session.user.email)
-
-    if (!user) {
-      return { success: false, message: "User profile not found." }
-    }
-
-    const userId = user._id
-    const surveyObjectId = new Types.ObjectId(surveyId)
-
-    // 1. Check if user is assigned to this survey
-    const assignment = await findSurveyAssignment(surveyObjectId, userId)
-
-    if (!assignment) {
-      return { success: false, message: "You are not assigned to this survey." }
-    }
-
-    // 2. Fetch the survey
-    const surveyDoc = await findSurveyById(surveyObjectId)
-
-    if (!surveyDoc) {
-      return { success: false, message: "Survey not found." }
-    }
-
-    // 3. Check for an existing response
-    // Fix: Explicitly cast to Query<T | null, any>
-    const existingResponseQuery = SurveyResponse.findOne({
-      survey_id: surveyObjectId,
-      user_id: userId,
-    }) as Query<ISurveyResponseLean | null, any>
-    const existingResponse = await executeLeanQuery<ISurveyResponseLean>(existingResponseQuery)
-
-    const serializedSurvey: AdminSurvey = serializeDocument(surveyDoc) as AdminSurvey
-    const result: AdminSurvey & { response_status?: string; response_id?: string } = serializedSurvey
-
-    // Attach response status and ID if it exists
-    if (existingResponse) {
-      result.response_status = existingResponse.status
-      result.response_id = existingResponse._id?.toString()
+    await connectToDatabase();
+    
+    // Count total active users
+    const totalUsers = await Profile.countDocuments({
+      $or: [
+        { status: 'active' },
+        { status: { $exists: false } } // Assume active if no status field
+      ]
+    });
+    
+    console.log(`[ASSIGNMENT] Total active users: ${totalUsers}`);
+    
+    // Calculate target user count
+    let targetUserCount: number;
+    
+    if (totalUsers > 20) {
+      // If more than 20 users, assign target percentage
+      targetUserCount = Math.max(1, Math.ceil(totalUsers * (targetPercentage / 100)));
     } else {
-      result.response_status = "not_started"
+      // If 20 or fewer users, assign all users
+      targetUserCount = totalUsers;
     }
-
-    return {
-      success: true,
-      data: result,
+    
+    console.log(`[ASSIGNMENT] Target users for survey ${surveyId}: ${targetUserCount}`);
+    
+    // Get users who are not already assigned to this survey
+    const alreadyAssignedUsers = await SurveyAssignment.find({ 
+      survey_id: surveyId 
+    }).select('user_id').lean();
+    
+    const alreadyAssignedUserIds = alreadyAssignedUsers.map(a => a.user_id);
+    console.log(`[ASSIGNMENT] Already assigned users: ${alreadyAssignedUserIds.length}`);
+    
+    // Calculate how many more users we need to assign
+    const neededAssignments = Math.max(0, targetUserCount - alreadyAssignedUserIds.length);
+    
+    if (neededAssignments === 0) {
+      console.log(`[ASSIGNMENT] Survey ${surveyId} already has enough assignments`);
+      return 0;
     }
-  } catch (error: any) {
-    console.error("Error fetching survey details:", error)
-    return {
-      success: false,
-      message: error.message || "Failed to load survey details.",
-    }
-  }
-}
-
-/**
- * Get available surveys for the current user
- */
-export async function getAvailableSurveys(): Promise<{
-  success: boolean
-  data?: AdminSurvey[]
-  message?: string
-}> {
-  try {
-    const session = (await getServerSession(authOptions)) as Session | null
-
-    if (!session?.user?.email) {
-      return { success: false, message: "Unauthorized" }
-    }
-
-    await connectToDatabase()
-    const user = await findProfileByEmail(session.user.email)
-
-    if (!user) {
-      return { success: false, message: "User profile not found." }
-    }
-
-    const userId = user._id
-
-    // Find surveys assigned to this user that are active and not completed
-    // Aggregate queries are difficult to type, so we use 'any' for the result and cast the method call.
-    const assignedSurveys = (await (SurveyAssignment.aggregate([
-      {
-        $match: { user_id: userId },
-      },
-      {
-        $lookup: {
-          from: "surveys",
-          let: { surveyId: "$survey_id" },
-          pipeline: [
-            {
-              $match: {
-                $expr: { $eq: ["$_id", "$$surveyId"] },
-                status: "active",
-                expires_at: { $gt: new Date() },
-              },
-            },
-          ],
-          as: "survey",
-        },
-      },
-      {
-        $unwind: "$survey",
-      },
-      {
-        $lookup: {
-          from: "surveyresponses",
-          let: { surveyId: "$survey_id", userId: "$user_id" },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [{ $eq: ["$survey_id", "$$surveyId"] }, { $eq: ["$user_id", "$$userId"] }],
-                },
-              },
-            },
-          ],
-          as: "responses",
-        },
-      },
+    
+    console.log(`[ASSIGNMENT] Need to assign ${neededAssignments} more users`);
+    
+    // Get eligible users (not already assigned, active)
+    const eligibleUsers = await Profile.aggregate([
       {
         $match: {
-          "responses.0": { $exists: false }, // No existing responses
-        },
+          _id: { $nin: alreadyAssignedUserIds },
+          $or: [
+            { status: 'active' },
+            { status: { $exists: false } }
+          ]
+        }
       },
-      {
-        $project: {
-          _id: 0,
-          id: "$survey._id",
-          title: "$survey.title",
-          description: "$survey.description",
-          category: "$survey.category",
-          topics: "$survey.topics",
-          payout_cents: "$survey.payout_cents",
-          duration_minutes: "$survey.duration_minutes",
-          questions: "$survey.questions",
-          status: "$survey.status",
-          expires_at: "$survey.expires_at",
-          current_responses: "$survey.current_responses",
-          max_responses: "$survey.max_responses",
-          assigned_reason: "$assigned_reason",
-        },
-      },
-    ]) as Query<any, any>).exec()) as any[]
-
-    const serializedSurveys = assignedSurveys.map(serializeDocument)
-
-    return {
-      success: true,
-      data: serializedSurveys,
+      { $sample: { size: neededAssignments } },
+      { $project: { _id: 1 } }
+    ]);
+    
+    console.log(`[ASSIGNMENT] Found ${eligibleUsers.length} eligible users`);
+    
+    if (eligibleUsers.length === 0) {
+      console.log(`[ASSIGNMENT] No eligible users found for assignment`);
+      return 0;
     }
+    
+    // Create assignments with VALID enum values
+    const assignments = eligibleUsers.map(user => ({
+      survey_id: surveyId,
+      user_id: user._id,
+      assigned_at: new Date(),
+      assigned_reason: "random" // Use the valid enum value
+    }));
+    
+    const result = await SurveyAssignment.insertMany(assignments);
+    console.log(`[ASSIGNMENT] Successfully assigned ${result.length} users to survey ${surveyId}`);
+    
+    return result.length;
+    
   } catch (error: any) {
-    console.error("Error fetching surveys:", error)
-    return {
-      success: false,
-      message: error.message || "Failed to load surveys. Please try again.",
+    console.error('[ASSIGNMENT] Error assigning users to survey:', error);
+    // Log the specific validation error details
+    if (error.errors) {
+      console.error('[ASSIGNMENT] Validation errors:', error.errors);
     }
+    return 0;
   }
 }
 
 /**
- * Start a survey - creates response record and starts timer
+ * Update user's survey accuracy rate
  */
-export async function startSurvey(surveyId: string): Promise<{
-  success: boolean
-  message: string
-  survey?: AdminSurvey
-  responseId?: string
-}> {
+async function updateUserAccuracyRate(userId: string, wasCorrect: boolean) {
   try {
-    const session = (await getServerSession(authOptions)) as Session | null
+    const user = await Profile.findById(userId)
+    if (!user) return
 
-    if (!session?.user?.email) {
-      return { success: false, message: "Unauthorized" }
-    }
+    const totalCompleted = (user.total_surveys_completed || 0) + 1
+    const correctCount = (user.correct_surveys_count || 0) + (wasCorrect ? 1 : 0)
+    const accuracyRate = totalCompleted > 0 ? (correctCount / totalCompleted) * 100 : 0
 
-    if (!Types.ObjectId.isValid(surveyId)) {
-      return { success: false, message: "Invalid survey ID." }
-    }
-
-    await connectToDatabase()
-    const user = await findProfileByEmail(session.user.email)
-
-    if (!user) {
-      return { success: false, message: "User profile not found." }
-    }
-
-    const userId = user._id
-    const surveyObjectId = new Types.ObjectId(surveyId)
-
-    // Check if survey exists and is active
-    const survey = await findSurveyById(surveyObjectId)
-
-    if (!survey || survey.status !== "active" || new Date(survey.expires_at) <= new Date()) {
-      return { success: false, message: "Survey not available or expired." }
-    }
-
-    // Check if user is assigned to this survey
-    const assignment = await findSurveyAssignment(surveyObjectId, userId)
-
-    if (!assignment) {
-      return { success: false, message: "You are not assigned to this survey." }
-    }
-
-    // Check if user already started or completed this survey
-    // Fix: Explicitly cast to Query<T | null, any>
-    const existingResponseQuery = SurveyResponse.findOne({
-      survey_id: surveyObjectId,
-      user_id: userId,
-    }) as Query<ISurveyResponseLean | null, any>
-    const existingResponse = await executeLeanQuery<ISurveyResponseLean>(existingResponseQuery)
-
-    if (existingResponse) {
-      if (existingResponse.status === "completed") {
-        return { success: false, message: "You have already completed this survey." }
+    await Profile.updateOne(
+      { _id: userId },
+      {
+        total_surveys_completed: totalCompleted,
+        correct_surveys_count: correctCount,
+        survey_accuracy_rate: Math.round(accuracyRate * 100) / 100, // Round to 2 decimals
       }
-
-      // If in progress but expired, mark as timeout
-      if (existingResponse.status === "in_progress") {
-        const timeElapsed = (Date.now() - new Date(existingResponse.started_at).getTime()) / 1000
-        if (timeElapsed > survey.duration_minutes * 60) {
-          // Type assertion applied to updateOne
-          await (SurveyResponse.updateOne(
-            { _id: existingResponse._id },
-            {
-              status: "timeout",
-              completed_at: new Date(),
-              time_taken_seconds: Math.floor(timeElapsed),
-            },
-          ) as Query<any, any>)
-          return { success: false, message: "Survey time expired. Please start a new survey." }
-        }
-
-        // Return existing response if still valid
-        const surveyData: AdminSurvey = serializeDocument(survey) as AdminSurvey
-
-        return {
-          success: true,
-          message: "Resuming existing survey.",
-          survey: surveyData,
-          responseId: existingResponse._id.toString(),
-        }
-      }
-    }
-
-    // Create new survey response
-    const surveyResponse = new SurveyResponse({
-      survey_id: surveyObjectId,
-      user_id: userId,
-      started_at: new Date(),
-      status: "in_progress",
-    })
-
-    await surveyResponse.save()
-
-    const surveyData: AdminSurvey = serializeDocument(survey) as AdminSurvey
-
-    return {
-      success: true,
-      message: "Survey started. Timer is running.",
-      survey: surveyData,
-      responseId: surveyResponse._id.toString(),
-    }
-  } catch (error: any) {
-    console.error("Error starting survey:", error)
-    return {
-      success: false,
-      message: error.message || "Failed to start survey.",
-    }
+    )
+  } catch (error) {
+    console.error("Error updating user accuracy rate:", error)
   }
+}
+
+/**
+ * Check if surveys are enabled (either manually or by schedule)
+ */
+async function areSurveysEnabled(): Promise<boolean> {
+  await connectToDatabase()
+  
+  // Check if any survey is manually enabled and active
+  const manuallyEnabledCount = await Survey.countDocuments({
+    $or: [
+      { 
+        is_manually_enabled: true,
+        status: 'active',
+        expires_at: { $gt: new Date() }
+      },
+      { 
+        is_manually_enabled: true,
+        status: 'scheduled',
+        scheduled_for: { $lte: new Date() },
+        expires_at: { $gt: new Date() }
+      }
+    ]
+  })
+  
+  if (manuallyEnabledCount > 0) {
+    return true
+  }
+  
+  // Check if it's Tuesday 21:00-23:59 EAT (UTC+3)
+  const now = new Date()
+  
+  // Convert to EAT (UTC+3) - Africa/Nairobi
+  const eatTimeString = now.toLocaleString('en-US', { 
+    timeZone: 'Africa/Nairobi',
+    hour12: false
+  })
+  
+  const eatDate = new Date(eatTimeString)
+  const dayOfWeek = eatDate.getDay() // 0 = Sunday, 2 = Tuesday
+  const hour = eatDate.getHours()
+  
+  // Surveys available on Tuesday from 21:00 to 23:59 EAT
+  const isTuesdayTime = dayOfWeek === 2 && hour >= 21 && hour < 24
+  
+  return isTuesdayTime
 }
 
 /**
@@ -739,13 +404,9 @@ export async function submitSurveyAnswers(
     const userId = user._id
     const responseObjectId = new Types.ObjectId(responseId)
 
-    // Start transaction
-    // Type assertion applied to startSession for consistency
     const sessionMongo = await (SurveyResponse.startSession() as Promise<any>)
 
     return await sessionMongo.withTransaction(async () => {
-      // Get survey response with survey details
-      // Fix: Explicitly cast to Query<T | null, any>
       const surveyResponseQuery = SurveyResponse.findOne({
         _id: responseObjectId,
         user_id: userId,
@@ -758,16 +419,13 @@ export async function submitSurveyAnswers(
         throw new Error("Survey response not found or already completed.")
       }
 
-      // Survey is now correctly typed as ISurveyLean due to the custom populated interface
       const survey = surveyResponse.survey_id
 
-      // Check if survey is still active and within time
       const currentTime = new Date()
       const timeElapsed = (currentTime.getTime() - new Date(surveyResponse.started_at).getTime()) / 1000
       const timeLimit = survey.duration_minutes * 60
 
       if (timeElapsed > timeLimit) {
-        // Type assertion applied to updateOne
         await (SurveyResponse.updateOne(
           { _id: responseObjectId },
           {
@@ -777,6 +435,9 @@ export async function submitSurveyAnswers(
           },
           { session: sessionMongo },
         ) as Query<any, any>)
+        
+        // Update user accuracy rate for timeout
+        await updateUserAccuracyRate(userId, false)
         throw new Error("Survey time expired. Payment not credited.")
       }
 
@@ -796,8 +457,6 @@ export async function submitSurveyAnswers(
         const isCorrect = answer.selected_option_index === question.correct_answer_index
         if (!isCorrect) {
           allCorrect = false
-          // Close survey immediately if wrong answer
-          // Type assertion applied to updateOne
           await (SurveyResponse.updateOne(
             { _id: responseObjectId },
             {
@@ -808,6 +467,9 @@ export async function submitSurveyAnswers(
             },
             { session: sessionMongo },
           ) as Query<any, any>)
+          
+          // Update user accuracy rate for wrong answer
+          await updateUserAccuracyRate(userId, false)
           throw new Error("Incorrect answer. Survey closed. Payment not credited.")
         }
 
@@ -820,11 +482,8 @@ export async function submitSurveyAnswers(
         })
       }
 
-      // Calculate score
       const score = (correctAnswers / survey.questions.length) * 100
 
-      // Update survey response
-      // Type assertion applied to updateOne
       await (SurveyResponse.updateOne(
         { _id: responseObjectId },
         {
@@ -838,10 +497,7 @@ export async function submitSurveyAnswers(
         { session: sessionMongo },
       ) as Query<any, any>)
 
-      // Credit payment only if all answers correct and within time
       if (allCorrect && timeElapsed <= timeLimit) {
-        // Update user balance
-        // Type assertion applied to updateOne
         await (Profile.updateOne(
           { _id: userId },
           {
@@ -853,7 +509,6 @@ export async function submitSurveyAnswers(
           { session: sessionMongo },
         ) as Query<any, any>)
 
-        // Create transaction record - no assertion needed for 'new'
         const transaction = new Transaction({
           user_id: userId,
           amount_cents: survey.payout_cents,
@@ -870,7 +525,6 @@ export async function submitSurveyAnswers(
 
         await transaction.save({ session: sessionMongo })
 
-        // Create earning record - no assertion needed for 'new'
         const earning = new Earning({
           user_id: userId,
           amount_cents: survey.payout_cents,
@@ -880,12 +534,8 @@ export async function submitSurveyAnswers(
 
         await earning.save({ session: sessionMongo })
 
-        // Update survey response with payout credited
-        // Type assertion applied to updateOne
         await (SurveyResponse.updateOne({ _id: responseObjectId }, { payout_credited: true }, { session: sessionMongo }) as Query<any, any>)
 
-        // Update survey stats
-        // Type assertion applied to updateOne
         await (Survey.updateOne(
           { _id: survey._id },
           {
@@ -896,9 +546,10 @@ export async function submitSurveyAnswers(
           },
           { session: sessionMongo },
         ) as Query<any, any>)
+        
+        // Update user accuracy rate for correct answer
+        await updateUserAccuracyRate(userId, true)
       } else {
-        // Update survey stats for failed attempt
-        // Type assertion applied to updateOne
         await (Survey.updateOne(
           { _id: survey._id },
           {
@@ -909,14 +560,14 @@ export async function submitSurveyAnswers(
           },
           { session: sessionMongo },
         ) as Query<any, any>)
+        
+        // Update user accuracy rate for failed survey
+        await updateUserAccuracyRate(userId, false)
       }
 
-      // Get updated balance
-      // Fix: Explicitly cast to Query<T | null, any>
       const updatedProfileQuery = Profile.findById(userId).session(sessionMongo) as Query<IProfileLean | null, any>
       const updatedProfile = await executeLeanQuery<IProfileLean>(updatedProfileQuery)
 
-      // Revalidate paths
       revalidatePath("/dashboard/surveys")
       revalidatePath("/dashboard")
 
@@ -962,7 +613,6 @@ export async function getSurveyHistory(): Promise<{
       return { success: false, message: "User profile not found." }
     }
 
-    // Type assertion applied to aggregate
     const surveyHistory = (await (SurveyResponse.aggregate([
       {
         $match: { user_id: user._id },
@@ -991,6 +641,7 @@ export async function getSurveyHistory(): Promise<{
           status: 1,
           payout_credited: 1,
           payout_amount_cents: "$survey.payout_cents",
+          revoked: 1,
         },
       },
       {
@@ -1042,10 +693,8 @@ export async function getAdminSurveys(page = 1, limit = 10, search?: string) {
       ]
     }
 
-    // Type assertion applied to countDocuments
     const totalPromise = (Survey.countDocuments(query) as Query<number, any>).exec()
     
-    // Type assertion applied to the chained query
     const surveysPromise = (Survey.find(query)
       .populate("created_by", "username email")
       .sort({ created_at: -1 })
@@ -1095,7 +744,6 @@ export async function getAdminSurveyResponses(page = 1, limit = 10, search?: str
 
     const skip = (page - 1) * limit
     const pipeline: any[] = [
-      // Populate survey and user first
       {
         $lookup: {
           from: "surveys",
@@ -1134,12 +782,9 @@ export async function getAdminSurveyResponses(page = 1, limit = 10, search?: str
       })
     }
 
-    // Count total documents for pagination
-    // Type assertion applied to aggregate
     const totalCount = (await (SurveyResponse.aggregate([...pipeline, { $count: "total" }]) as Query<any, any>).exec()) as any[]
     const total = totalCount.length > 0 ? totalCount[0].total : 0
 
-    // Final projection and pagination
     pipeline.push(
       { $sort: { completed_at: -1 } },
       { $skip: skip },
@@ -1151,6 +796,7 @@ export async function getAdminSurveyResponses(page = 1, limit = 10, search?: str
           survey_title: "$survey.title",
           user_email: "$user.email",
           user_username: "$user.username",
+          user_accuracy_rate: "$user.survey_accuracy_rate",
           completed_at: 1,
           time_taken_seconds: 1,
           score: 1,
@@ -1158,11 +804,12 @@ export async function getAdminSurveyResponses(page = 1, limit = 10, search?: str
           status: 1,
           payout_credited: 1,
           payout_amount_cents: "$survey.payout_cents",
+          revoked: 1,
+          revoke_reason: 1,
         },
       },
     )
 
-    // Type assertion applied to aggregate
     const responses = (await (SurveyResponse.aggregate(pipeline) as Query<any, any>).exec()) as any[]
 
     const serializedResponses = responses.map(serializeDocument)
@@ -1184,3 +831,729 @@ export async function getAdminSurveyResponses(page = 1, limit = 10, search?: str
   }
 }
 
+/**
+ * AI-generated survey creation using the Gemini API
+ */
+export async function generateAISurvey(
+  topics: string[],
+  category: string,
+  questionCount = 5,
+): Promise<{ success: boolean; data?: any; message?: string }> {
+  try {
+    const session = (await getServerSession(authOptions)) as Session | null
+
+    if (!session?.user?.email) {
+      return { success: false, message: "Unauthorized" }
+    }
+
+    await connectToDatabase()
+    const adminUser = await findProfileByEmail(session.user.email)
+
+    if (!adminUser?.role || adminUser.role !== "admin") {
+      return { success: false, message: "Admin access required" }
+    }
+
+    if (!ai) {
+      return { success: false, message: "Gemini API key not configured." }
+    }
+
+    const prompt = `
+      Create a market research survey with the following specifications:
+      - Topics: ${topics.join(", ")}
+      - Category: ${category}
+      - Number of questions: ${questionCount}
+      - Question type: multiple choice only
+      - Each question should have 4 options.
+      - Questions should be relevant to the Kenyan market and consumers.
+      - Make questions engaging and easy to understand.
+      - Ensure the 'correct_answer_index' points to one of the 4 options (0, 1, 2, or 3).
+    `
+
+    const surveySchema = {
+      type: Type.OBJECT,
+      properties: {
+        title: {
+          type: Type.STRING,
+          description: "A compelling title for the survey.",
+        },
+        description: {
+          type: Type.STRING,
+          description: "A brief description of the survey.",
+        },
+        questions: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              question_text: {
+                type: Type.STRING,
+                description: "The main text of the question.",
+              },
+              options: {
+                type: Type.ARRAY,
+                description: "A list of exactly 4 multiple-choice options (strings).",
+                items: { type: Type.STRING },
+              },
+              correct_answer_index: {
+                type: Type.NUMBER,
+                description: "The zero-based index (0, 1, 2, or 3) of the correct option.",
+              },
+            },
+            required: ["question_text", "options", "correct_answer_index"],
+          },
+        },
+      },
+      required: ["title", "description", "questions"],
+    }
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: surveySchema,
+        temperature: 0.7,
+      },
+    })
+
+    if (!response.text) {
+      return { success: false, message: "Failed to generate survey content from AI." }
+    }
+
+    const responseText = response.text.trim()
+    if (!responseText) {
+      return { success: false, message: "Failed to generate survey content from AI." }
+    }
+
+    const surveyData = JSON.parse(responseText) as any
+
+    const questions = surveyData.questions.map((q: any) => ({
+      question_text: q.question_text,
+      question_type: "multiple_choice" as const,
+      options: q.options.map((opt: string, optIndex: number) => ({
+        text: opt,
+        is_correct: optIndex === q.correct_answer_index,
+      })),
+      correct_answer_index: q.correct_answer_index,
+      required: true,
+    }))
+
+    return {
+      success: true,
+      data: {
+        title: surveyData.title,
+        description: surveyData.description,
+        questions: questions,
+        category: category,
+        topics: topics,
+      },
+    }
+  } catch (error: any) {
+    console.error("Error generating AI survey:", error)
+    return {
+      success: false,
+      message: error.message || "Failed to generate survey using AI.",
+    }
+  }
+}
+
+/**
+ * Create a new survey (Admin only) - UPDATED with automatic assignment and all required fields
+ */
+export async function createSurvey(surveyData: {
+  title: string
+  description: string
+  category: string
+  topics: string[]
+  questions: SurveyQuestion[]
+  scheduled_for: Date
+}): Promise<{ success: boolean; message: string; surveyId?: string }> {
+  try {
+    const session = (await getServerSession(authOptions)) as Session | null
+
+    if (!session?.user?.email) {
+      return { success: false, message: "Unauthorized" }
+    }
+
+    await connectToDatabase()
+    const adminUser = await findProfileByEmail(session.user.email)
+
+    if (!adminUser?.role || adminUser.role !== "admin") {
+      return { success: false, message: "Admin access required" }
+    }
+
+    const scheduledDate = new Date(surveyData.scheduled_for)
+    
+    // Validate Tuesday at 21:00 EAT
+    const eatString = scheduledDate.toLocaleString('en-US', { 
+      timeZone: 'Africa/Nairobi',
+      hour12: false 
+    })
+    const eatDate = new Date(eatString)
+    
+    if (eatDate.getDay() !== 2) {
+      return { success: false, message: "Surveys must be scheduled for Tuesday." }
+    }
+
+    if (eatDate.getHours() !== 21 || eatDate.getMinutes() !== 0) {
+      return { success: false, message: "Surveys must be scheduled for 21:00 hrs EAT." }
+    }
+
+    // Calculate expiration (2 hours after activation for Tuesday schedule)
+    const expiresAt = new Date(scheduledDate)
+    expiresAt.setHours(expiresAt.getHours() + 2)
+
+    // Create survey with ALL required fields
+    const survey = new Survey({
+      // Basic info
+      title: surveyData.title,
+      description: surveyData.description,
+      category: surveyData.category,
+      topics: surveyData.topics,
+      
+      // Questions
+      questions: surveyData.questions,
+      
+      // Payout and timing
+      payout_cents: 5000, // KSH 50
+      duration_minutes: 5,
+      
+      // Selection criteria
+      target_percentage: 15,
+      priority_new_users: true,
+      priority_top_referrers: true,
+      
+      // Scheduling
+      status: "scheduled",
+      scheduled_for: scheduledDate,
+      expires_at: expiresAt,
+      
+      // Manual override
+      is_manually_enabled: false,
+      
+      // Stats (initialize to 0)
+      max_responses: 1000,
+      current_responses: 0,
+      successful_responses: 0,
+      failed_responses: 0,
+      completion_rate: 0,
+      average_score: 0,
+      average_completion_time: 0,
+      
+      // Additional fields
+      created_by: adminUser._id,
+      ai_generated: true,
+      difficulty: "medium",
+      estimated_completion_rate: 0,
+      quality_score: 0,
+      tags: [],
+    })
+
+    await survey.save()
+
+    // AUTOMATICALLY ASSIGN USERS TO THE NEW SURVEY
+    const assignedCount = await assignUsersToSurvey(survey._id, 15);
+    
+    console.log(`[SURVEY CREATION] Created survey "${survey.title}" and assigned ${assignedCount} users`);
+
+    revalidatePath("/admin/surveys")
+    return {
+      success: true,
+      message: `Survey created successfully and assigned to ${assignedCount} users. Scheduled for next Tuesday.`,
+      surveyId: survey._id.toString(),
+    }
+  } catch (error: any) {
+    console.error("Error creating survey:", error)
+    return {
+      success: false,
+      message: error.message || "Failed to create survey.",
+    }
+  }
+}
+
+/**
+ * Toggle survey manual availability (Admin only) - UPDATED with correct enum value
+ */
+export async function toggleSurveyAvailability(surveyId: string): Promise<{
+  success: boolean
+  message: string
+  isEnabled?: boolean
+}> {
+  try {
+    const session = (await getServerSession(authOptions)) as Session | null
+
+    if (!session?.user?.email) {
+      return { success: false, message: "Unauthorized" }
+    }
+
+    if (!Types.ObjectId.isValid(surveyId)) {
+      return { success: false, message: "Invalid survey ID." }
+    }
+
+    await connectToDatabase()
+    const adminUser = await findProfileByEmail(session.user.email)
+
+    if (!adminUser?.role || adminUser.role !== "admin") {
+      return { success: false, message: "Admin access required" }
+    }
+
+    const survey = await Survey.findById(surveyId)
+    if (!survey) {
+      return { success: false, message: "Survey not found." }
+    }
+
+    const newStatus = !survey.is_manually_enabled
+
+    // When enabling manually, set expiration to 24 hours from now and ensure status is active
+    const updates: any = {
+      is_manually_enabled: newStatus,
+    }
+
+    if (newStatus) {
+      updates.status = 'active'
+      const expiresAt = new Date()
+      expiresAt.setHours(expiresAt.getHours() + 24)
+      updates.expires_at = expiresAt
+      
+      // If this is the first time enabling, ensure users are assigned
+      const existingAssignments = await SurveyAssignment.countDocuments({ survey_id: survey._id });
+      if (existingAssignments === 0) {
+        await assignUsersToSurvey(survey._id, 15); // This now uses "random" as the reason
+      }
+    } else {
+      // When disabling, revert to scheduled status if it was originally scheduled
+      const now = new Date();
+      if (survey.scheduled_for && new Date(survey.scheduled_for) > now) {
+        updates.status = 'scheduled'
+        updates.expires_at = null;
+      } else {
+        // If the scheduled time has passed, mark as completed
+        updates.status = 'completed'
+        updates.expires_at = null;
+      }
+    }
+
+    await Survey.updateOne({ _id: surveyId }, updates)
+
+    revalidatePath("/admin/surveys")
+    revalidatePath("/dashboard/surveys")
+    return {
+      success: true,
+      message: `Survey ${newStatus ? 'enabled' : 'disabled'} successfully.`,
+      isEnabled: newStatus,
+    }
+  } catch (error: any) {
+    console.error("Error toggling survey availability:", error)
+    return {
+      success: false,
+      message: error.message || "Failed to toggle survey availability.",
+    }
+  }
+}
+
+/**
+ * Revoke a survey response (Admin only)
+ */
+export async function revokeSurveyResponse(
+  responseId: string,
+  reason: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const session = (await getServerSession(authOptions)) as Session | null
+
+    if (!session?.user?.email) {
+      return { success: false, message: "Unauthorized" }
+    }
+
+    if (!Types.ObjectId.isValid(responseId)) {
+      return { success: false, message: "Invalid response ID." }
+    }
+
+    await connectToDatabase()
+    const adminUser = await findProfileByEmail(session.user.email)
+
+    if (!adminUser?.role || adminUser.role !== "admin") {
+      return { success: false, message: "Admin access required" }
+    }
+
+    const responseObjectId = new Types.ObjectId(responseId)
+    const sessionMongo = await (SurveyResponse.startSession() as Promise<any>)
+
+    return await sessionMongo.withTransaction(async () => {
+      const response = await SurveyResponse.findOne({
+        _id: responseObjectId,
+      }).populate("survey_id").session(sessionMongo)
+
+      if (!response) {
+        throw new Error("Survey response not found.")
+      }
+
+      if (response.revoked) {
+        throw new Error("This response has already been revoked.")
+      }
+
+      // If payout was credited, reverse it
+      if (response.payout_credited) {
+        const survey = response.survey_id as any
+        
+        await Profile.updateOne(
+          { _id: response.user_id },
+          {
+            $inc: {
+              balance_cents: -survey.payout_cents,
+              total_earnings_cents: -survey.payout_cents,
+            },
+          },
+          { session: sessionMongo }
+        )
+
+        // Create reversal transaction
+        const transaction = new Transaction({
+          user_id: response.user_id,
+          amount_cents: -survey.payout_cents,
+          type: "SURVEY_REVOKE",
+          description: `Survey payment revoked: ${survey.title}`,
+          status: "completed",
+          metadata: {
+            survey_id: survey._id.toString(),
+            survey_response_id: responseObjectId.toString(),
+            revoke_reason: reason,
+          },
+        })
+        await transaction.save({ session: sessionMongo })
+      }
+
+      // Mark response as revoked
+      await SurveyResponse.updateOne(
+        { _id: responseObjectId },
+        {
+          revoked: true,
+          revoked_at: new Date(),
+          revoked_by: adminUser._id,
+          revoke_reason: reason,
+          payout_credited: false,
+        },
+        { session: sessionMongo }
+      )
+
+      revalidatePath("/admin/surveys")
+      return {
+        success: true,
+        message: "Survey response revoked successfully.",
+      }
+    })
+  } catch (error: any) {
+    console.error("Error revoking survey response:", error)
+    return {
+      success: false,
+      message: error.message || "Failed to revoke survey response.",
+    }
+  }
+}
+
+/**
+ * Get details for a specific survey and the user's response status.
+ */
+export async function getSurveyDetails(surveyId: string): Promise<{
+  success: boolean
+  data?: AdminSurvey & { response_status?: string; response_id?: string }
+  message?: string
+}> {
+  try {
+    const session = (await getServerSession(authOptions)) as Session | null
+
+    if (!session?.user?.email) {
+      return { success: false, message: "Unauthorized" }
+    }
+
+    if (!Types.ObjectId.isValid(surveyId)) {
+      return { success: false, message: "Invalid survey ID." }
+    }
+
+    await connectToDatabase()
+    const user = await findProfileByEmail(session.user.email)
+
+    if (!user) {
+      return { success: false, message: "User profile not found." }
+    }
+
+    const userId = user._id
+    const surveyObjectId = new Types.ObjectId(surveyId)
+
+    // Check if user is assigned to this survey
+    const assignment = await findSurveyAssignment(surveyObjectId, userId)
+
+    if (!assignment) {
+      return { success: false, message: "You are not assigned to this survey." }
+    }
+
+    const surveyDoc = await findSurveyById(surveyObjectId)
+
+    if (!surveyDoc) {
+      return { success: false, message: "Survey not found." }
+    }
+
+    const existingResponseQuery = SurveyResponse.findOne({
+      survey_id: surveyObjectId,
+      user_id: userId,
+    }) as Query<ISurveyResponseLean | null, any>
+    const existingResponse = await executeLeanQuery<ISurveyResponseLean>(existingResponseQuery)
+
+    const serializedSurvey: AdminSurvey = serializeDocument(surveyDoc) as AdminSurvey
+    const result: AdminSurvey & { response_status?: string; response_id?: string } = serializedSurvey
+
+    if (existingResponse) {
+      result.response_status = existingResponse.status
+      result.response_id = existingResponse._id?.toString()
+    } else {
+      result.response_status = "not_started"
+    }
+
+    return {
+      success: true,
+      data: result,
+    }
+  } catch (error: any) {
+    console.error("Error fetching survey details:", error)
+    return {
+      success: false,
+      message: error.message || "Failed to load survey details.",
+    }
+  }
+}
+
+/**
+ * Get available surveys for the current user
+ */
+export async function getAvailableSurveys(): Promise<{
+  success: boolean
+  data?: AdminSurvey[]
+  message?: string
+}> {
+  try {
+    const session = (await getServerSession(authOptions)) as Session | null
+
+    if (!session?.user?.email) {
+      return { success: false, message: "Unauthorized" }
+    }
+
+    await connectToDatabase()
+    const user = await findProfileByEmail(session.user.email)
+
+    if (!user) {
+      return { success: false, message: "User profile not found." }
+    }
+
+    const userId = user._id
+    const now = new Date()
+
+    // Check if surveys are enabled (either manually or by schedule)
+    const surveysEnabled = await areSurveysEnabled()
+    
+    if (!surveysEnabled) {
+      return {
+        success: true,
+        data: [],
+        message: "Surveys are currently not available. Check back on Tuesday at 9:00 PM EAT or when admin enables them.",
+      }
+    }
+
+    // Build query for available surveys
+    const surveyQuery: any = {
+      status: "active",
+      expires_at: { $gt: now },
+      $or: [
+        { is_manually_enabled: true },
+        { 
+          scheduled_for: { $lte: now },
+          is_manually_enabled: { $ne: false } // Include surveys that are not explicitly disabled
+        }
+      ]
+    }
+
+    const assignedSurveys = (await (SurveyAssignment.aggregate([
+      {
+        $match: { user_id: userId },
+      },
+      {
+        $lookup: {
+          from: "surveys",
+          let: { surveyId: "$survey_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ["$_id", "$$surveyId"] },
+                ...surveyQuery,
+              },
+            },
+          ],
+          as: "survey",
+        },
+      },
+      {
+        $unwind: "$survey",
+      },
+      {
+        $lookup: {
+          from: "surveyresponses",
+          let: { surveyId: "$survey_id", userId: "$user_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$survey_id", "$$surveyId"] }, 
+                    { $eq: ["$user_id", "$$userId"] }
+                  ],
+                },
+              },
+            },
+          ],
+          as: "responses",
+        },
+      },
+      {
+        $match: {
+          "responses.0": { $exists: false }, // No existing responses
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          id: "$survey._id",
+          title: "$survey.title",
+          description: "$survey.description",
+          category: "$survey.category",
+          topics: "$survey.topics",
+          payout_cents: "$survey.payout_cents",
+          duration_minutes: "$survey.duration_minutes",
+          questions: "$survey.questions",
+          status: "$survey.status",
+          expires_at: "$survey.expires_at",
+          current_responses: "$survey.current_responses",
+          max_responses: "$survey.max_responses",
+          is_manually_enabled: "$survey.is_manually_enabled",
+          scheduled_for: "$survey.scheduled_for",
+          assigned_reason: "$assigned_reason",
+        },
+      },
+    ]) as Query<any, any>).exec()) as any[]
+
+    const serializedSurveys = assignedSurveys.map(serializeDocument)
+
+    return {
+      success: true,
+      data: serializedSurveys,
+    }
+  } catch (error: any) {
+    console.error("Error fetching surveys:", error)
+    return {
+      success: false,
+      message: error.message || "Failed to load surveys. Please try again.",
+    }
+  }
+}
+
+/**
+ * Start a survey - creates response record and starts timer
+ */
+export async function startSurvey(surveyId: string): Promise<{
+  success: boolean
+  message: string
+  survey?: AdminSurvey
+  responseId?: string
+}> {
+  try {
+    const session = (await getServerSession(authOptions)) as Session | null
+
+    if (!session?.user?.email) {
+      return { success: false, message: "Unauthorized" }
+    }
+
+    if (!Types.ObjectId.isValid(surveyId)) {
+      return { success: false, message: "Invalid survey ID." }
+    }
+
+    await connectToDatabase()
+    const user = await findProfileByEmail(session.user.email)
+
+    if (!user) {
+      return { success: false, message: "User profile not found." }
+    }
+
+    const userId = user._id
+    const surveyObjectId = new Types.ObjectId(surveyId)
+
+    const survey = await findSurveyById(surveyObjectId)
+
+    if (!survey || survey.status !== "active" || new Date(survey.expires_at) <= new Date()) {
+      return { success: false, message: "Survey not available or expired." }
+    }
+
+    const assignment = await findSurveyAssignment(surveyObjectId, userId)
+
+    if (!assignment) {
+      return { success: false, message: "You are not assigned to this survey." }
+    }
+
+    const existingResponseQuery = SurveyResponse.findOne({
+      survey_id: surveyObjectId,
+      user_id: userId,
+    }) as Query<ISurveyResponseLean | null, any>
+    const existingResponse = await executeLeanQuery<ISurveyResponseLean>(existingResponseQuery)
+
+    if (existingResponse) {
+      if (existingResponse.status === "completed") {
+        return { success: false, message: "You have already completed this survey." }
+      }
+
+      if (existingResponse.status === "in_progress") {
+        const timeElapsed = (Date.now() - new Date(existingResponse.started_at).getTime()) / 1000
+        if (timeElapsed > survey.duration_minutes * 60) {
+          await (SurveyResponse.updateOne(
+            { _id: existingResponse._id },
+            {
+              status: "timeout",
+              completed_at: new Date(),
+              time_taken_seconds: Math.floor(timeElapsed),
+            },
+          ) as Query<any, any>)
+          return { success: false, message: "Survey time expired. Please start a new survey." }
+        }
+
+        const surveyData: AdminSurvey = serializeDocument(survey) as AdminSurvey
+
+        return {
+          success: true,
+          message: "Resuming existing survey.",
+          survey: surveyData,
+          responseId: existingResponse._id.toString(),
+        }
+      }
+    }
+
+    const surveyResponse = new SurveyResponse({
+      survey_id: surveyObjectId,
+      user_id: userId,
+      started_at: new Date(),
+      status: "in_progress",
+    })
+
+    await surveyResponse.save()
+
+    const surveyData: AdminSurvey = serializeDocument(survey) as AdminSurvey
+
+    return {
+      success: true,
+      message: "Survey started. Timer is running.",
+      survey: surveyData,
+      responseId: surveyResponse._id.toString(),
+    }
+  } catch (error: any) {
+    console.error("Error starting survey:", error)
+    return {
+      success: false,
+      message: error.message || "Failed to start survey.",
+    }
+  }
+}

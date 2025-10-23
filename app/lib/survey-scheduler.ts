@@ -2,18 +2,26 @@ import { connectToDatabase, Survey, SurveyAssignment, Profile, Referral } from '
 import { Types } from 'mongoose';
 
 /**
- * Assign surveys to 15% of active users with priority to new users and top referrers
+ * Assign surveys to eligible users with priority to new users and top referrers
  */
 export async function assignSurveys() {
   try {
     await connectToDatabase();
     
-    // Get active surveys scheduled for now
+    // Get active or manually enabled surveys that need assignment
     const now = new Date();
     const surveys = await Survey.find({
-      status: 'active',
-      scheduled_for: { $lte: now },
-      expires_at: { $gt: now }
+      $or: [
+        {
+          status: 'active',
+          scheduled_for: { $lte: now },
+          expires_at: { $gt: now }
+        },
+        {
+          is_manually_enabled: true,
+          status: { $in: ['active', 'scheduled'] }
+        }
+      ]
     });
 
     if (surveys.length === 0) {
@@ -30,24 +38,29 @@ export async function assignSurveys() {
         status: 'active'
       });
 
-      const targetUserCount = Math.ceil(totalActiveUsers * (survey.target_percentage / 100));
+      const targetPercentage = survey.target_percentage || 15; // Default to 15%
+      const targetUserCount = Math.ceil(totalActiveUsers * (targetPercentage / 100));
 
       // Get users who haven't been assigned this survey
       const assignedUserIds = await SurveyAssignment.distinct('user_id', {
         survey_id: survey._id
       });
 
+      const eligibleQuery = {
+        _id: { $nin: assignedUserIds.map(id => new Types.ObjectId(id)) },
+        is_active: true,
+        is_approved: true,
+        approval_status: 'approved',
+        status: 'active'
+      };
+
       // Priority 1: New users (joined in last 7 days)
-      if (survey.priority_new_users) {
+      if (survey.priority_new_users !== false) {
         const oneWeekAgo = new Date();
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
         
         const newUsers = await Profile.find({
-          _id: { $nin: assignedUserIds },
-          is_active: true,
-          is_approved: true,
-          approval_status: 'approved',
-          status: 'active',
+          ...eligibleQuery,
           created_at: { $gte: oneWeekAgo }
         }).limit(targetUserCount).select('_id');
 
@@ -63,7 +76,7 @@ export async function assignSurveys() {
       }
 
       // Priority 2: Top referrers
-      if (survey.priority_top_referrers && assignedUserIds.length < targetUserCount) {
+      if (survey.priority_top_referrers !== false && assignedUserIds.length < targetUserCount) {
         const remainingSlots = targetUserCount - assignedUserIds.length;
         
         const topReferrers = await Referral.aggregate([
@@ -97,19 +110,36 @@ export async function assignSurveys() {
         }
       }
 
-      // Priority 3: Random selection for remaining slots
+      // Priority 3: High accuracy users (users with good survey completion rate)
+      if (assignedUserIds.length < targetUserCount) {
+        const remainingSlots = targetUserCount - assignedUserIds.length;
+        
+        const highAccuracyUsers = await Profile.find({
+          ...eligibleQuery,
+          survey_accuracy_rate: { $gte: 70 } // Users with 70%+ accuracy
+        })
+        .sort({ survey_accuracy_rate: -1 })
+        .limit(remainingSlots)
+        .select('_id');
+
+        for (const user of highAccuracyUsers) {
+          const assignment = new SurveyAssignment({
+            survey_id: survey._id,
+            user_id: user._id,
+            assigned_reason: 'high_accuracy'
+          });
+          await assignment.save();
+          assignedUserIds.push(user._id.toString());
+        }
+      }
+
+      // Priority 4: Random selection for remaining slots
       if (assignedUserIds.length < targetUserCount) {
         const remainingSlots = targetUserCount - assignedUserIds.length;
         
         const randomUsers = await Profile.aggregate([
           {
-            $match: {
-              _id: { $nin: assignedUserIds.map(id => new Types.ObjectId(id)) },
-              is_active: true,
-              is_approved: true,
-              approval_status: 'approved',
-              status: 'active'
-            }
+            $match: eligibleQuery
           },
           { $sample: { size: remainingSlots } },
           { $project: { _id: 1 } }
@@ -125,7 +155,7 @@ export async function assignSurveys() {
         }
       }
 
-      console.log(`Assigned survey "${survey.title}" to ${targetUserCount} users`);
+      console.log(`Assigned survey "${survey.title}" to ${assignedUserIds.length} users`);
     }
   } catch (error) {
     console.error('Error assigning surveys:', error);
@@ -134,6 +164,7 @@ export async function assignSurveys() {
 
 /**
  * Activate scheduled surveys (run this as a cron job every minute)
+ * Checks both time-based schedule and manual enablement
  */
 export async function activateScheduledSurveys() {
   try {
@@ -141,16 +172,39 @@ export async function activateScheduledSurveys() {
     
     const now = new Date();
     
-    // Find surveys scheduled for activation
+    // Convert to EAT (UTC+3)
+    const eatTime = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Nairobi' }));
+    const dayOfWeek = eatTime.getDay(); // 0 = Sunday, 2 = Tuesday
+    const hour = eatTime.getHours();
+    
+    // Check if it's Tuesday 21:00 EAT
+    const isTuesdaySchedule = dayOfWeek === 2 && hour === 21;
+    
+    // Find surveys to activate (either scheduled for now OR manually enabled)
     const surveysToActivate = await Survey.find({
-      status: 'scheduled',
-      scheduled_for: { $lte: now }
+      $or: [
+        {
+          status: 'scheduled',
+          scheduled_for: { $lte: now },
+          is_manually_enabled: false
+        },
+        {
+          status: 'scheduled',
+          is_manually_enabled: true
+        }
+      ]
     });
 
     for (const survey of surveysToActivate) {
-      // Calculate expiration (5 minutes from now)
+      // Calculate expiration based on activation time
       const expiresAt = new Date(now);
-      expiresAt.setMinutes(expiresAt.getMinutes() + 5);
+      
+      // If manually enabled, give 24 hours. If Tuesday schedule, give 2 hours
+      if (survey.is_manually_enabled) {
+        expiresAt.setHours(expiresAt.getHours() + 24);
+      } else {
+        expiresAt.setHours(expiresAt.getHours() + 2); // 2 hours for Tuesday schedule
+      }
 
       await Survey.updateOne(
         { _id: survey._id },
@@ -161,10 +215,23 @@ export async function activateScheduledSurveys() {
         }
       );
 
-      console.log(`Activated survey: ${survey.title}`);
+      console.log(`Activated survey: ${survey.title} (Manual: ${survey.is_manually_enabled})`);
       
       // Assign surveys to users
       await assignSurveys();
+    }
+
+    // Also check if we should activate based on Tuesday schedule
+    if (isTuesdaySchedule) {
+      const scheduledSurveys = await Survey.find({
+        status: 'scheduled',
+        scheduled_for: { $lte: now },
+        is_manually_enabled: false
+      });
+
+      if (scheduledSurveys.length > 0) {
+        console.log(`Tuesday 21:00 EAT - Activating ${scheduledSurveys.length} scheduled surveys`);
+      }
     }
   } catch (error) {
     console.error('Error activating surveys:', error);
@@ -180,7 +247,7 @@ export async function expireSurveys() {
     
     const now = new Date();
     
-    await Survey.updateMany(
+    const result = await Survey.updateMany(
       {
         status: 'active',
         expires_at: { $lte: now }
@@ -189,7 +256,22 @@ export async function expireSurveys() {
         status: 'completed'
       }
     );
+
+    if (result.modifiedCount > 0) {
+      console.log(`Expired ${result.modifiedCount} surveys`);
+    }
   } catch (error) {
     console.error('Error expiring surveys:', error);
   }
+}
+
+/**
+ * Check and activate surveys based on schedule or manual enablement
+ * This should run every minute via cron
+ */
+export async function processSurveySchedule() {
+  console.log('Processing survey schedule...');
+  await activateScheduledSurveys();
+  await expireSurveys();
+  console.log('Survey schedule processing complete');
 }

@@ -38,7 +38,7 @@ export default function MpesaWaitingPage() {
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>({ 
     status: 'processing' 
   });
-  const [timeLeft, setTimeLeft] = useState(180); // 3 minutes in seconds (increased from 2)
+  const [timeLeft, setTimeLeft] = useState(180); // 3 minutes in seconds
   const [pollingCount, setPollingCount] = useState(0);
   const [isPolling, setIsPolling] = useState(true);
 
@@ -52,30 +52,45 @@ export default function MpesaWaitingPage() {
       const result = await checkMpesaPaymentStatus(checkoutRequestId);
       setPollingCount(prev => prev + 1);
 
-      console.log('Payment status result:', result);
-
       if (result.success && result.data) {
         const { status, resultCode, resultDesc, mpesaReceiptNumber, source } = result.data;
 
-        // Update payment status based on server response
-        setPaymentStatus({
-          status: status as PaymentStatus['status'],
-          resultCode,
-          resultDesc,
-          mpesaReceiptNumber,
-          amount: Number(amount),
-          source
-        });
-
-        // Stop polling if transaction is completed or failed
-        if (['success', 'failed', 'cancelled', 'timeout'].includes(status)) {
+        // Only update status for definitive results
+        // Ignore processing/pending responses from API
+        if (status === 'success' || status === 'completed') {
+          setPaymentStatus({
+            status: 'success',
+            resultCode,
+            resultDesc,
+            mpesaReceiptNumber,
+            amount: Number(amount),
+            source
+          });
           setIsPolling(false);
-          console.log(`✅ Stopped polling - Final status: ${status}`);
+          console.log(`✅ Payment successful - Stopped polling`);
+        } else if (status === 'cancelled') {
+          setPaymentStatus({
+            status: 'cancelled',
+            resultCode,
+            resultDesc: 'You cancelled the M-Pesa payment request',
+            amount: Number(amount),
+            source
+          });
+          setIsPolling(false);
+          console.log(`❌ Payment cancelled - Stopped polling`);
+        } else if (status === 'failed' && resultCode && resultCode !== 11) {
+          // Only mark as failed if we have a definitive failure code (not code 11)
+          setPaymentStatus({
+            status: 'failed',
+            resultCode,
+            resultDesc: resultDesc || 'Payment failed',
+            amount: Number(amount),
+            source
+          });
+          setIsPolling(false);
+          console.log(`❌ Payment failed - Stopped polling`);
         }
-
-      } else {
-        console.error('Failed to check payment status:', result.message);
-        // Don't stop polling on API errors, just log them
+        // For processing/pending/code 11, do nothing - keep polling
       }
     } catch (error) {
       console.error('Error polling payment status:', error);
@@ -86,13 +101,15 @@ export default function MpesaWaitingPage() {
   // Timer countdown
   useEffect(() => {
     if (timeLeft <= 0) {
-      if (paymentStatus.status === 'processing') {
+      // Only set timeout when timer actually reaches 0 AND still processing
+      if (paymentStatus.status === 'processing' && isPolling) {
         setPaymentStatus({
           status: 'timeout',
           resultCode: 1037,
-          resultDesc: 'Payment timeout - No response from M-Pesa'
+          resultDesc: 'Payment request timed out. Please try again.'
         });
         setIsPolling(false);
+        console.log('⏰ Timer expired - Payment timeout');
       }
       return;
     }
@@ -102,13 +119,13 @@ export default function MpesaWaitingPage() {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [timeLeft, paymentStatus.status]);
+  }, [timeLeft, paymentStatus.status, isPolling]);
 
-  // Polling interval
+  // Polling interval - continues until stopped
   useEffect(() => {
     if (!isPolling || paymentStatus.status !== 'processing') return;
 
-    const interval = setInterval(pollPaymentStatus, 4000); // Poll every 4 seconds (reduced frequency)
+    const interval = setInterval(pollPaymentStatus, 4000); // Poll every 4 seconds
     return () => clearInterval(interval);
   }, [isPolling, paymentStatus.status, pollPaymentStatus]);
 
@@ -160,7 +177,7 @@ export default function MpesaWaitingPage() {
       cancelled: {
         icon: <XCircle className="h-12 w-12 text-orange-500" />,
         title: 'Payment Cancelled',
-        description: 'The M-Pesa payment request was cancelled.',
+        description: 'You cancelled the M-Pesa payment request.',
         color: 'text-orange-600',
         bgColor: 'bg-orange-50',
         borderColor: 'border-orange-200'
@@ -183,7 +200,6 @@ export default function MpesaWaitingPage() {
       }
     };
     
-    // Return config for status or default to processing if invalid status
     return config[status] || config.processing;
   };
 
@@ -266,7 +282,7 @@ export default function MpesaWaitingPage() {
                     <div className="font-mono">{accountReference}</div>
                   </div>
                 )}
-                {merchantRequestId && (
+                {merchantRequestId && process.env.NODE_ENV === 'development' && (
                   <div className="text-left text-xs mt-1">
                     <span className="text-gray-500">Request ID:</span>
                     <div className="font-mono truncate">{merchantRequestId}</div>
@@ -289,8 +305,11 @@ export default function MpesaWaitingPage() {
             </div>
           )}
 
-          {/* Error Details */}
-          {paymentStatus.status !== 'success' && paymentStatus.status !== 'processing' && paymentStatus.resultDesc && (
+          {/* Error Details - Only show for actual errors (not code 11 or during processing) */}
+          {paymentStatus.status !== 'success' && 
+           paymentStatus.status !== 'processing' && 
+           paymentStatus.resultDesc && 
+           paymentStatus.resultCode !== 11 && (
             <div className="bg-red-100 border border-red-300 rounded-lg p-4 mb-6">
               <div className="text-sm text-red-800 text-left">
                 <div className="font-semibold">Error Details:</div>
@@ -378,8 +397,8 @@ export default function MpesaWaitingPage() {
             )}
           </div>
 
-          {/* Status Source Info */}
-          {paymentStatus.source && (
+          {/* Status Source Info - Only in development */}
+          {process.env.NODE_ENV === 'development' && paymentStatus.source && (
             <div className="mt-4 text-xs text-gray-500">
               Status source: {paymentStatus.source}
             </div>
@@ -395,6 +414,7 @@ export default function MpesaWaitingPage() {
                 <div><strong>Polling Count:</strong> {pollingCount}</div>
                 <div><strong>Is Polling:</strong> {isPolling ? 'Yes' : 'No'}</div>
                 <div><strong>Source:</strong> {source || 'unknown'}</div>
+                <div><strong>Time Left:</strong> {timeLeft}s</div>
               </div>
             </div>
           )}

@@ -1076,7 +1076,7 @@ const SurveySchema = new Schema({
   priority_new_users: { type: Boolean, default: true },
   priority_top_referrers: { type: Boolean, default: true },
 
-  // Scheduling
+  // Scheduling and availability
   status: {
     type: String,
     enum: SurveyStatuses,
@@ -1086,12 +1086,22 @@ const SurveySchema = new Schema({
   scheduled_for: { type: Date, index: true }, // Tuesday 2100 hrs EAT
   activated_at: { type: Date },
   expires_at: { type: Date },
+  
+  // Manual override for admin
+  is_manually_enabled: { 
+    type: Boolean, 
+    default: false,
+    index: true 
+  },
 
   // Stats
-  max_responses: { type: Number },
+  max_responses: { type: Number, default: 1000 },
   current_responses: { type: Number, default: 0 },
   successful_responses: { type: Number, default: 0 },
   failed_responses: { type: Number, default: 0 },
+  completion_rate: { type: Number, default: 0 }, // Percentage of successful completions
+  average_score: { type: Number, default: 0 }, // Average score across all responses
+  average_completion_time: { type: Number, default: 0 }, // Average time in seconds
 
   created_by: { type: String, ref: 'Profile', required: true },
 
@@ -1099,76 +1109,221 @@ const SurveySchema = new Schema({
   ai_generated: { type: Boolean, default: false },
   ai_prompt: { type: String },
   ai_model: { type: String },
+  
+  // Metadata
+  tags: [{ type: String }],
+  difficulty: {
+    type: String,
+    enum: ['easy', 'medium', 'hard'],
+    default: 'medium'
+  },
+  estimated_completion_rate: { type: Number, default: 0 }, // Predicted completion rate
+  quality_score: { type: Number, default: 0 }, // Score based on user feedback and completion rates
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
   indexes: [
     { fields: { status: 1, scheduled_for: 1 } },
     { fields: { category: 1 } },
     { fields: { created_at: -1 } },
+    { fields: { is_manually_enabled: 1, status: 1 } },
+    { fields: { expires_at: 1 } },
+    { fields: { 'topics': 1 } },
+    { fields: { difficulty: 1 } },
   ]
 });
+
+// Pre-save middleware to update calculated fields
+SurveySchema.pre('save', function(next) {
+  if (this.isModified('current_responses') || this.isModified('successful_responses')) {
+    // Update completion rate
+    if (this.current_responses > 0) {
+      this.completion_rate = (this.successful_responses / this.current_responses) * 100;
+    }
+  }
+  next();
+});
+
+// Static method to find active surveys
+SurveySchema.statics.findActiveSurveys = function() {
+  const now = new Date();
+  return this.find({
+    status: 'active',
+    expires_at: { $gt: now },
+    $or: [
+      { is_manually_enabled: true },
+      { 
+        scheduled_for: { $lte: now },
+        is_manually_enabled: { $ne: false }
+      }
+    ]
+  });
+};
+
+// Static method to find available surveys for a user
+SurveySchema.statics.findAvailableSurveys = function(userId: string) {
+  const now = new Date();
+  return this.find({
+    status: 'active',
+    expires_at: { $gt: now },
+    $or: [
+      { is_manually_enabled: true },
+      { 
+        scheduled_for: { $lte: now },
+        is_manually_enabled: { $ne: false }
+      }
+    ]
+  });
+};
+
+// Instance method to check if survey is available
+SurveySchema.methods.isAvailable = function() {
+  const now = new Date();
+  return this.status === 'active' && 
+         this.expires_at > now &&
+         (this.is_manually_enabled || 
+          (this.scheduled_for <= now && this.is_manually_enabled !== false));
+};
+
+// Instance method to enable survey manually
+SurveySchema.methods.enableManually = function(hours = 24) {
+  this.is_manually_enabled = true;
+  this.status = 'active';
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + hours);
+  this.expires_at = expiresAt;
+  return this.save();
+};
+
+// Instance method to disable manual enabling
+SurveySchema.methods.disableManually = function() {
+  this.is_manually_enabled = false;
+  // If it was scheduled and the schedule time hasn't passed, revert to scheduled
+  if (this.scheduled_for && this.scheduled_for > new Date()) {
+    this.status = 'scheduled';
+  }
+  return this.save();
+};
+
+// Virtual for formatted payout
+SurveySchema.virtual('payout_formatted').get(function() {
+  return `KES ${(this.payout_cents / 100).toFixed(2)}`;
+});
+
+// Virtual for time remaining
+SurveySchema.virtual('time_remaining').get(function() {
+  const now = new Date();
+  return this.expires_at ? Math.max(0, this.expires_at.getTime() - now.getTime()) : 0;
+});
+
+// Virtual for is_expired
+SurveySchema.virtual('is_expired').get(function() {
+  return this.expires_at ? this.expires_at <= new Date() : false;
+});
+
+// Ensure virtual fields are serialized
+SurveySchema.set('toJSON', { virtuals: true });
+SurveySchema.set('toObject', { virtuals: true });
 
 export const Survey = getModel('Survey', SurveySchema);
 
 /**
- * 19. SurveyResponse Model - UPDATED
+ * 19. Survey Response Model - UPDATED
  */
 const SurveyResponseSchema = new Schema({
-  survey_id: {
-    type: Schema.Types.ObjectId,
-    ref: 'Survey',
-    required: true,
-    index: true
-  },
-  user_id: {
-    type: String,
-    ref: 'Profile',
-    required: true,
-    index: true
-  },
-  answers: [{
-    question_index: { type: Number, required: true },
-    selected_option_index: { type: Number, required: true }, // User's selected option
-    is_correct: { type: Boolean, required: true },
-    answered_at: { type: Date, default: Date.now }
-  }],
-
-  // Timing
-  started_at: { type: Date, default: Date.now, index: true },
-  completed_at: { type: Date },
-  time_taken_seconds: { type: Number },
-
-  // Results
-  all_correct: { type: Boolean, default: false },
-  score: { type: Number, default: 0 }, // Percentage of correct answers
-  payout_credited: { type: Boolean, default: false },
-  payout_amount_cents: { type: Number, default: 5000 },
-
-  // Status
+  survey_id: { type: Schema.Types.ObjectId, ref: 'Survey', required: true, index: true },
+  user_id: { type: String, ref: 'Profile', required: true, index: true },
+  
+  // Response tracking
   status: {
     type: String,
-    enum: ['in_progress', 'completed', 'failed', 'timeout', 'wrong_answer'],
-    default: 'in_progress'
+    enum: ['in_progress', 'completed', 'timeout', 'wrong_answer', 'abandoned'],
+    default: 'in_progress',
+    index: true
   },
-
-  // Moderation
-  moderated_by: { type: String, ref: 'Profile' },
-  moderated_at: { type: Date },
-  moderation_notes: { type: String },
-
+  started_at: { type: Date, default: Date.now, required: true },
+  completed_at: { type: Date },
+  time_taken_seconds: { type: Number }, // Total time taken in seconds
+  
+  // Answers
+  answers: [{
+    question_index: { type: Number, required: true },
+    selected_option_index: { type: Number, required: true },
+    is_correct: { type: Boolean, required: true },
+    answered_at: { type: Date, default: Date.now },
+    time_spent_seconds: { type: Number, default: 0 } // Time spent on this question
+  }],
+  
+  // Results
+  score: { type: Number }, // Percentage score
+  all_correct: { type: Boolean }, // Whether all answers were correct
+  correct_answers: { type: Number, default: 0 },
+  total_questions: { type: Number, default: 0 },
+  
+  // Payout tracking
+  payout_credited: { type: Boolean, default: false },
+  payout_amount_cents: { type: Number, default: 0 },
+  
+  // Revocation system
+  revoked: { type: Boolean, default: false },
+  revoked_at: { type: Date },
+  revoked_by: { type: String, ref: 'Profile' },
+  revoke_reason: { type: String },
+  
+  // User experience metrics
+  user_rating: { type: Number, min: 1, max: 5 }, // User rating of survey experience
+  feedback: { type: String }, // User feedback
+  difficulty_perception: { 
+    type: String, 
+    enum: ['too_easy', 'appropriate', 'too_hard'] 
+  },
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
   indexes: [
     { fields: { survey_id: 1, user_id: 1 }, unique: true },
-    { fields: { user_id: 1, completed_at: -1 } },
     { fields: { status: 1 } },
+    { fields: { created_at: -1 } },
+    { fields: { revoked: 1 } },
     { fields: { payout_credited: 1 } },
-    { fields: { started_at: 1 } },
   ]
 });
 
-export const SurveyResponse = getModel('SurveyResponse', SurveyResponseSchema);
+// Pre-save middleware to calculate results
+SurveyResponseSchema.pre('save', function(next) {
+  if (this.isModified('answers') && this.answers.length > 0) {
+    this.total_questions = this.answers.length;
+    this.correct_answers = this.answers.filter(answer => answer.is_correct).length;
+    this.score = (this.correct_answers / this.total_questions) * 100;
+    this.all_correct = this.correct_answers === this.total_questions;
+  }
+  
+  // Calculate time taken if completed
+  if (this.isModified('status') && this.status === 'completed' && this.completed_at) {
+    this.time_taken_seconds = Math.floor(
+      (this.completed_at.getTime() - this.started_at.getTime()) / 1000
+    );
+  }
+  next();
+});
 
+// Instance method to mark as completed
+SurveyResponseSchema.methods.markCompleted = function(answers: any[]) {
+  this.answers = answers;
+  this.status = 'completed';
+  this.completed_at = new Date();
+  return this.save();
+};
+
+// Instance method to revoke response
+SurveyResponseSchema.methods.revoke = function(adminId: string, reason: string) {
+  this.revoked = true;
+  this.revoked_at = new Date();
+  this.revoked_by = adminId;
+  this.revoke_reason = reason;
+  this.payout_credited = false;
+  return this.save();
+};
+
+export const SurveyResponse = getModel('SurveyResponse', SurveyResponseSchema);
 /**
  * 20. SurveyAssignment Model - For tracking which users get which surveys
  */

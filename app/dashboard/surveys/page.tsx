@@ -1,20 +1,14 @@
-// app/dashboard/surveys/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Alert from '@/app/ui/Alert';
 import { 
   getAvailableSurveys, 
   startSurvey, 
   submitSurveyAnswers, 
-  getSurveyHistory,
-  type Survey 
+  getSurveyHistory
 } from '@/app/actions/surveys';
-
-interface SurveyAnswer {
-  question_index: number;
-  selected_option_index: number;
-}
+import type { Survey, SurveyAnswer } from '@/types/survey';
 
 export default function SurveysPage() {
   const [surveys, setSurveys] = useState<Survey[]>([]);
@@ -29,142 +23,11 @@ export default function SurveysPage() {
   const [showSurveyForm, setShowSurveyForm] = useState(false);
   const [surveyHistory, setSurveyHistory] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [availabilityMessage, setAvailabilityMessage] = useState<string>('');
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
 
-  // Timer effect for active survey
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    
-    if (activeSurvey && timeLeft > 0) {
-      timer = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            handleTimeExpired();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [activeSurvey, timeLeft]);
-
-  // Load available surveys
-  useEffect(() => {
-    loadSurveys();
-  }, []);
-
-  const loadSurveys = async () => {
-    setLoading(true);
-    const result = await getAvailableSurveys();
-    if (result.success && result.data) {
-      setSurveys(result.data);
-    } else {
-      setMessage(result.message || 'Failed to load surveys.');
-      setMessageType('error');
-    }
-    setLoading(false);
-  };
-
-  const loadSurveyHistory = async () => {
-    const result = await getSurveyHistory();
-    if (result.success && result.data) {
-      setSurveyHistory(result.data);
-    }
-  };
-
-  const handleStartSurvey = async (surveyId: string) => {
-    setLoading(true);
-    setMessage(null);
-    
-    const result = await startSurvey(surveyId);
-    
-    if (result.success && result.survey && result.responseId) {
-      setActiveSurvey(result.survey);
-      setCurrentResponseId(result.responseId);
-      setTimeLeft(result.survey.duration_minutes * 60); // Convert to seconds
-      setShowSurveyForm(true);
-      setAnswers([]); // Reset answers
-      setMessage(result.message);
-      setMessageType('info');
-    } else {
-      setMessage(result.message);
-      setMessageType('error');
-    }
-    setLoading(false);
-  };
-
-  const handleAnswerSelect = (questionIndex: number, optionIndex: number) => {
-    setAnswers(prev => {
-      const existingAnswerIndex = prev.findIndex(a => a.question_index === questionIndex);
-      
-      if (existingAnswerIndex >= 0) {
-        // Update existing answer
-        const updated = [...prev];
-        updated[existingAnswerIndex] = { question_index: questionIndex, selected_option_index: optionIndex };
-        return updated;
-      } else {
-        // Add new answer
-        return [...prev, { question_index: questionIndex, selected_option_index: optionIndex }];
-      }
-    });
-  };
-
-  const handleSubmitSurvey = async () => {
-    if (!currentResponseId || !activeSurvey) return;
-
-    // Check if all required questions are answered
-    const unansweredQuestions = activeSurvey.questions.filter((question, index) => 
-      question.required && !answers.find(a => a.question_index === index)
-    );
-
-    if (unansweredQuestions.length > 0) {
-      setMessage(`Please answer all required questions. ${unansweredQuestions.length} question(s) remaining.`);
-      setMessageType('error');
-      return;
-    }
-
-    setSubmitting(true);
-    setMessage(null);
-
-    const result = await submitSurveyAnswers(currentResponseId, answers);
-    
-    if (result.success) {
-      setMessage(result.message);
-      setMessageType('success');
-      
-      // Reset survey state
-      setActiveSurvey(null);
-      setCurrentResponseId(null);
-      setShowSurveyForm(false);
-      setAnswers([]);
-      setTimeLeft(0);
-      
-      // Reload available surveys
-      await loadSurveys();
-      await loadSurveyHistory();
-    } else {
-      setMessage(result.message);
-      setMessageType('error');
-      
-      // If survey failed due to wrong answer or timeout, close it
-      if (result.message.includes('Incorrect answer') || result.message.includes('time expired')) {
-        setActiveSurvey(null);
-        setCurrentResponseId(null);
-        setShowSurveyForm(false);
-        setAnswers([]);
-        setTimeLeft(0);
-        await loadSurveys();
-      }
-    }
-    
-    setSubmitting(false);
-  };
-
-  const handleTimeExpired = async () => {
+  // Fixed: Use useCallback to prevent recreating the function on every render
+  const handleTimeExpired = useCallback(async () => {
     if (!currentResponseId) return;
     
     setMessage('Time expired! Survey automatically submitted.');
@@ -184,10 +47,187 @@ export default function SurveysPage() {
     setShowSurveyForm(false);
     setAnswers([]);
     setTimeLeft(0);
+    setCurrentQuestionIndex(0);
     
     // Reload available surveys
     await loadSurveys();
     await loadSurveyHistory();
+  }, [currentResponseId, answers]);
+
+  // Timer effect for active survey - FIXED: Added handleTimeExpired to dependencies
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    
+    if (activeSurvey && timeLeft > 0) {
+      timer = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            handleTimeExpired();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [activeSurvey, timeLeft, handleTimeExpired]);
+
+  // Load available surveys
+  useEffect(() => {
+    loadSurveys();
+  }, []);
+
+  const loadSurveys = async () => {
+    setLoading(true);
+    try {
+      const result = await getAvailableSurveys();
+      if (result.success) {
+        setSurveys(result.data || []);
+        if (result.message && result.data?.length === 0) {
+          setAvailabilityMessage(result.message);
+        } else {
+          setAvailabilityMessage('');
+        }
+      } else {
+        setMessage(result.message || 'Failed to load surveys.');
+        setMessageType('error');
+        setAvailabilityMessage(result.message || '');
+      }
+    } catch (error) {
+      setMessage('Failed to load surveys.');
+      setMessageType('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadSurveyHistory = async () => {
+    try {
+      const result = await getSurveyHistory();
+      if (result.success && result.data) {
+        setSurveyHistory(result.data);
+      }
+    } catch (error) {
+      console.error('Failed to load survey history:', error);
+    }
+  };
+
+  const handleStartSurvey = async (surveyId: string) => {
+    setLoading(true);
+    setMessage(null);
+    
+    try {
+      const result = await startSurvey(surveyId);
+      
+      if (result.success && result.survey && result.responseId) {
+        setActiveSurvey(result.survey);
+        setCurrentResponseId(result.responseId);
+        setTimeLeft(result.survey.duration_minutes * 60); // Convert to seconds
+        setShowSurveyForm(true);
+        setAnswers([]); // Reset answers
+        setCurrentQuestionIndex(0); // Start with first question
+        setMessage(result.message);
+        setMessageType('info');
+      } else {
+        setMessage(result.message);
+        setMessageType('error');
+      }
+    } catch (error) {
+      setMessage('Failed to start survey.');
+      setMessageType('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAnswerSelect = (questionIndex: number, optionIndex: number) => {
+    setAnswers(prev => {
+      const existingAnswerIndex = prev.findIndex(a => a.question_index === questionIndex);
+      
+      if (existingAnswerIndex >= 0) {
+        // Update existing answer
+        const updated = [...prev];
+        updated[existingAnswerIndex] = { question_index: questionIndex, selected_option_index: optionIndex };
+        return updated;
+      } else {
+        // Add new answer
+        return [...prev, { question_index: questionIndex, selected_option_index: optionIndex }];
+      }
+    });
+  };
+
+  const handleNextQuestion = () => {
+    if (activeSurvey && currentQuestionIndex < activeSurvey.questions.length - 1) {
+      setCurrentQuestionIndex(prev => prev + 1);
+    }
+  };
+
+  const handlePreviousQuestion = () => {
+    if (currentQuestionIndex > 0) {
+      setCurrentQuestionIndex(prev => prev - 1);
+    }
+  };
+
+  const handleSubmitSurvey = async () => {
+    if (!currentResponseId || !activeSurvey) return;
+
+    // Check if all required questions are answered
+    const unansweredQuestions = activeSurvey.questions.filter((question, index) => 
+      question.required && !answers.find(a => a.question_index === index)
+    );
+
+    if (unansweredQuestions.length > 0) {
+      setMessage(`Please answer all required questions. ${unansweredQuestions.length} question(s) remaining.`);
+      setMessageType('error');
+      return;
+    }
+
+    setSubmitting(true);
+    setMessage(null);
+
+    try {
+      const result = await submitSurveyAnswers(currentResponseId, answers);
+      
+      if (result.success) {
+        setMessage(result.message);
+        setMessageType('success');
+        
+        // Reset survey state
+        setActiveSurvey(null);
+        setCurrentResponseId(null);
+        setShowSurveyForm(false);
+        setAnswers([]);
+        setTimeLeft(0);
+        setCurrentQuestionIndex(0);
+        
+        // Reload available surveys
+        await loadSurveys();
+        await loadSurveyHistory();
+      } else {
+        setMessage(result.message);
+        setMessageType('error');
+        
+        // If survey failed due to wrong answer or timeout, close it
+        if (result.message?.includes('Incorrect answer') || result.message?.includes('time expired')) {
+          setActiveSurvey(null);
+          setCurrentResponseId(null);
+          setShowSurveyForm(false);
+          setAnswers([]);
+          setTimeLeft(0);
+          setCurrentQuestionIndex(0);
+          await loadSurveys();
+        }
+      }
+    } catch (error) {
+      setMessage('Failed to submit survey.');
+      setMessageType('error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleCloseSurvey = () => {
@@ -196,6 +236,7 @@ export default function SurveysPage() {
     setShowSurveyForm(false);
     setAnswers([]);
     setTimeLeft(0);
+    setCurrentQuestionIndex(0);
     setMessage('Survey cancelled.');
     setMessageType('info');
   };
@@ -212,6 +253,11 @@ export default function SurveysPage() {
     }
     setShowHistory(!showHistory);
   };
+
+  // Get current question for single-question display
+  const currentQuestion = activeSurvey?.questions[currentQuestionIndex];
+  const currentAnswer = answers.find(a => a.question_index === currentQuestionIndex);
+  const isLastQuestion = activeSurvey && currentQuestionIndex === activeSurvey.questions.length - 1;
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -234,6 +280,18 @@ export default function SurveysPage() {
           message={message} 
           onClose={() => setMessage(null)} 
         />
+      )}
+
+      {/* Availability Message */}
+      {availabilityMessage && (
+        <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+          <div className="flex items-center">
+            <svg className="w-5 h-5 text-yellow-600 mr-2" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+            <p className="text-yellow-700">{availabilityMessage}</p>
+          </div>
+        </div>
       )}
 
       {/* Survey History */}
@@ -282,11 +340,11 @@ export default function SurveysPage() {
         </div>
       )}
 
-      {/* Active Survey Form */}
-      {showSurveyForm && activeSurvey && (
+      {/* Active Survey Form - SINGLE QUESTION DISPLAY */}
+      {showSurveyForm && activeSurvey && currentQuestion && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
-            {/* Header with Timer */}
+            {/* Header with Timer and Progress */}
             <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 text-white">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-bold">{activeSurvey.title}</h2>
@@ -297,85 +355,108 @@ export default function SurveysPage() {
                 </div>
               </div>
               <p className="text-indigo-100">{activeSurvey.description}</p>
-              <div className="flex justify-between items-center mt-4 text-sm">
-                <span>Payout: KSH {(activeSurvey.payout_cents / 100).toFixed(2)}</span>
-                <span>Questions: {activeSurvey.questions.length}</span>
-                <span>Category: {activeSurvey.category.replace('_', ' ')}</span>
+              
+              {/* Progress Bar */}
+              <div className="mt-4">
+                <div className="flex justify-between items-center text-sm mb-2">
+                  <span>Question {currentQuestionIndex + 1} of {activeSurvey.questions.length}</span>
+                  <span>{Math.round(((currentQuestionIndex + 1) / activeSurvey.questions.length) * 100)}% Complete</span>
+                </div>
+                <div className="w-full bg-indigo-400 rounded-full h-2">
+                  <div 
+                    className="bg-white h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${((currentQuestionIndex + 1) / activeSurvey.questions.length) * 100}%` }}
+                  ></div>
+                </div>
               </div>
             </div>
 
-            {/* Survey Questions */}
-            <div className="p-6 max-h-[60vh] overflow-y-auto">
-              <div className="space-y-6">
-                {activeSurvey.questions.map((question, questionIndex) => (
-                  <div key={questionIndex} className="border border-gray-200 rounded-lg p-4">
-                    <h3 className="font-semibold text-gray-800 mb-3 text-lg">
-                      {questionIndex + 1}. {question.question_text}
-                      {question.required && <span className="text-red-500 ml-1">*</span>}
-                    </h3>
+            {/* Single Question Display */}
+            <div className="p-6">
+              <div className="border border-gray-200 rounded-lg p-6">
+                <h3 className="font-semibold text-gray-800 mb-4 text-lg">
+                  {currentQuestion.question_text}
+                  {currentQuestion.required && <span className="text-red-500 ml-1">*</span>}
+                </h3>
+                
+                <div className="space-y-3">
+                  {currentQuestion.options.map((option, optionIndex) => {
+                    const isSelected = currentAnswer?.selected_option_index === optionIndex;
                     
-                    <div className="space-y-2">
-                      {question.options.map((option, optionIndex) => {
-                        const isSelected = answers.find(a => 
-                          a.question_index === questionIndex
-                        )?.selected_option_index === optionIndex;
-                        
-                        return (
-                          <label 
-                            key={optionIndex}
-                            className={`flex items-center p-3 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
-                              isSelected
-                                ? 'border-indigo-500 bg-indigo-50'
-                                : 'border-gray-200 hover:border-gray-300'
-                            }`}
-                          >
-                            <input
-                              type="radio"
-                              name={`question-${questionIndex}`}
-                              value={optionIndex}
-                              checked={isSelected}
-                              onChange={() => handleAnswerSelect(questionIndex, optionIndex)}
-                              className="hidden"
-                            />
-                            <div className={`w-4 h-4 rounded-full border-2 mr-3 flex items-center justify-center ${
-                              isSelected 
-                                ? 'border-indigo-500 bg-indigo-500' 
-                                : 'border-gray-400'
-                            }`}>
-                              {isSelected && <div className="w-2 h-2 rounded-full bg-white"></div>}
-                            </div>
-                            <span className="text-gray-700">{option.text}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+                    return (
+                      <label 
+                        key={optionIndex}
+                        className={`flex items-center p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
+                          isSelected
+                            ? 'border-indigo-500 bg-indigo-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`question-${currentQuestionIndex}`}
+                          value={optionIndex}
+                          checked={isSelected}
+                          onChange={() => handleAnswerSelect(currentQuestionIndex, optionIndex)}
+                          className="hidden"
+                        />
+                        <div className={`w-5 h-5 rounded-full border-2 mr-4 flex items-center justify-center ${
+                          isSelected 
+                            ? 'border-indigo-500 bg-indigo-500' 
+                            : 'border-gray-400'
+                        }`}>
+                          {isSelected && <div className="w-2 h-2 rounded-full bg-white"></div>}
+                        </div>
+                        <span className="text-gray-700 text-base">{option.text}</span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
-            {/* Footer Actions */}
+            {/* Navigation Footer */}
             <div className="border-t border-gray-200 p-6 bg-gray-50">
               <div className="flex justify-between items-center">
-                <button
-                  onClick={handleCloseSurvey}
-                  disabled={submitting}
-                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition duration-150 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                
-                <div className="text-sm text-gray-600">
-                  {answers.length} of {activeSurvey.questions.length} questions answered
+                <div className="flex gap-3">
+                  <button
+                    onClick={handlePreviousQuestion}
+                    disabled={currentQuestionIndex === 0 || submitting}
+                    className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  
+                  <button
+                    onClick={handleCloseSurvey}
+                    disabled={submitting}
+                    className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition duration-150 disabled:opacity-50"
+                  >
+                    Cancel Survey
+                  </button>
                 </div>
                 
-                <button
-                  onClick={handleSubmitSurvey}
-                  disabled={submitting || answers.length < activeSurvey.questions.length}
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition duration-150 disabled:bg-indigo-300 disabled:cursor-not-allowed font-medium"
-                >
-                  {submitting ? 'Submitting...' : 'Submit Survey'}
-                </button>
+                <div className="text-sm text-gray-600">
+                  {answers.length} of {activeSurvey.questions.length} answered
+                </div>
+                
+                {!isLastQuestion ? (
+                  <button
+                    onClick={handleNextQuestion}
+                    disabled={!currentAnswer || submitting}
+                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition duration-150 disabled:bg-indigo-300 disabled:cursor-not-allowed font-medium"
+                  >
+                    Next Question
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSubmitSurvey}
+                    disabled={submitting}
+                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition duration-150 disabled:bg-green-300 disabled:cursor-not-allowed font-medium"
+                  >
+                    {submitting ? 'Submitting...' : 'Submit Survey'}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -406,8 +487,7 @@ export default function SurveysPage() {
             </div>
             <h3 className="text-xl font-semibold text-gray-600 mb-2">No Surveys Available</h3>
             <p className="text-gray-500 max-w-md mx-auto">
-              There are no surveys available at the moment. New surveys are released every Tuesday at 9:00 PM EAT.
-              Check back later for new opportunities to earn!
+              {availabilityMessage || 'There are no surveys available at the moment. Check back on Tuesday at 9:00 PM EAT or when admin enables surveys.'}
             </p>
           </div>
         ) : (
@@ -516,7 +596,7 @@ export default function SurveysPage() {
             <svg className="w-4 h-4 mr-2 mt-0.5 text-blue-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
             </svg>
-            New surveys are released every Tuesday at 9:00 PM EAT
+            New surveys are released every Tuesday at 9:00 PM EAT or when admin enables them
           </li>
         </ul>
       </div>

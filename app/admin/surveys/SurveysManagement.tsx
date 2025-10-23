@@ -2,11 +2,17 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { generateAISurvey, createSurvey, getAdminSurveys, getAdminSurveyResponses } from '@/app/actions/surveys';
+import { 
+  generateAISurvey, 
+  createSurvey, 
+  getAdminSurveys, 
+  getAdminSurveyResponses,
+  toggleSurveyAvailability,
+  revokeSurveyResponse 
+} from '@/app/actions/surveys';
 import Alert from '@/app/ui/Alert';
-import Link from 'next/link';
 
-// --- Type Definitions for Data Structures (Assuming structure from actions) ---
+// --- Type Definitions ---
 interface AdminSurvey {
   _id: string;
   title: string;
@@ -16,17 +22,22 @@ interface AdminSurvey {
   max_responses: number;
   payout_cents: number;
   scheduled_for: string;
+  is_manually_enabled: boolean;
 }
 
 interface AdminSurveyResponse {
   _id: string;
   survey_title: string;
   user_email: string;
+  user_username: string;
+  user_accuracy_rate: number;
   completed_at: string;
   score: number;
   status: string;
   payout_credited: boolean;
   payout_amount_cents: number;
+  revoked: boolean;
+  revoke_reason?: string;
 }
 
 interface Pagination {
@@ -36,13 +47,14 @@ interface Pagination {
   pages: number;
 }
 
-// --- Helper Components for Tabs ---
+// --- Helper Components ---
 
 function ManageSurveysList({ initialData }: { initialData: { data: AdminSurvey[], pagination: Pagination } }) {
   const [data, setData] = useState(initialData.data);
   const [pagination, setPagination] = useState(initialData.pagination);
   const [currentPage, setCurrentPage] = useState(initialData.pagination.page);
   const [loading, setLoading] = useState(false);
+  const [toggling, setToggling] = useState<string | null>(null);
 
   const fetchData = useCallback(async (page: number) => {
     setLoading(true);
@@ -54,6 +66,19 @@ function ManageSurveysList({ initialData }: { initialData: { data: AdminSurvey[]
     }
     setLoading(false);
   }, []);
+
+  const handleToggleAvailability = async (surveyId: string) => {
+    setToggling(surveyId);
+    const result = await toggleSurveyAvailability(surveyId);
+    
+    if (result.success) {
+      // Refresh the list
+      await fetchData(currentPage);
+    } else {
+      alert(result.message);
+    }
+    setToggling(null);
+  };
 
   return (
     <div className="space-y-4">
@@ -73,6 +98,7 @@ function ManageSurveysList({ initialData }: { initialData: { data: AdminSurvey[]
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Responses</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payout</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scheduled For</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -80,13 +106,20 @@ function ManageSurveysList({ initialData }: { initialData: { data: AdminSurvey[]
                   <tr key={survey._id}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{survey.title}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        survey.status === 'active' ? 'bg-green-100 text-green-800' :
-                        survey.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {survey.status.charAt(0).toUpperCase() + survey.status.slice(1)}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          survey.status === 'active' ? 'bg-green-100 text-green-800' :
+                          survey.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {survey.status.charAt(0).toUpperCase() + survey.status.slice(1)}
+                        </span>
+                        {survey.is_manually_enabled && (
+                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
+                            Manual Override
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {survey.current_responses} / {survey.max_responses || 'N/A'}
@@ -96,6 +129,20 @@ function ManageSurveysList({ initialData }: { initialData: { data: AdminSurvey[]
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {new Date(survey.scheduled_for).toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <button
+                        onClick={() => handleToggleAvailability(survey._id)}
+                        disabled={toggling === survey._id}
+                        className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                          survey.is_manually_enabled
+                            ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                            : 'bg-green-100 text-green-700 hover:bg-green-200'
+                        } disabled:opacity-50`}
+                      >
+                        {toggling === survey._id ? 'Processing...' : 
+                         survey.is_manually_enabled ? 'Disable' : 'Enable'}
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -135,6 +182,7 @@ function SurveyResponsesList({ initialData }: { initialData: { data: AdminSurvey
   const [pagination, setPagination] = useState(initialData.pagination);
   const [currentPage, setCurrentPage] = useState(initialData.pagination.page);
   const [loading, setLoading] = useState(false);
+  const [revoking, setRevoking] = useState<string | null>(null);
 
   const fetchData = useCallback(async (page: number) => {
     setLoading(true);
@@ -146,6 +194,26 @@ function SurveyResponsesList({ initialData }: { initialData: { data: AdminSurvey
     }
     setLoading(false);
   }, []);
+
+  const handleRevoke = async (responseId: string) => {
+    const reason = prompt('Please enter the reason for revoking this survey response:');
+    
+    if (!reason || reason.trim() === '') {
+      alert('Revoke reason is required.');
+      return;
+    }
+
+    setRevoking(responseId);
+    const result = await revokeSurveyResponse(responseId, reason.trim());
+    
+    if (result.success) {
+      await fetchData(currentPage);
+      alert('Survey response revoked successfully.');
+    } else {
+      alert(result.message);
+    }
+    setRevoking(null);
+  };
 
   return (
     <div className="space-y-4">
@@ -162,36 +230,84 @@ function SurveyResponsesList({ initialData }: { initialData: { data: AdminSurvey
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Survey Title</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Accuracy Rate</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Score (%)</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paid</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completed At</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {data.map((response) => (
-                  <tr key={response._id}>
+                  <tr key={response._id} className={response.revoked ? 'bg-red-50' : ''}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{response.survey_title}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{response.user_email}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        response.status === 'completed' ? 'bg-green-100 text-green-800' :
-                        response.status === 'wrong_answer' ? 'bg-red-100 text-red-800' :
-                        'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {response.status.replace('_', ' ').charAt(0).toUpperCase() + response.status.replace('_', ' ').slice(1)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{response.score ? response.score.toFixed(0) : 'N/A'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {response.payout_credited ? (
-                            <span className="text-green-600 font-medium">Yes</span>
-                        ) : (
-                            <span className="text-red-600 font-medium">No</span>
-                        )}
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      <div className="flex flex-col">
+                        <span className="font-medium">{response.user_username}</span>
+                        <span className="text-xs text-gray-400">{response.user_email}</span>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(response.completed_at).toLocaleString()}
+                      {response.user_accuracy_rate ? (
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          response.user_accuracy_rate >= 80 ? 'bg-green-100 text-green-800' :
+                          response.user_accuracy_rate >= 60 ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {response.user_accuracy_rate.toFixed(1)}%
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">N/A</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <div className="flex flex-col gap-1">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          response.status === 'completed' ? 'bg-green-100 text-green-800' :
+                          response.status === 'wrong_answer' ? 'bg-red-100 text-red-800' :
+                          response.status === 'time_expired' ? 'bg-orange-100 text-orange-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {response.status.replace('_', ' ').split(' ').map(word => 
+                            word.charAt(0).toUpperCase() + word.slice(1)
+                          ).join(' ')}
+                        </span>
+                        {response.revoked && (
+                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                            Revoked
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {response.score ? `${response.score.toFixed(0)}%` : 'N/A'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {response.payout_credited && !response.revoked ? (
+                        <span className="text-green-600 font-medium">Yes</span>
+                      ) : (
+                        <span className="text-red-600 font-medium">No</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {response.completed_at ? new Date(response.completed_at).toLocaleString() : 'N/A'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {!response.revoked && response.payout_credited && (
+                        <button
+                          onClick={() => handleRevoke(response._id)}
+                          disabled={revoking === response._id}
+                          className="px-3 py-1 bg-red-100 text-red-700 hover:bg-red-200 rounded-md text-xs font-medium transition-colors disabled:opacity-50"
+                        >
+                          {revoking === response._id ? 'Revoking...' : 'Revoke'}
+                        </button>
+                      )}
+                      {response.revoked && response.revoke_reason && (
+                        <span className="text-xs text-gray-500" title={response.revoke_reason}>
+                          Reason: {response.revoke_reason.substring(0, 20)}...
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -226,7 +342,6 @@ function SurveyResponsesList({ initialData }: { initialData: { data: AdminSurvey
   );
 }
 
-
 // --- Main Component ---
 
 export default function SurveysManagement() {
@@ -243,7 +358,6 @@ export default function SurveysManagement() {
   const [adminSurveys, setAdminSurveys] = useState<{ data: AdminSurvey[], pagination: Pagination } | null>(null);
   const [adminResponses, setAdminResponses] = useState<{ data: AdminSurveyResponse[], pagination: Pagination } | null>(null);
 
-  // Helper function to fetch data for the active tab
   const fetchDataForTab = useCallback(async (tab: string) => {
     setLoading(true);
     setMessage(null);
@@ -275,7 +389,6 @@ export default function SurveysManagement() {
     }
   }, []);
 
-  // Effect to load data when switching tabs
   useEffect(() => {
     if (activeTab !== 'create' && !adminSurveys && !adminResponses) {
       fetchDataForTab(activeTab);
@@ -290,9 +403,8 @@ export default function SurveysManagement() {
     if (tab === 'responses' && !adminResponses) {
       fetchDataForTab(tab);
     }
-    setMessage(null); // Clear messages on tab switch
+    setMessage(null);
   };
-
 
   const handleGenerateSurvey = async () => {
     if (!topics.trim()) {
@@ -305,7 +417,6 @@ export default function SurveysManagement() {
     setMessage(null);
 
     try {
-      // Split topics by commas and trim each one
       const topicsArray = topics.split(',').map(topic => topic.trim()).filter(topic => topic);
       
       const result = await generateAISurvey(
@@ -342,7 +453,6 @@ export default function SurveysManagement() {
     setMessage(null);
 
     try {
-      // Calculate next Tuesday at 21:00 EAT
       const nextTuesday = getNextTuesday();
       
       const result = await createSurvey({
@@ -355,7 +465,6 @@ export default function SurveysManagement() {
         setMessageType('success');
         setGeneratedSurvey(null);
         setTopics('');
-        // Force reload of Manage Surveys tab next time it's opened
         setAdminSurveys(null);
       } else {
         setMessage(result.message || 'Failed to create survey.');
@@ -370,29 +479,24 @@ export default function SurveysManagement() {
     }
   };
 
-  // Helper function to get next Tuesday at 21:00
   const getNextTuesday = () => {
     const date = new Date();
     const day = date.getDay();
-    // Tuesday is day 2 (0 = Sunday, 1 = Monday, 2 = Tuesday, etc.)
-    // If today is Tuesday, check the time. If before 21:00, it's today. Otherwise, next week.
     let daysUntilTuesday = 0;
     
     if (day === 2) {
-      // Check if it's already past 21:00
       if (date.getHours() >= 21) {
-        daysUntilTuesday = 7; // Schedule for next Tuesday
+        daysUntilTuesday = 7;
       } else {
-        daysUntilTuesday = 0; // Schedule for today's Tuesday
+        daysUntilTuesday = 0;
       }
     } else {
-      // Calculate days until next Tuesday
       daysUntilTuesday = day < 2 ? 2 - day : 9 - day;
     }
     
     const nextTuesday = new Date(date);
     nextTuesday.setDate(date.getDate() + daysUntilTuesday);
-    nextTuesday.setHours(21, 0, 0, 0); // 9:00 PM EAT
+    nextTuesday.setHours(21, 0, 0, 0);
     
     return nextTuesday;
   };
@@ -452,12 +556,11 @@ export default function SurveysManagement() {
               </h3>
               <p className="text-blue-700 text-sm">
                 Create engaging surveys using AI. Simply provide topics and let the system generate 
-                multiple-choice questions automatically. Surveys are scheduled for **Tuesdays at 9:00 PM EAT**.
+                multiple-choice questions automatically. Surveys are scheduled for Tuesdays at 9:00 PM EAT.
               </p>
             </div>
 
             {!generatedSurvey ? (
-              // Survey Generation Form
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="space-y-4">
                   <div>
@@ -514,10 +617,10 @@ export default function SurveysManagement() {
                   <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                     <h4 className="font-semibold text-gray-800 mb-3">Survey Rules & Schedule</h4>
                     <div className="space-y-3 text-sm text-gray-600">
-                      <p><strong>Payout:</strong> KSH 50 (5000 cents) per *correctly* completed survey</p>
+                      <p><strong>Payout:</strong> KSH 50 (5000 cents) per correctly completed survey</p>
                       <p><strong>Duration:</strong> 5 minutes time limit</p>
                       <p><strong>Distribution:</strong> Automatically assigned to eligible users</p>
-                      <p><strong>Schedule:</strong> Tuesdays at 9:00 PM EAT</p>
+                      <p><strong>Schedule:</strong> Tuesdays at 9:00 PM EAT (unless manually enabled)</p>
                       <p>
                         <strong>Next Schedule Slot:</strong> 
                         <span className="font-medium text-indigo-600 ml-1">
@@ -536,7 +639,7 @@ export default function SurveysManagement() {
                   </button>
 
                   <div className="text-xs text-gray-500">
-                    <p>• Only **fully correct** responses within the time limit are credited.</p>
+                    <p>• Only fully correct responses within the time limit are credited.</p>
                     <p>• The system automatically handles user assignment and payout.</p>
                   </div>
                 </div>
@@ -549,7 +652,7 @@ export default function SurveysManagement() {
                     Survey Generated Successfully! 🎉
                   </h3>
                   <p className="text-green-700 text-sm">
-                    Review the AI-generated survey below. Click **Create Survey** to schedule it for the next slot.
+                    Review the AI-generated survey below. Click Create Survey to schedule it for the next slot.
                   </p>
                 </div>
 
@@ -563,14 +666,14 @@ export default function SurveysManagement() {
                       
                       <div className="space-y-4">
                         {generatedSurvey.questions.map((question: any, index: number) => (
-                          <div key={index} className="border-t pt-4 first:border-t-0 first:pt-0">
+                          <div key={`question-${index}`} className="border-t pt-4 first:border-t-0 first:pt-0">
                             <h5 className="font-semibold text-gray-800 mb-2">
                               {index + 1}. {question.question_text}
                             </h5>
                             <div className="space-y-2 ml-4">
                               {question.options.map((option: any, optIndex: number) => (
                                 <div 
-                                  key={optIndex}
+                                  key={`option-${index}-${optIndex}`}
                                   className={`flex items-center p-2 rounded ${
                                     option.is_correct 
                                       ? 'bg-green-50 border border-green-200' 

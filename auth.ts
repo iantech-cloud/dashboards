@@ -1,4 +1,4 @@
-// auth.ts - COMPLETE VERSION WITH 2FA SUPPORT
+// auth.ts - COMPLETE VERSION WITH 2FA SUPPORT (FIXED)
 import NextAuth, { DefaultSession, NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from 'bcryptjs';
@@ -54,7 +54,6 @@ export const authOptions: NextAuthConfig = {
         signIn: '/auth/login',
         signOut: '/auth/login',
         error: '/auth/login',
-        verifyRequest: '/auth/confirm',
         newUser: '/auth/activate',
     },
     
@@ -83,6 +82,14 @@ export const authOptions: NextAuthConfig = {
 
                     if (!user) {
                         throw new Error('Invalid email or password.');
+                    }
+
+                    // Store user ID early to ensure we have it
+                    const userId = user._id?.toString() || user.id?.toString();
+                    
+                    if (!userId) {
+                        console.error('User object missing _id:', user);
+                        throw new Error('Invalid user data structure.');
                     }
                     
                     // Verify password
@@ -155,7 +162,7 @@ export const authOptions: NextAuthConfig = {
                             
                             // Return special user object to indicate 2FA is required
                             return {
-                                id: user._id.toString(),
+                                id: userId,
                                 email: user.email,
                                 name: user.username,
                                 role: user.role,
@@ -207,7 +214,7 @@ export const authOptions: NextAuthConfig = {
                     
                     // Return complete user object for session
                     return {
-                        id: user._id.toString(),
+                        id: userId,
                         email: user.email,
                         name: user.username,
                         role: user.role,
