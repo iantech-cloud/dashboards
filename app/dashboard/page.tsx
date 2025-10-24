@@ -20,7 +20,8 @@ import {
   AlertCircle,
   CheckSquare,
   X,
-  ArrowRight
+  ArrowRight,
+  BarChart3 // Added for reports
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -28,6 +29,7 @@ import Card from '@/app/ui/dashboard/Card';
 import TransactionHistory from '@/app/ui/dashboard/TransactionHistory';
 import WalletPay from '@/app/ui/dashboard/WalletPay';
 import SpinWheel from '@/app/ui/dashboard/spin-wheel';
+import UserReports from '@/app/ui/dashboard/userReports'; // Added import
 import { fetchDashboardData } from '@/app/lib/data';
 import { useDashboard } from './DashboardContext';
 import { getUserContentStats, getRecentSubmissions } from '@/app/actions/dashboard/content';
@@ -662,6 +664,11 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Financial Reports Section - ADDED */}
+      <div className="mb-8">
+        <UserReports className="mt-6" />
       </div>
 
       {/* Spin Wheel Modal */}

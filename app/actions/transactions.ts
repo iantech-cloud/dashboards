@@ -437,3 +437,166 @@ export async function processWithdrawal(withdrawalData: {
 		return { success: false, message: 'Failed to process withdrawal' };
 	}
 }
+
+// ----------------------------------------------------------------------
+// NEW: M-PESA CALLBACK HANDLER
+// ----------------------------------------------------------------------
+
+export async function handleMpesaCallback(callbackData: any): Promise<{ success: boolean; message: string }> {
+  try {
+    await connectToDatabase();
+    
+    const { Body: { stkCallback: callback } } = callbackData;
+    const { CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = callback;
+
+    // Find the M-Pesa transaction
+    const mpesaTransaction = await MpesaTransaction.findOne({ 
+      checkout_request_id: CheckoutRequestID 
+    });
+
+    if (!mpesaTransaction) {
+      console.error('M-Pesa transaction not found:', CheckoutRequestID);
+      return { success: false, message: 'Transaction not found' };
+    }
+
+    // Find the associated transaction
+    const transaction = await Transaction.findOne({
+      mpesa_transaction_id: mpesaTransaction._id
+    });
+
+    if (!transaction) {
+      console.error('Transaction not found for M-Pesa transaction:', mpesaTransaction._id);
+      return { success: false, message: 'Transaction record not found' };
+    }
+
+    // Update based on result code
+    if (ResultCode === 0) {
+      // Success
+      const metadata = CallbackMetadata?.Item || [];
+      const amountItem = metadata.find((item: any) => item.Name === 'Amount');
+      const receiptItem = metadata.find((item: any) => item.Name === 'MpesaReceiptNumber');
+      const phoneItem = metadata.find((item: any) => item.Name === 'PhoneNumber');
+
+      // Update M-Pesa transaction
+      await MpesaTransaction.findByIdAndUpdate(mpesaTransaction._id, {
+        status: 'completed',
+        result_code: ResultCode,
+        result_desc: ResultDesc,
+        mpesa_receipt_number: receiptItem?.Value,
+        phone_number: phoneItem?.Value,
+        callback_metadata: callbackData
+      });
+
+      // Update transaction
+      await Transaction.findByIdAndUpdate(transaction._id, {
+        status: 'completed',
+        transaction_code: receiptItem?.Value,
+        metadata: {
+          ...transaction.metadata,
+          mpesaReceiptNumber: receiptItem?.Value,
+          phoneNumber: phoneItem?.Value,
+          amount: amountItem?.Value
+        }
+      });
+
+      // Update user balance
+      await Profile.findByIdAndUpdate(transaction.user_id, {
+        $inc: { balance_cents: transaction.amount_cents }
+      });
+
+    } else {
+      // Failed/Cancelled/Timeout
+      const status = ResultCode === 1032 ? 'cancelled' : 
+                    ResultCode === 1037 ? 'timeout' : 'failed';
+
+      await MpesaTransaction.findByIdAndUpdate(mpesaTransaction._id, {
+        status,
+        result_code: ResultCode,
+        result_desc: ResultDesc,
+        callback_metadata: callbackData
+      });
+
+      await Transaction.findByIdAndUpdate(transaction._id, {
+        status
+      });
+
+      // Refund daily deposit limit for failed transactions
+      if (status === 'failed' || status === 'cancelled' || status === 'timeout') {
+        await Profile.findByIdAndUpdate(transaction.user_id, {
+          $inc: { total_deposits_today_cents: -transaction.amount_cents }
+        });
+      }
+    }
+
+    revalidatePath('/dashboard/wallet');
+    return { success: true, message: 'Callback processed successfully' };
+
+  } catch (error) {
+    console.error('M-Pesa callback error:', error);
+    return { success: false, message: 'Failed to process callback' };
+  }
+}
+
+// ----------------------------------------------------------------------
+// NEW: ADMIN TRANSACTIONS FUNCTION
+// ----------------------------------------------------------------------
+
+export async function getAdminTransactions(limit: number = 1000, filters: any = {}) {
+  try {
+    await connectToDatabase();
+
+    let query: any = {};
+    
+    // Apply filters
+    if (filters.type && filters.type !== 'all') {
+      query.type = filters.type;
+    }
+    
+    if (filters.status && filters.status !== 'all') {
+      query.status = filters.status;
+    }
+    
+    if (filters.dateFrom || filters.dateTo) {
+      query.created_at = {};
+      if (filters.dateFrom) {
+        query.created_at.$gte = new Date(filters.dateFrom);
+      }
+      if (filters.dateTo) {
+        query.created_at.$lte = new Date(filters.dateTo + 'T23:59:59.999Z');
+      }
+    }
+
+    const transactions = await Transaction.find(query)
+      .populate('user_id', 'username email')
+      .populate('mpesa_transaction_id', 'mpesa_receipt_number phone_number')
+      .sort({ created_at: -1 })
+      .limit(limit)
+      .lean();
+
+    const transformedTransactions = transactions.map((txn: any) => ({
+      id: txn._id.toString(),
+      user_id: txn.user_id?._id?.toString(),
+      user_email: txn.user_id?.email,
+      user_username: txn.user_id?.username,
+      amount: txn.amount_cents / 100,
+      type: txn.type,
+      status: txn.status,
+      description: txn.description,
+      date: txn.created_at,
+      transaction_code: txn.transaction_code,
+      mpesa_receipt_number: txn.mpesa_transaction_id?.mpesa_receipt_number,
+      phone_number: txn.mpesa_transaction_id?.phone_number,
+      metadata: txn.metadata
+    }));
+
+    return {
+      success: true,
+      data: { transactions: transformedTransactions },
+      message: 'Transactions fetched successfully'
+    };
+
+  } catch (error) {
+    console.error('Get admin transactions error:', error);
+    return { success: false, message: 'Failed to fetch transactions' };
+  }
+}

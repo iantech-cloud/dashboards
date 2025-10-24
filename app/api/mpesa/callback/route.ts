@@ -4,13 +4,92 @@ import { connectToDatabase, Transaction, Profile, MpesaTransaction, ActivationPa
 import mongoose from 'mongoose';
 import { completeActivationAfterPayment } from '@/app/actions/activation';
 
+/**
+ * Map M-Pesa result codes to VALID database enum values
+ * CRITICAL: Only use codes that exist in MpesaTransaction schema
+ */
+function mapMpesaResultCode(resultCode: number): number {
+  const validSchemaCodes = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 17, 20, 26,
+    1032, 1037, 2001
+  ];
+  
+  if (validSchemaCodes.includes(resultCode)) {
+    return resultCode;
+  }
+  
+  // Map unknown codes to safe defaults that exist in schema
+  if (resultCode === 0) return 0;
+  if (resultCode > 0 && resultCode < 1000) return 11; // Internal error
+  if (resultCode >= 1000 && resultCode <= 1999) return 1032; // User cancellation
+  if (resultCode >= 2000 && resultCode <= 2999) return 2001; // Configuration error
+  
+  return 11; // Default to internal error
+}
+
+/**
+ * Map M-Pesa result codes to VALID database status enum values
+ * CRITICAL: Only use status values that exist in MpesaTransaction schema
+ */
+function mapMpesaStatus(resultCode: number): 'initiated' | 'pending' | 'completed' | 'failed' | 'cancelled' | 'timeout' {
+  // User cancelled
+  if (resultCode === 1032) return 'cancelled';
+  
+  // Request timeout
+  if (resultCode === 1037) return 'timeout';
+  
+  // Success
+  if (resultCode === 0) return 'completed';
+  
+  // Everything else is failed
+  return 'failed';
+}
+
+/**
+ * Categorize failure types for better reporting
+ */
+function getFailureType(resultCode: number): string {
+  const failureTypes: { [key: number]: string } = {
+    1: 'INSUFFICIENT_FUNDS',
+    2: 'LESS_THAN_MINIMUM',
+    3: 'MORE_THAN_MAXIMUM',
+    4: 'EXCEEDS_DAILY_LIMIT',
+    5: 'EXCEEDS_MINIMUM_BALANCE',
+    6: 'UNRESOLVED_PRIMARY_PARTY',
+    7: 'SUSPENDED',
+    8: 'INACTIVE',
+    10: 'INVALID_SHORTCODE',
+    11: 'INVALID_SECURITY_CREDENTIALS',
+    12: 'INVALID_INITIATOR',
+    13: 'INVALID_SENDER',
+    14: 'INVALID_RECEIVER',
+    15: 'INVALID_AMOUNT',
+    17: 'INVALID_TRANSACTION',
+    20: 'INVALID_ARGUMENTS',
+    26: 'INVALID_REFERENCE',
+    1032: 'USER_CANCELLED',
+    1037: 'TIMEOUT_NO_RESPONSE',
+    2001: 'INVALID_PHONE_NUMBER'
+  };
+
+  return failureTypes[resultCode] || 'UNKNOWN_FAILURE';
+}
+
+/**
+ * Determine if transaction is credit (money in) or debit (money out)
+ */
+function getTransactionFlow(type: string): 'credit' | 'debit' {
+  const creditTypes = ['DEPOSIT', 'BONUS', 'TASK_PAYMENT', 'SPIN_WIN', 'REFERRAL', 'SURVEY'];
+  return creditTypes.includes(type) ? 'credit' : 'debit';
+}
+
 export async function POST(request: NextRequest) {
   let callbackData: any = null;
   let session: mongoose.ClientSession | null = null;
   
   try {
     const body = await request.json();
-    console.log('🔔 M-Pesa Callback received:', JSON.stringify(body, null, 2));
+    console.log('📞 M-Pesa Callback received:', JSON.stringify(body, null, 2));
 
     // Connect to database FIRST
     await connectToDatabase();
@@ -78,20 +157,34 @@ export async function POST(request: NextRequest) {
       isActivationPayment: mpesaTransaction.is_activation_payment
     });
 
+    // Map to VALID enum values
+    const safeResultCode = mapMpesaResultCode(resultCode);
+    const safeStatus = mapMpesaStatus(resultCode);
+    const failureType = getFailureType(resultCode);
+
+    console.log('📊 Status Mapping:', {
+      originalCode: resultCode,
+      safeResultCode,
+      safeStatus,
+      failureType,
+      resultDesc
+    });
+
     // Update M-Pesa transaction with callback data
-    mpesaTransaction.result_code = resultCode;
+    mpesaTransaction.result_code = safeResultCode;
     mpesaTransaction.result_desc = resultDesc;
     mpesaTransaction.callback_payload = body;
     mpesaTransaction.callback_received_at = new Date();
+    mpesaTransaction.status = safeStatus;
     
-    if (resultCode === 0) {
+    if (safeStatus === 'completed') {
       // Payment successful
       const callbackMetadata = callbackData.CallbackMetadata;
       const items = callbackMetadata?.Item || [];
 
       console.log('✅ Payment Successful - Extracting metadata...');
 
-      // Extract payment details with validation
+      // Extract payment details
       const amount = items.find((item: any) => item.Name === 'Amount')?.Value;
       let mpesaReceiptNumber = items.find((item: any) => item.Name === 'MpesaReceiptNumber')?.Value;
       const phoneNumber = items.find((item: any) => item.Name === 'PhoneNumber')?.Value;
@@ -111,7 +204,6 @@ export async function POST(request: NextRequest) {
             currentTransactionId: mpesaTransaction._id
           });
           
-          // Generate a unique receipt number for this transaction
           mpesaReceiptNumber = `${mpesaReceiptNumber}_DUP_${Date.now()}`;
           console.log('🔄 Using duplicate-safe receipt number:', mpesaReceiptNumber);
         }
@@ -121,7 +213,6 @@ export async function POST(request: NextRequest) {
       mpesaTransaction.mpesa_receipt_number = mpesaReceiptNumber;
       mpesaTransaction.phone_number = phoneNumber || mpesaTransaction.phone_number;
       mpesaTransaction.transaction_date = transactionDate;
-      mpesaTransaction.status = 'completed';
       mpesaTransaction.completed_at = new Date();
       
       console.log('💰 Payment Details:', {
@@ -131,15 +222,16 @@ export async function POST(request: NextRequest) {
         transactionDate
       });
       
-    } else {
-      // Payment failed/cancelled
-      mpesaTransaction.status = 'failed';
+    } else if (['failed', 'cancelled', 'timeout'].includes(safeStatus)) {
+      // Payment failed/cancelled/timeout
       mpesaTransaction.failed_at = new Date();
+      mpesaTransaction.failure_reason = failureType;
       
-      console.log('❌ Payment Failed:', {
-        resultCode,
+      console.log('❌ Payment Not Successful:', {
+        status: safeStatus,
+        resultCode: safeResultCode,
         resultDesc,
-        failureType: getFailureType(resultCode)
+        failureType
       });
     }
 
@@ -163,7 +255,7 @@ export async function POST(request: NextRequest) {
       });
 
       // Update activation payment status
-      if (resultCode === 0) {
+      if (safeStatus === 'completed') {
         activationPayment.status = 'completed';
         activationPayment.paid_at = new Date();
         activationPayment.mpesa_receipt_number = mpesaTransaction.mpesa_receipt_number;
@@ -172,36 +264,33 @@ export async function POST(request: NextRequest) {
         console.log('✅ Activation payment marked as completed');
       } else {
         activationPayment.status = 'failed';
-        activationPayment.error_message = resultDesc;
+        activationPayment.error_message = `${resultDesc} (${failureType})`;
         
         console.log('❌ Activation payment marked as failed');
       }
 
       await activationPayment.save({ session });
 
-      // If payment successful, use server action to complete activation
-      if (resultCode === 0) {
-        console.log('🎯 Using server action to complete activation...');
+      // If payment successful, complete activation
+      if (safeStatus === 'completed') {
+        console.log('🎯 Committing transaction before activation...');
         
-        // Commit transaction first since server action will create its own connection
+        // Commit transaction first
         await session.commitTransaction();
-        session = null; // Prevent double commit
+        session = null;
         
         // Use server action to complete activation
         const activationResult = await completeActivationAfterPayment(activationPayment._id.toString());
         
         if (activationResult.success) {
-          console.log('✅ Account activated successfully via server action:', {
+          console.log('✅ Account activated successfully:', {
             activationPaymentId: activationPayment._id,
             userId: activationPayment.user_id
           });
         } else {
-          console.error('❌ Server action failed to activate account:', activationResult.message);
-          // Don't throw error - we'll retry via frontend polling
+          console.error('❌ Activation failed:', activationResult.message);
         }
       }
-    } else {
-      console.warn('⚠️ No activation payment found for M-Pesa transaction:', mpesaTransaction._id);
     }
 
     // Find and update associated transaction record
@@ -211,7 +300,7 @@ export async function POST(request: NextRequest) {
         { activation_payment_id: activationPayment?._id },
         { 'metadata.checkoutRequestID': checkoutRequestID }
       ]
-    }).session(session);
+    }).session(session || undefined);
 
     if (transaction) {
       console.log('🔗 Found Associated Transaction:', {
@@ -221,7 +310,9 @@ export async function POST(request: NextRequest) {
         previousStatus: transaction.status
       });
 
-      if (resultCode === 0) {
+      const transactionFlow = getTransactionFlow(transaction.type);
+
+      if (safeStatus === 'completed') {
         // Payment successful - update transaction
         transaction.status = 'completed';
         transaction.transaction_code = mpesaTransaction.mpesa_receipt_number;
@@ -230,25 +321,49 @@ export async function POST(request: NextRequest) {
           mpesaReceiptNumber: mpesaTransaction.mpesa_receipt_number,
           phoneNumber: mpesaTransaction.phone_number,
           transactionDate: mpesaTransaction.transaction_date,
+          transactionFlow,
           callbackProcessedAt: new Date().toISOString()
         };
 
-        console.log('✅ Transaction marked as completed');
-      } else {
-        // Payment failed/cancelled
+        console.log(`✅ Transaction marked as completed (${transactionFlow})`);
+
+        // Update user balance for completed transactions
+        if (!transaction.balance_updated) {
+          const user = await Profile.findById(transaction.user_id).session(session || undefined);
+          
+          if (user) {
+            if (transactionFlow === 'credit') {
+              // Money coming in
+              user.balance_cents += transaction.amount_cents;
+              user.total_earnings_cents = (user.total_earnings_cents || 0) + transaction.amount_cents;
+              console.log(`💰 Added ${transaction.amount_cents / 100} KES to user balance (CREDIT)`);
+            } else {
+              // Money going out (this shouldn't happen in callback, but handle it)
+              user.balance_cents -= transaction.amount_cents;
+              user.total_withdrawals_cents = (user.total_withdrawals_cents || 0) + transaction.amount_cents;
+              console.log(`💸 Deducted ${transaction.amount_cents / 100} KES from user balance (DEBIT)`);
+            }
+            
+            await user.save({ session: session || undefined });
+            transaction.balance_updated = true;
+          }
+        }
+      } else if (['failed', 'cancelled', 'timeout'].includes(safeStatus)) {
+        // Payment failed/cancelled/timeout
         transaction.status = 'failed';
         transaction.metadata = {
           ...transaction.metadata,
           failureReason: resultDesc,
-          resultCode: resultCode,
-          failureType: getFailureType(resultCode),
+          resultCode: safeResultCode,
+          failureType,
+          transactionFlow,
           callbackProcessedAt: new Date().toISOString()
         };
 
-        console.log('❌ Transaction marked as failed');
+        console.log(`❌ Transaction marked as failed (${failureType})`);
       }
 
-      await transaction.save({ session });
+      await transaction.save({ session: session || undefined });
     }
 
     // Commit the transaction if not already committed
@@ -261,14 +376,18 @@ export async function POST(request: NextRequest) {
     await MpesaCallbackLog.findByIdAndUpdate(callbackLog._id, {
       processed: true,
       processed_at: new Date(),
-      processing_duration_ms: Date.now() - new Date(callbackLog.created_at).getTime()
+      processing_duration_ms: Date.now() - new Date(callbackLog.created_at).getTime(),
+      final_status: safeStatus,
+      failure_type: safeStatus !== 'completed' ? failureType : undefined
     });
+
+    console.log('✅ Callback processed successfully');
 
     // Return success response to M-Pesa
     return NextResponse.json({ ResultCode: 0, ResultDesc: 'Success' });
 
   } catch (error) {
-    console.error('❌ M-Pesa callback processing error:', {
+    console.error('💥 M-Pesa callback processing error:', {
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined,
       checkoutRequestID: callbackData?.CheckoutRequestID,
@@ -310,156 +429,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/**
- * Handle activation payment using server action (fallback method)
- * This is used when we need to process activation within the same transaction
- */
-async function handleActivationPaymentWithServerAction(activationPaymentId: string, mpesaTransaction: any) {
-  try {
-    console.log('🎯 Using server action to complete activation for:', activationPaymentId);
-    
-    // Use the server action to complete activation
-    const result = await completeActivationAfterPayment(activationPaymentId);
-    
-    if (result.success) {
-      console.log('✅ Server action completed activation successfully:', {
-        activationPaymentId,
-        message: result.message
-      });
-      
-      // Update M-Pesa transaction to mark as processed
-      await MpesaTransaction.findByIdAndUpdate(mpesaTransaction._id, {
-        activation_processed: true,
-        activation_processed_at: new Date(),
-        reconciled: true,
-        reconciled_at: new Date()
-      });
-      
-      return true;
-    } else {
-      console.error('❌ Server action failed to complete activation:', {
-        activationPaymentId,
-        error: result.message
-      });
-      return false;
-    }
-  } catch (error) {
-    console.error('💥 Error in server action activation:', error);
-    return false;
-  }
-}
-
-/**
- * Handle direct activation without server action (within transaction)
- */
-async function handleDirectActivation(userId: string, activationPaymentId: string, mpesaTransaction: any, session: mongoose.ClientSession) {
-  try {
-    console.log('🔧 Using direct activation for user:', userId);
-    
-    // Update user activation status
-    const userUpdate = await Profile.findByIdAndUpdate(
-      userId,
-      {
-        $set: {
-          activation_paid_at: new Date(),
-          status: 'active',
-          is_active: true,
-          is_verified: true,
-          is_approved: true,
-          approval_status: 'approved',
-          level: 1,
-          rank: 'Activated Member',
-          activation_method: 'mpesa',
-          activation_transaction_id: mpesaTransaction._id,
-          updated_at: new Date()
-        },
-        $inc: {
-          mpesa_transactions_count: 1,
-          successful_mpesa_deposits: 1
-        },
-        last_mpesa_deposit_date: new Date()
-      },
-      { session, new: true }
-    );
-
-    console.log('✅ User account activated directly:', {
-      userId,
-      activationDate: new Date(),
-      previousStatus: userUpdate?.status,
-      newStatus: 'active'
-    });
-
-    // Create transaction record for activation fee
-    const transaction = new Transaction({
-      user_id: userId,
-      amount_cents: mpesaTransaction.amount_cents,
-      type: 'ACTIVATION_FEE',
-      description: 'Account activation fee payment',
-      status: 'completed',
-      transaction_code: mpesaTransaction.mpesa_receipt_number,
-      mpesa_transaction_id: mpesaTransaction._id,
-      activation_payment_id: activationPaymentId,
-      source: 'activation',
-      is_activation_fee: true,
-      metadata: {
-        phone_number: mpesaTransaction.phone_number,
-        mpesaReceiptNumber: mpesaTransaction.mpesa_receipt_number,
-        transactionDate: mpesaTransaction.transaction_date,
-        activated_via: 'callback'
-      }
-    });
-    await transaction.save({ session });
-
-    // Update activation payment as processed
-    await ActivationPayment.findByIdAndUpdate(
-      activationPaymentId,
-      {
-        $set: {
-          processed_by_system: true,
-          processed_at: new Date(),
-          mpesa_receipt_number: mpesaTransaction.mpesa_receipt_number,
-          mpesa_transaction_id: mpesaTransaction._id
-        }
-      },
-      { session }
-    );
-
-    // Update M-Pesa transaction
-    await MpesaTransaction.findByIdAndUpdate(
-      mpesaTransaction._id,
-      {
-        $set: {
-          activation_processed: true,
-          activation_processed_at: new Date(),
-          reconciled: true,
-          reconciled_at: new Date()
-        }
-      },
-      { session }
-    );
-
-    console.log('🎉 Direct activation completed successfully');
-    return true;
-
-  } catch (error) {
-    console.error('❌ Error in direct activation:', error);
-    throw error;
-  }
-}
-
-// Helper function to categorize failure types
-function getFailureType(resultCode: number): string {
-  const failureTypes: { [key: number]: string } = {
-    1: 'INSUFFICIENT_FUNDS',
-    1032: 'USER_CANCELLED',
-    1037: 'TIMEOUT_NO_RESPONSE',
-    2001: 'INVALID_PHONE_NUMBER'
-  };
-
-  return failureTypes[resultCode] || 'UNKNOWN_FAILURE';
-}
-
-// Optional: Add GET method for debugging callbacks (remove in production)
+// Optional: GET method for debugging (remove in production)
 export async function GET(request: NextRequest) {
   if (process.env.NODE_ENV !== 'development') {
     return NextResponse.json({ 
@@ -477,7 +447,6 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '10');
     
     if (checkoutRequestId) {
-      // Get specific transaction
       const transaction = await MpesaTransaction.findOne({
         checkout_request_id: checkoutRequestId
       });
@@ -494,7 +463,6 @@ export async function GET(request: NextRequest) {
         data: transaction
       });
     } else if (userId) {
-      // Get user's recent transactions
       const transactions = await MpesaTransaction.find({
         user_id: userId
       })
@@ -507,7 +475,6 @@ export async function GET(request: NextRequest) {
         data: transactions
       });
     } else {
-      // Get recent callbacks for debugging
       const recentCallbacks = await MpesaCallbackLog.find()
         .sort({ created_at: -1 })
         .limit(limit)

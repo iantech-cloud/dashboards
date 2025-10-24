@@ -147,6 +147,19 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
                 </svg>
                 Transactions
               </a>
+
+              {/* Financial Reports - NEW */}
+              <a href="/admin/reports" className="nav-item flex items-center p-2 text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg transition duration-150">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-3">
+                  <path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path>
+                  <path d="M22 12A10 10 0 0 0 12 2v10z"></path>
+                  <path d="M18 12h2"></path>
+                  <path d="M12 18v2"></path>
+                  <path d="M12 12h2"></path>
+                  <path d="M12 6h2"></path>
+                </svg>
+                Financial Reports
+              </a>
               
               <a href="/admin/audit-logs" className="nav-item flex items-center p-2 text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg transition duration-150">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-3">

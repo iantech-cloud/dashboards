@@ -24,6 +24,10 @@ interface AdminSurvey {
   payout_cents: number;
   scheduled_for: string;
   is_manually_enabled: boolean;
+  successful_responses?: number;
+  failed_responses?: number;
+  completion_rate?: number;
+  average_score?: number;
 }
 
 interface AdminSurveyResponse {
@@ -31,14 +35,16 @@ interface AdminSurveyResponse {
   survey_title: string;
   user_email: string;
   user_username: string;
-  user_accuracy_rate: number;
+  user_accuracy_rate?: number | null;
   completed_at: string;
-  score: number;
+  score?: number | null;
   status: string;
   payout_credited: boolean;
   payout_amount_cents: number;
   revoked: boolean;
   revoke_reason?: string;
+  time_taken_seconds?: number;
+  all_correct?: boolean;
 }
 
 interface Pagination {
@@ -96,6 +102,7 @@ function ManageSurveysList({ initialData }: { initialData: { data: AdminSurvey[]
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Responses</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Success Rate</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payout</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scheduled For</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -104,9 +111,15 @@ function ManageSurveysList({ initialData }: { initialData: { data: AdminSurvey[]
               <tbody className="bg-white divide-y divide-gray-200">
                 {data.map((survey) => {
                   const surveyId = survey.id || survey._id;
+                  const successRate = survey.current_responses > 0 
+                    ? ((survey.successful_responses || 0) / survey.current_responses * 100).toFixed(1)
+                    : '0.0';
+                  
                   return (
                     <tr key={surveyId}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{survey.title}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {survey.title}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <div className="flex flex-col gap-1">
                           <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -124,7 +137,23 @@ function ManageSurveysList({ initialData }: { initialData: { data: AdminSurvey[]
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {survey.current_responses} / {survey.max_responses || 'N/A'}
+                        <div className="flex flex-col">
+                          <span className="font-medium">
+                            {survey.current_responses} / {survey.max_responses || 'N/A'}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            ✓ {survey.successful_responses || 0} | ✗ {survey.failed_responses || 0}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          parseFloat(successRate) >= 70 ? 'bg-green-100 text-green-800' :
+                          parseFloat(successRate) >= 40 ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {successRate}%
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         KES {(survey.payout_cents / 100).toFixed(2)}
@@ -232,9 +261,10 @@ function SurveyResponsesList({ initialData }: { initialData: { data: AdminSurvey
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Survey Title</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Accuracy Rate</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User Accuracy</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Score (%)</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Score</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time Taken</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paid</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completed At</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -253,29 +283,40 @@ function SurveyResponsesList({ initialData }: { initialData: { data: AdminSurvey
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {response.user_accuracy_rate != null ? (
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          response.user_accuracy_rate >= 80 ? 'bg-green-100 text-green-800' :
-                          response.user_accuracy_rate >= 60 ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
-                          {response.user_accuracy_rate.toFixed(1)}%
-                        </span>
+                      {response.user_accuracy_rate != null && response.user_accuracy_rate !== undefined ? (
+                        <div className="flex flex-col items-start">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            response.user_accuracy_rate >= 80 ? 'bg-green-100 text-green-800' :
+                            response.user_accuracy_rate >= 60 ? 'bg-yellow-100 text-yellow-800' :
+                            response.user_accuracy_rate >= 40 ? 'bg-orange-100 text-orange-800' :
+                            'bg-red-100 text-red-800'
+                          }`}>
+                            {response.user_accuracy_rate.toFixed(1)}%
+                          </span>
+                          <span className="text-xs text-gray-400 mt-1">
+                            Overall Rate
+                          </span>
+                        </div>
                       ) : (
-                        <span className="text-gray-400">N/A</span>
+                        <span className="text-gray-400 text-xs">No data</span>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <div className="flex flex-col gap-1">
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          response.status === 'completed' ? 'bg-green-100 text-green-800' :
+                          response.status === 'completed' && response.all_correct ? 'bg-green-100 text-green-800' :
+                          response.status === 'completed' ? 'bg-blue-100 text-blue-800' :
                           response.status === 'wrong_answer' ? 'bg-red-100 text-red-800' :
                           response.status === 'timeout' ? 'bg-orange-100 text-orange-800' :
                           'bg-yellow-100 text-yellow-800'
                         }`}>
-                          {response.status.replace('_', ' ').split(' ').map(word => 
-                            word.charAt(0).toUpperCase() + word.slice(1)
-                          ).join(' ')}
+                          {response.status === 'completed' && response.all_correct ? 'Perfect' :
+                           response.status === 'completed' ? 'Completed' :
+                           response.status === 'wrong_answer' ? 'Wrong Answer' :
+                           response.status === 'timeout' ? 'Timeout' :
+                           response.status.replace('_', ' ').split(' ').map(word => 
+                             word.charAt(0).toUpperCase() + word.slice(1)
+                           ).join(' ')}
                         </span>
                         {response.revoked && (
                           <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
@@ -284,18 +325,55 @@ function SurveyResponsesList({ initialData }: { initialData: { data: AdminSurvey
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {response.score != null ? `${response.score.toFixed(0)}%` : 'N/A'}
-                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {response.payout_credited && !response.revoked ? (
-                        <span className="text-green-600 font-medium">Yes</span>
+                      {response.score != null && response.score !== undefined ? (
+                        <div className="flex items-center">
+                          <span className={`font-medium ${
+                            response.score === 100 ? 'text-green-600' :
+                            response.score >= 80 ? 'text-blue-600' :
+                            response.score >= 60 ? 'text-yellow-600' :
+                            'text-red-600'
+                          }`}>
+                            {response.score.toFixed(0)}%
+                          </span>
+                          {response.score === 100 && (
+                            <span className="ml-1 text-green-600">✓</span>
+                          )}
+                        </div>
                       ) : (
-                        <span className="text-red-600 font-medium">No</span>
+                        <span className="text-gray-400">N/A</span>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {response.completed_at ? new Date(response.completed_at).toLocaleString() : 'N/A'}
+                      {response.time_taken_seconds != null ? (
+                        <span>{Math.floor(response.time_taken_seconds / 60)}m {response.time_taken_seconds % 60}s</span>
+                      ) : (
+                        <span className="text-gray-400">N/A</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {response.payout_credited && !response.revoked ? (
+                        <div className="flex flex-col">
+                          <span className="text-green-600 font-medium">✓ Yes</span>
+                          <span className="text-xs text-gray-500">
+                            KES {(response.payout_amount_cents / 100).toFixed(2)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-red-600 font-medium">✗ No</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {response.completed_at ? (
+                        <div className="flex flex-col">
+                          <span>{new Date(response.completed_at).toLocaleDateString()}</span>
+                          <span className="text-xs text-gray-400">
+                            {new Date(response.completed_at).toLocaleTimeString()}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">N/A</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {!response.revoked && response.payout_credited && (
@@ -308,9 +386,13 @@ function SurveyResponsesList({ initialData }: { initialData: { data: AdminSurvey
                         </button>
                       )}
                       {response.revoked && response.revoke_reason && (
-                        <span className="text-xs text-gray-500" title={response.revoke_reason}>
-                          Reason: {response.revoke_reason.substring(0, 20)}...
-                        </span>
+                        <button
+                          className="text-xs text-gray-500 hover:text-gray-700"
+                          title={response.revoke_reason}
+                          onClick={() => alert(`Revoke Reason:\n\n${response.revoke_reason}`)}
+                        >
+                          View Reason
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -570,7 +652,7 @@ export default function SurveysManagement() {
                     <textarea
                       value={topics}
                       onChange={(e) => setTopics(e.target.value)}
-                      placeholder="Enter topics separated by commas"
+                      placeholder="Enter topics separated by commas (e.g., mobile banking, digital payments, fintech)"
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       rows={4}
                     />

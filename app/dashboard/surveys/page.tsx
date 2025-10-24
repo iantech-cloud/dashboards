@@ -25,6 +25,7 @@ export default function SurveysPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [availabilityMessage, setAvailabilityMessage] = useState<string>('');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
+  const [userStats, setUserStats] = useState<{ accuracy_rate?: number } | null>(null);
 
   // Fixed: Use useCallback with proper dependencies
   const handleTimeExpired = useCallback(async () => {
@@ -37,7 +38,7 @@ export default function SurveysPage() {
       // Submit with current answers (will fail due to timeout)
       const result = await submitSurveyAnswers(currentResponseId, answers);
       
-      // FIXED: Add defensive check for result
+      // FIXED: Don't log as error - this is expected behavior
       if (result && result.success) {
         setMessage(result.message || 'Survey submitted successfully!');
         setMessageType('success');
@@ -46,8 +47,9 @@ export default function SurveysPage() {
         setMessageType('error');
       }
     } catch (error) {
-      console.error('Error in handleTimeExpired:', error);
-      setMessage('Failed to submit survey due to timeout.');
+      // Only log actual unexpected errors
+      console.error('Unexpected error in handleTimeExpired:', error);
+      setMessage('An unexpected error occurred.');
       setMessageType('error');
     }
     
@@ -89,6 +91,7 @@ export default function SurveysPage() {
   // Load available surveys - FIXED: Added proper dependency array
   useEffect(() => {
     loadSurveys();
+    loadSurveyHistory();
   }, []);
 
   const loadSurveys = async () => {
@@ -120,6 +123,14 @@ export default function SurveysPage() {
       const result = await getSurveyHistory();
       if (result && result.success && result.data) {
         setSurveyHistory(result.data);
+        
+        // Calculate user accuracy from history
+        if (result.data.length > 0) {
+          const correctCount = result.data.filter((h: any) => h.all_correct).length;
+          const totalCount = result.data.length;
+          const accuracyRate = (correctCount / totalCount) * 100;
+          setUserStats({ accuracy_rate: Math.round(accuracyRate * 100) / 100 });
+        }
       }
     } catch (error) {
       console.error('Failed to load survey history:', error);
@@ -185,7 +196,7 @@ export default function SurveysPage() {
   const handleSubmitSurvey = async () => {
     if (!currentResponseId || !activeSurvey) return;
 
-    // FIXED: Check if all required questions are answered
+    // Check if all required questions are answered
     const requiredQuestions = activeSurvey.questions
       .map((q, idx) => ({ question: q, index: idx }))
       .filter(item => item.question.required);
@@ -207,22 +218,22 @@ export default function SurveysPage() {
     setMessage(null);
 
     try {
-      console.log('Submitting survey with:', {
-        responseId: currentResponseId,
-        answersCount: answers.length,
-        answers: answers
-      });
-
       const result = await submitSurveyAnswers(currentResponseId, answers);
-      
-      console.log('Submit result:', result);
 
-      // FIXED: Add defensive check for result
-      if (result && result.success) {
-        setMessage(result.message || 'Survey submitted successfully!');
-        setMessageType('success');
+      // FIXED: This is the key change - don't treat expected failures as errors
+      if (result) {
+        // Determine message type based on success
+        if (result.success) {
+          setMessage(result.message || 'Survey submitted successfully!');
+          setMessageType('success');
+        } else {
+          // This is expected behavior (wrong answer, timeout, etc.)
+          // Don't log it as an error - just show the message
+          setMessage(result.message || 'Survey not completed successfully.');
+          setMessageType('error');
+        }
         
-        // Reset survey state
+        // Reset survey state for both success and expected failures
         setActiveSurvey(null);
         setCurrentResponseId(null);
         setShowSurveyForm(false);
@@ -234,30 +245,13 @@ export default function SurveysPage() {
         await loadSurveys();
         await loadSurveyHistory();
       } else {
-        // FIXED: Better error handling
-        const errorMessage = result?.message || 'Failed to submit survey. Please try again.';
-        console.error('Survey submission failed:', errorMessage);
-        setMessage(errorMessage);
+        // This shouldn't happen, but handle it gracefully
+        setMessage('No response received from server. Please try again.');
         setMessageType('error');
-        
-        // Check if we should close the survey based on the error
-        if (
-          errorMessage.includes('Incorrect answer') || 
-          errorMessage.includes('time expired') ||
-          errorMessage.includes('already completed')
-        ) {
-          // Close survey on these specific errors
-          setActiveSurvey(null);
-          setCurrentResponseId(null);
-          setShowSurveyForm(false);
-          setAnswers([]);
-          setTimeLeft(0);
-          setCurrentQuestionIndex(0);
-          await loadSurveys();
-        }
       }
     } catch (error) {
-      console.error('Error submitting survey:', error);
+      // Only log actual unexpected errors (network issues, etc.)
+      console.error('Unexpected error submitting survey:', error);
       setMessage('An unexpected error occurred. Please try again.');
       setMessageType('error');
     } finally {
@@ -300,6 +294,16 @@ export default function SurveysPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Earn with Surveys</h1>
           <p className="text-gray-600 mt-2">Complete surveys and earn KSH 50 for each correct submission</p>
+          
+          {/* ADDED: Display user accuracy rate */}
+          {userStats && typeof userStats.accuracy_rate === 'number' && (
+            <div className="mt-3 inline-flex items-center bg-indigo-50 text-indigo-700 px-4 py-2 rounded-lg">
+              <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+              </svg>
+              <span className="font-semibold">Your Accuracy: {userStats.accuracy_rate}%</span>
+            </div>
+          )}
         </div>
         <button
           onClick={toggleHistory}
@@ -332,7 +336,30 @@ export default function SurveysPage() {
       {/* Survey History */}
       {showHistory && (
         <div className="mb-8 bg-white rounded-xl shadow-lg p-6">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Survey History</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-gray-800">Survey History</h2>
+            {/* ADDED: Summary stats */}
+            {surveyHistory.length > 0 && (
+              <div className="flex gap-4 text-sm">
+                <div className="text-center">
+                  <div className="font-bold text-gray-800">{surveyHistory.length}</div>
+                  <div className="text-gray-500">Total</div>
+                </div>
+                <div className="text-center">
+                  <div className="font-bold text-green-600">
+                    {surveyHistory.filter(h => h.all_correct).length}
+                  </div>
+                  <div className="text-gray-500">Correct</div>
+                </div>
+                <div className="text-center">
+                  <div className="font-bold text-indigo-600">
+                    {userStats?.accuracy_rate || 0}%
+                  </div>
+                  <div className="text-gray-500">Accuracy</div>
+                </div>
+              </div>
+            )}
+          </div>
           {surveyHistory.length === 0 ? (
             <p className="text-gray-500 text-center py-4">No survey history available.</p>
           ) : (
@@ -354,10 +381,10 @@ export default function SurveysPage() {
                       <span className="font-medium">Category:</span> {history.survey_category}
                     </div>
                     <div>
-                      <span className="font-medium">Score:</span> {history.score}%
+                      <span className="font-medium">Score:</span> {history.score || 0}%
                     </div>
                     <div>
-                      <span className="font-medium">Time:</span> {history.time_taken_seconds}s
+                      <span className="font-medium">Time:</span> {history.time_taken_seconds || 0}s
                     </div>
                     <div>
                       <span className="font-medium">Status:</span> {history.status.replace('_', ' ')}

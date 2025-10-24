@@ -1,31 +1,107 @@
 // app/ui/dashboard/TransactionHistory.tsx
 'use client';
 
-import { Award, Wallet, Send, RotateCw, Users, TrendingUp } from 'lucide-react';
+import { Award, Wallet, Send, RotateCw, Users, XCircle, Clock, CheckCircle, AlertCircle } from 'lucide-react';
 import { MinusCircle } from 'lucide-react';
 
-// Expanded Transaction interface
 interface Transaction {
   id: string;
-  // Updated type union to include all new types: SPIN_WIN, REFERRAL, SURVEY, TASK_PAYMENT
-  type: 'DEPOSIT' | 'WITHDRAWAL' | 'BONUS' | 'TASK_PAYMENT' | 'SPIN_WIN' | 'REFERRAL' | 'SURVEY';
+  type: 'DEPOSIT' | 'WITHDRAWAL' | 'BONUS' | 'TASK_PAYMENT' | 'SPIN_WIN' | 'REFERRAL' | 'SURVEY' | 'ACTIVATION_FEE' | 'COMPANY_REVENUE' | 'ACCOUNT_ACTIVATION';
   amount: number;
   description: string;
-  status: string; // Included status from definitions.ts for completeness
+  status: 'pending' | 'completed' | 'failed' | 'cancelled' | 'timeout';
   date: string;
+  transaction_code?: string;
+  mpesa_receipt_number?: string;
 }
 
 interface TransactionHistoryProps {
-  transactions: Transaction[] | null | undefined; // Added null/undefined for safety
+  transactions: Transaction[] | null | undefined;
   title: string;
   limit?: number;
 }
 
-// Helper to determine icon based on transaction type
-const getTransactionMeta = (type: string) => {
-  const isCredit = ['DEPOSIT', 'BONUS', 'TASK_PAYMENT', 'SPIN_WIN', 'REFERRAL', 'SURVEY'].includes(type.toUpperCase());
-  const color = isCredit ? 'text-green-600' : 'text-red-600';
-  const bgColor = isCredit ? 'bg-green-100' : 'bg-red-100';
+// Determine transaction flow: credit (money in - GREEN) or debit (money out - RED)
+const getTransactionFlow = (type: string): 'credit' | 'debit' => {
+  const creditTypes = ['DEPOSIT', 'BONUS', 'TASK_PAYMENT', 'SPIN_WIN', 'REFERRAL', 'SURVEY'];
+  return creditTypes.includes(type.toUpperCase()) ? 'credit' : 'debit';
+};
+
+// Get status badge styling
+const getStatusBadge = (status: string) => {
+  switch (status.toLowerCase()) {
+    case 'completed':
+      return {
+        Icon: CheckCircle,
+        color: 'text-green-600',
+        bgColor: 'bg-green-100',
+        label: 'Completed'
+      };
+    case 'pending':
+      return {
+        Icon: Clock,
+        color: 'text-yellow-600',
+        bgColor: 'bg-yellow-100',
+        label: 'Pending'
+      };
+    case 'failed':
+      return {
+        Icon: XCircle,
+        color: 'text-red-600',
+        bgColor: 'bg-red-100',
+        label: 'Failed'
+      };
+    case 'cancelled':
+      return {
+        Icon: AlertCircle,
+        color: 'text-gray-600',
+        bgColor: 'bg-gray-100',
+        label: 'Cancelled'
+      };
+    case 'timeout':
+      return {
+        Icon: Clock,
+        color: 'text-orange-600',
+        bgColor: 'bg-orange-100',
+        label: 'Timeout'
+      };
+    default:
+      return {
+        Icon: AlertCircle,
+        color: 'text-gray-600',
+        bgColor: 'bg-gray-100',
+        label: status
+      };
+  }
+};
+
+// Get transaction icon and styling based on type
+const getTransactionMeta = (type: string, status: string) => {
+  const flow = getTransactionFlow(type);
+  
+  // Only show green/red for COMPLETED transactions
+  // For failed/cancelled/timeout, show appropriate status colors
+  let color: string;
+  let bgColor: string;
+  
+  if (status === 'completed') {
+    // Completed: Credit = GREEN, Debit = RED
+    color = flow === 'credit' ? 'text-green-600' : 'text-red-600';
+    bgColor = flow === 'credit' ? 'bg-green-100' : 'bg-red-100';
+  } else if (status === 'pending') {
+    color = 'text-yellow-600';
+    bgColor = 'bg-yellow-100';
+  } else if (status === 'cancelled') {
+    color = 'text-gray-600';
+    bgColor = 'bg-gray-100';
+  } else if (status === 'timeout') {
+    color = 'text-orange-600';
+    bgColor = 'bg-orange-100';
+  } else {
+    // Failed
+    color = 'text-red-600';
+    bgColor = 'bg-red-100';
+  }
 
   let Icon;
   switch (type.toUpperCase()) {
@@ -46,15 +122,21 @@ const getTransactionMeta = (type: string) => {
     case 'BONUS':
       Icon = Award;
       break;
+    case 'ACTIVATION_FEE':
+    case 'ACCOUNT_ACTIVATION':
+    case 'COMPANY_REVENUE':
+      Icon = MinusCircle;
+      break;
     default:
       Icon = MinusCircle;
       break;
   }
-  return { Icon, color, bgColor, isCredit };
+  
+  return { Icon, color, bgColor, flow };
 };
 
 export default function TransactionHistory({ transactions, title, limit }: TransactionHistoryProps) {
-  // CRITICAL FIX: Ensure transactions is an array before processing
+  // Ensure transactions is an array
   const safeTransactions: Transaction[] = Array.isArray(transactions) ? transactions : [];
 
   // Sort by date (newest first)
@@ -72,33 +154,65 @@ export default function TransactionHistory({ transactions, title, limit }: Trans
         ) : (
           <ul>
             {displayTxs.map((tx) => {
-              const { Icon, color, bgColor, isCredit } = getTransactionMeta(tx.type);
+              const { Icon, color, bgColor, flow } = getTransactionMeta(tx.type, tx.status);
+              const statusBadge = getStatusBadge(tx.status);
               
               return (
                 <li 
                   key={tx.id} 
                   className="flex justify-between items-center p-4 border-b last:border-b-0 hover:bg-gray-50 transition-colors"
                 >
-                  <div className="flex items-center">
+                  <div className="flex items-center flex-1">
                     <div className={`p-2 rounded-full mr-3 ${bgColor} ${color}`}>
                       <Icon size={18} />
                     </div>
-                    <div>
-                      <p className="font-semibold text-gray-800 capitalize">
-                        {tx.description}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {new Date(tx.date).toLocaleDateString('en-US', {
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-gray-800 capitalize">
+                          {tx.description}
+                        </p>
+                        {/* Status Badge */}
+                        <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge.bgColor} ${statusBadge.color}`}>
+                          <statusBadge.Icon size={12} />
+                          {statusBadge.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-1">
+                        <p className="text-xs text-gray-500">
+                          {new Date(tx.date).toLocaleDateString('en-US', {
                             year: 'numeric',
                             month: 'short',
                             day: 'numeric',
-                        })}
-                      </p>
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                        {tx.transaction_code && (
+                          <p className="text-xs text-gray-400 font-mono">
+                            {tx.transaction_code}
+                          </p>
+                        )}
+                        {tx.mpesa_receipt_number && (
+                          <p className="text-xs text-blue-600 font-mono">
+                            M-Pesa: {tx.mpesa_receipt_number}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <p className={`font-bold ${color}`}>
-                    {isCredit ? '+' : '-'}KES {tx.amount.toFixed(2)}
-                  </p>
+                  
+                  {/* Amount - Only show +/- for completed transactions */}
+                  <div className="text-right">
+                    <p className={`font-bold text-lg ${color}`}>
+                      {tx.status === 'completed' && (flow === 'credit' ? '+' : '-')}
+                      KES {tx.amount.toFixed(2)}
+                    </p>
+                    {tx.status !== 'completed' && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {flow === 'credit' ? 'Incoming' : 'Outgoing'}
+                      </p>
+                    )}
+                  </div>
                 </li>
               );
             })}
