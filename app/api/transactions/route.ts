@@ -105,6 +105,11 @@ export async function GET(request: NextRequest) {
           }
         }
 
+        // Extract M-Pesa receipt number from metadata or transaction_code
+        const mpesaReceiptNumber = transaction.metadata?.mpesaReceiptNumber || 
+                                    transaction.metadata?.mpesaReceiptNumber || 
+                                    transaction.transaction_code;
+
         return {
           id: transaction._id?.toString(),
           amount: transaction.amount_cents / 100, // Convert cents to currency units
@@ -112,7 +117,8 @@ export async function GET(request: NextRequest) {
           description: transaction.description,
           status: transaction.status,
           date: transaction.created_at,
-          transactionCode: transaction.transaction_code,
+          transaction_code: transaction.transaction_code, // Fixed: snake_case to match component
+          mpesa_receipt_number: mpesaReceiptNumber, // Fixed: Added M-Pesa receipt number
           user_id: transaction.user_id,
           metadata: transaction.metadata || {},
           mpesaDetails,
@@ -219,7 +225,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const validStatuses = ['pending', 'completed', 'failed', 'cancelled'];
+    const validStatuses = ['pending', 'completed', 'failed', 'cancelled', 'timeout'];
     if (!validStatuses.includes(status)) {
       return NextResponse.json(
         { success: false, message: `Invalid status. Must be one of: ${validStatuses.join(', ')}` },
@@ -284,7 +290,7 @@ export async function POST(request: NextRequest) {
       await updateUserBalance(currentUser._id.toString(), type, amountCents);
     }
 
-    // 10. Format response with enhanced details
+    // 10. Format response with enhanced details (snake_case for consistency)
     const formattedTransaction = {
       id: newTransaction._id.toString(),
       amount: newTransaction.amount_cents / 100,
@@ -292,7 +298,8 @@ export async function POST(request: NextRequest) {
       description: newTransaction.description,
       status: newTransaction.status,
       date: newTransaction.created_at,
-      transactionCode: newTransaction.transaction_code,
+      transaction_code: newTransaction.transaction_code, // Fixed: snake_case
+      mpesa_receipt_number: newTransaction.metadata?.mpesaReceiptNumber || newTransaction.transaction_code, // Fixed: Added
       user_id: newTransaction.user_id,
       metadata: newTransaction.metadata,
       source: newTransaction.source,
@@ -428,7 +435,7 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    // 5. Format response
+    // 5. Format response (snake_case for consistency)
     const formattedTransaction = {
       id: updatedTransaction._id.toString(),
       amount: updatedTransaction.amount_cents / 100,
@@ -436,7 +443,8 @@ export async function PATCH(request: NextRequest) {
       description: updatedTransaction.description,
       status: updatedTransaction.status,
       date: updatedTransaction.created_at,
-      transactionCode: updatedTransaction.transaction_code,
+      transaction_code: updatedTransaction.transaction_code, // Fixed: snake_case
+      mpesa_receipt_number: updatedTransaction.metadata?.mpesaReceiptNumber || updatedTransaction.transaction_code, // Fixed: Added
       user_id: updatedTransaction.user_id,
       metadata: updatedTransaction.metadata
     };

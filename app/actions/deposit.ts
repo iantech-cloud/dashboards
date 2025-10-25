@@ -306,7 +306,7 @@ export async function processMpesaDeposit(depositData: {
         const formattedPhone = validationResult.data?.formattedPhone || depositData.phoneNumber;
 
         // Get M-Pesa access token
-        console.log('🔑 Getting M-Pesa access token...');
+        console.log('🔐 Getting M-Pesa access token...');
         const accessToken = await getMpesaAccessToken();
         
         // Generate timestamp and password
@@ -440,7 +440,7 @@ export async function processMpesaDeposit(depositData: {
 }
 
 /**
- * Check M-Pesa payment status - COMPLETELY FIXED VERSION
+ * Check M-Pesa payment status - FIXED VERSION
  */
 export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promise<PaymentStatusResponse> {
     try {
@@ -583,30 +583,52 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
             };
         }
 
-        // If payment completed, update the transaction status and user balance
-        if (safeStatus === 'completed') {
+        // Update Transaction status for ALL final statuses (FIXED)
+        if (['completed', 'failed', 'cancelled', 'timeout'].includes(safeStatus)) {
             try {
+                const transactionStatus = safeStatus === 'completed' ? 'completed' : 'failed';
+                
+                const updateData: any = {
+                    status: transactionStatus,
+                    metadata: {
+                        ...mpesaTransaction.metadata,
+                        result_code: safeResultCode,
+                        result_desc: mpesaTransaction.result_desc,
+                        updated_at: new Date().toISOString()
+                    }
+                };
+
+                // Only add receipt number and completed_at for successful transactions
+                if (safeStatus === 'completed') {
+                    updateData.metadata.mpesa_receipt_number = mpesaTransaction.mpesa_receipt_number;
+                    updateData.metadata.completed_at = new Date().toISOString();
+                } else {
+                    // For failed/cancelled/timeout, add failure details
+                    updateData.metadata.failed_at = new Date().toISOString();
+                    updateData.metadata.failure_reason = mpesaTransaction.result_desc;
+                    updateData.metadata.cancellation_type = safeStatus; // Track specific failure type
+                }
+
                 await (Transaction as any).findOneAndUpdate(
                     { mpesa_transaction_id: mpesaTransaction._id },
-                    { 
-                        status: 'completed',
-                        metadata: {
-                            ...mpesaTransaction.metadata,
-                            mpesa_receipt_number: mpesaTransaction.mpesa_receipt_number,
-                            completed_at: new Date().toISOString()
-                        }
-                    }
+                    updateData
                 );
 
-                // Update user balance
-                const user = await (Profile as any).findById(mpesaTransaction.user_id);
-                if (user) {
-                    user.balance_cents += mpesaTransaction.amount_cents;
-                    await user.save();
-                    console.log('💰 Updated user balance:', user.balance_cents);
-                    revalidatePath('/dashboard/wallet');
-                    revalidatePath('/dashboard');
+                console.log(`✅ Updated Transaction status to: ${transactionStatus} (M-Pesa status: ${safeStatus})`);
+
+                // Only update user balance if completed
+                if (safeStatus === 'completed') {
+                    const user = await (Profile as any).findById(mpesaTransaction.user_id);
+                    if (user) {
+                        user.balance_cents += mpesaTransaction.amount_cents;
+                        await user.save();
+                        console.log('💰 Updated user balance:', user.balance_cents);
+                    }
                 }
+
+                revalidatePath('/dashboard/wallet');
+                revalidatePath('/dashboard');
+                
             } catch (updateError) {
                 console.error('❌ Failed to update transaction or user balance:', updateError);
                 // Continue even if update fails - the main transaction status is what matters
