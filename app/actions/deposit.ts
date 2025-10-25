@@ -275,6 +275,68 @@ function mapMpesaStatus(resultCode: string): string {
 }
 
 /**
+ * Update Transaction record to match M-Pesa transaction status
+ */
+async function syncTransactionWithMpesaStatus(
+    mpesaTransactionId: any, 
+    status: string, 
+    resultCode: number, 
+    resultDesc: string,
+    mpesaReceiptNumber?: string
+): Promise<void> {
+    try {
+        const updateData: any = {
+            status: status,
+            metadata: {
+                result_code: resultCode,
+                result_desc: resultDesc,
+                status_updated_at: new Date().toISOString()
+            }
+        };
+
+        // Add receipt number for completed transactions
+        if (status === 'completed' && mpesaReceiptNumber) {
+            updateData.metadata.mpesa_receipt_number = mpesaReceiptNumber;
+            updateData.metadata.completed_at = new Date().toISOString();
+        }
+
+        // Add failed/cancelled timestamp
+        if (['failed', 'cancelled', 'timeout'].includes(status)) {
+            updateData.metadata.failed_at = new Date().toISOString();
+        }
+
+        await (Transaction as any).findOneAndUpdate(
+            { mpesa_transaction_id: mpesaTransactionId },
+            updateData
+        );
+
+        console.log(`🔄 Successfully synced Transaction status to: ${status}`);
+    } catch (error) {
+        console.error('❌ Failed to sync Transaction status:', error);
+        throw error;
+    }
+}
+
+/**
+ * Update user balance for completed transactions
+ */
+async function updateUserBalance(userId: string, amountCents: number): Promise<void> {
+    try {
+        const user = await (Profile as any).findById(userId);
+        if (user) {
+            user.balance_cents += amountCents;
+            await user.save();
+            console.log('💰 Updated user balance:', user.balance_cents);
+            revalidatePath('/dashboard/wallet');
+            revalidatePath('/dashboard');
+        }
+    } catch (error) {
+        console.error('❌ Failed to update user balance:', error);
+        throw error;
+    }
+}
+
+/**
  * Process M-Pesa deposit with STK Push
  */
 export async function processMpesaDeposit(depositData: {
@@ -306,7 +368,7 @@ export async function processMpesaDeposit(depositData: {
         const formattedPhone = validationResult.data?.formattedPhone || depositData.phoneNumber;
 
         // Get M-Pesa access token
-        console.log('🔐 Getting M-Pesa access token...');
+        console.log('🔑 Getting M-Pesa access token...');
         const accessToken = await getMpesaAccessToken();
         
         // Generate timestamp and password
@@ -440,7 +502,7 @@ export async function processMpesaDeposit(depositData: {
 }
 
 /**
- * Check M-Pesa payment status - FIXED VERSION
+ * Check M-Pesa payment status - COMPLETELY FIXED VERSION
  */
 export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promise<PaymentStatusResponse> {
     try {
@@ -583,52 +645,21 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
             };
         }
 
-        // Update Transaction status for ALL final statuses (FIXED)
+        // CRITICAL FIX: Update Transaction record for ALL final statuses, not just 'completed'
         if (['completed', 'failed', 'cancelled', 'timeout'].includes(safeStatus)) {
             try {
-                const transactionStatus = safeStatus === 'completed' ? 'completed' : 'failed';
-                
-                const updateData: any = {
-                    status: transactionStatus,
-                    metadata: {
-                        ...mpesaTransaction.metadata,
-                        result_code: safeResultCode,
-                        result_desc: mpesaTransaction.result_desc,
-                        updated_at: new Date().toISOString()
-                    }
-                };
-
-                // Only add receipt number and completed_at for successful transactions
-                if (safeStatus === 'completed') {
-                    updateData.metadata.mpesa_receipt_number = mpesaTransaction.mpesa_receipt_number;
-                    updateData.metadata.completed_at = new Date().toISOString();
-                } else {
-                    // For failed/cancelled/timeout, add failure details
-                    updateData.metadata.failed_at = new Date().toISOString();
-                    updateData.metadata.failure_reason = mpesaTransaction.result_desc;
-                    updateData.metadata.cancellation_type = safeStatus; // Track specific failure type
-                }
-
-                await (Transaction as any).findOneAndUpdate(
-                    { mpesa_transaction_id: mpesaTransaction._id },
-                    updateData
+                await syncTransactionWithMpesaStatus(
+                    mpesaTransaction._id,
+                    safeStatus,
+                    safeResultCode,
+                    queryData.ResultDesc,
+                    queryData.MpesaReceiptNumber
                 );
 
-                console.log(`✅ Updated Transaction status to: ${transactionStatus} (M-Pesa status: ${safeStatus})`);
-
-                // Only update user balance if completed
+                // Only update user balance for completed transactions
                 if (safeStatus === 'completed') {
-                    const user = await (Profile as any).findById(mpesaTransaction.user_id);
-                    if (user) {
-                        user.balance_cents += mpesaTransaction.amount_cents;
-                        await user.save();
-                        console.log('💰 Updated user balance:', user.balance_cents);
-                    }
+                    await updateUserBalance(mpesaTransaction.user_id, mpesaTransaction.amount_cents);
                 }
-
-                revalidatePath('/dashboard/wallet');
-                revalidatePath('/dashboard');
-                
             } catch (updateError) {
                 console.error('❌ Failed to update transaction or user balance:', updateError);
                 // Continue even if update fails - the main transaction status is what matters
@@ -655,6 +686,71 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
         return { 
             success: false, 
             message: 'Failed to check payment status. Please try again.' 
+        };
+    }
+}
+
+/**
+ * Sync transaction status with M-Pesa transaction status for existing records
+ */
+export async function syncTransactionStatus(transactionId: string): Promise<PaymentStatusResponse> {
+    try {
+        console.log('🔄 Syncing transaction status for:', transactionId);
+
+        await connectToDatabase();
+        
+        const transaction = await (Transaction as any).findById(transactionId);
+        if (!transaction || !transaction.mpesa_transaction_id) {
+            return { success: false, message: 'Transaction not found or not linked to M-Pesa' };
+        }
+
+        const mpesaTransaction = await (MpesaTransaction as any).findById(transaction.mpesa_transaction_id);
+        if (!mpesaTransaction) {
+            return { success: false, message: 'M-Pesa transaction not found' };
+        }
+
+        // If statuses don't match and M-Pesa has a final status, update the transaction
+        if (transaction.status !== mpesaTransaction.status && 
+            ['completed', 'failed', 'cancelled', 'timeout'].includes(mpesaTransaction.status)) {
+            
+            await syncTransactionWithMpesaStatus(
+                mpesaTransaction._id,
+                mpesaTransaction.status,
+                mpesaTransaction.result_code,
+                mpesaTransaction.result_desc,
+                mpesaTransaction.mpesa_receipt_number
+            );
+
+            // Update user balance if it's completed and balance wasn't updated
+            if (mpesaTransaction.status === 'completed') {
+                const user = await (Profile as any).findById(mpesaTransaction.user_id);
+                if (user && user.balance_cents < mpesaTransaction.amount_cents) {
+                    await updateUserBalance(mpesaTransaction.user_id, mpesaTransaction.amount_cents);
+                }
+            }
+
+            console.log(`✅ Successfully synced transaction ${transactionId} from ${transaction.status} to ${mpesaTransaction.status}`);
+        }
+
+        // Get updated transaction
+        const updatedTransaction = await (Transaction as any).findById(transactionId);
+
+        return {
+            success: true,
+            data: {
+                transactionStatus: updatedTransaction.status,
+                mpesaStatus: mpesaTransaction.status,
+                synced: updatedTransaction.status === mpesaTransaction.status,
+                previousStatus: transaction.status
+            },
+            message: `Transaction status: ${updatedTransaction.status}`
+        };
+
+    } catch (error) {
+        console.error('💥 Sync transaction status error:', error);
+        return { 
+            success: false, 
+            message: 'Failed to sync transaction status' 
         };
     }
 }
