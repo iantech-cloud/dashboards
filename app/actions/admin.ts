@@ -1,4 +1,4 @@
-// app/actions/admin.ts
+// app/actions/admin.ts - COMPLETE FIXED VERSION
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -43,7 +43,7 @@ interface WithdrawalFilters {
 }
 
 // ===========================
-// ADMIN STATISTICS
+// ADMIN STATISTICS - FIXED
 // ===========================
 
 export async function getAdminStats(): Promise<{ 
@@ -52,23 +52,153 @@ export async function getAdminStats(): Promise<{
   message: string 
 }> {
   try {
+    console.log('[getAdminStats] Starting admin stats fetch...');
+    
     const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
+      console.error('[getAdminStats] No session or email found');
       return { success: false, message: 'Unauthorized' };
     }
 
+    console.log('[getAdminStats] Session found for:', session.user.email);
+
     await connectToDatabase();
+    console.log('[getAdminStats] Database connected');
+
     const adminUser = await Profile.findOne({ email: session.user.email });
     
-    if (adminUser?.role !== 'admin') {
+    if (!adminUser) {
+      console.error('[getAdminStats] Admin user not found in database');
+      return { success: false, message: 'User not found' };
+    }
+
+    if (adminUser.role !== 'admin') {
+      console.error('[getAdminStats] User is not admin, role:', adminUser.role);
       return { success: false, message: 'Admin access required' };
     }
 
-    const today = new Date();
-    const startOfToday = new Date(today.setHours(0, 0, 0, 0));
+    console.log('[getAdminStats] Admin verified:', adminUser.email);
 
+    // Get start of today in UTC
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    console.log('[getAdminStats] Start of today (UTC):', today);
+
+    // Fetch all stats in parallel with proper error handling
     const [
+      totalUsersResult,
+      pendingApprovalsResult,
+      pendingWithdrawalsResult,
+      activeUsersResult,
+      totalTransactionsResult,
+      totalRevenueResult,
+      totalReferralsResult,
+      todayRegistrationsResult,
+      spinSettingsResult
+    ] = await Promise.allSettled([
+      // Total users
+      Profile.countDocuments().exec(),
+      
+      // Pending approvals
+      Profile.countDocuments({ 
+        $or: [
+          { approval_status: 'pending' },
+          { approval_status: { $exists: false } }
+        ]
+      }).exec(),
+      
+      // Pending withdrawals
+      Withdrawal.countDocuments({ 
+        status: 'pending' 
+      }).exec(),
+      
+      // Active users - multiple conditions to catch all active users
+      Profile.countDocuments({ 
+        $and: [
+          { 
+            $or: [
+              { approval_status: 'approved' },
+              { approval_status: { $exists: false } }
+            ]
+          },
+          {
+            $or: [
+              { status: 'active' },
+              { is_active: true },
+              { status: { $exists: false } }
+            ]
+          }
+        ]
+      }).exec(),
+      
+      // Total transactions
+      Transaction.countDocuments().exec(),
+      
+      // Total revenue - handle both array and single result
+      ActivationPayment.aggregate([
+        { 
+          $match: { 
+            $or: [
+              { status: 'completed' },
+              { status: 'success' }
+            ]
+          } 
+        },
+        { 
+          $group: { 
+            _id: null, 
+            total: { $sum: '$amount_cents' } 
+          } 
+        }
+      ]).exec(),
+      
+      // Total referrals
+      Referral.countDocuments().exec(),
+      
+      // Today's registrations
+      Profile.countDocuments({
+        created_at: { $gte: today }
+      }).exec(),
+      
+      // Spin settings
+      SpinSettings.findOne({}).lean().exec()
+    ]);
+
+    // Helper function to safely extract values from settled promises
+    const getValue = <T>(result: PromiseSettledResult<T>, defaultValue: T, label: string): T => {
+      if (result.status === 'fulfilled') {
+        console.log(`[getAdminStats] ${label} success:`, result.value);
+        return result.value;
+      } else {
+        console.error(`[getAdminStats] ${label} failed:`, result.reason);
+        return defaultValue;
+      }
+    };
+
+    // Extract values safely
+    const totalUsers = getValue(totalUsersResult, 0, 'Total users');
+    const pendingApprovals = getValue(pendingApprovalsResult, 0, 'Pending approvals');
+    const pendingWithdrawals = getValue(pendingWithdrawalsResult, 0, 'Pending withdrawals');
+    const activeUsers = getValue(activeUsersResult, 0, 'Active users');
+    const totalTransactions = getValue(totalTransactionsResult, 0, 'Total transactions');
+    const totalReferrals = getValue(totalReferralsResult, 0, 'Total referrals');
+    const todayRegistrations = getValue(todayRegistrationsResult, 0, 'Today registrations');
+    const spinSettings = getValue(spinSettingsResult, null, 'Spin settings');
+
+    // Handle revenue aggregation result specially
+    let totalRevenue = 0;
+    const revenueResult = getValue(totalRevenueResult, [] as any[], 'Total revenue');
+    
+    if (Array.isArray(revenueResult) && revenueResult.length > 0) {
+      totalRevenue = revenueResult[0]?.total || 0;
+    } else if (typeof revenueResult === 'number') {
+      totalRevenue = revenueResult;
+    }
+    
+    console.log('[getAdminStats] Revenue calculated:', totalRevenue);
+
+    const stats: AdminStats = {
       totalUsers,
       pendingApprovals,
       pendingWithdrawals,
@@ -77,51 +207,36 @@ export async function getAdminStats(): Promise<{
       totalRevenue,
       totalReferrals,
       todayRegistrations,
-      spinSettings
-    ] = await Promise.all([
-      Profile.countDocuments(),
-      Profile.countDocuments({ approval_status: 'pending' }),
-      Withdrawal.countDocuments({ status: 'pending' }),
-      Profile.countDocuments({ 
-        approval_status: 'approved', 
-        status: 'active',
-        is_active: true 
-      }),
-      Transaction.countDocuments(),
-      ActivationPayment.aggregate([
-        { $match: { status: 'completed' } },
-        { $group: { _id: null, total: { $sum: '$amount_cents' } } }
-      ]),
-      Referral.countDocuments(),
-      Profile.countDocuments({
-        created_at: { $gte: startOfToday }
-      }),
-      SpinSettings.findOne({})
-    ]);
-
-    const stats: AdminStats = {
-      totalUsers,
-      pendingApprovals,
-      pendingWithdrawals,
-      activeUsers,
-      totalTransactions,
-      totalRevenue: totalRevenue[0]?.total || 0,
-      totalReferrals,
-      todayRegistrations,
       spinWheelActive: spinSettings?.is_active || false,
       spinWheelMode: spinSettings?.activation_mode || 'scheduled'
     };
 
-    return { success: true, data: stats, message: 'Stats fetched successfully' };
+    console.log('[getAdminStats] Final stats:', stats);
+
+    return { 
+      success: true, 
+      data: stats, 
+      message: 'Stats fetched successfully' 
+    };
 
   } catch (error) {
-    console.error('Admin stats error:', error);
-    return { success: false, message: 'Failed to fetch admin statistics' };
+    console.error('[getAdminStats] Critical error:', error);
+    if (error instanceof Error) {
+      console.error('[getAdminStats] Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+    }
+    return { 
+      success: false, 
+      message: 'Failed to fetch admin statistics: ' + (error instanceof Error ? error.message : 'Unknown error')
+    };
   }
 }
 
 // ===========================
-// WITHDRAWAL MANAGEMENT
+// WITHDRAWAL MANAGEMENT - IMPROVED
 // ===========================
 
 export async function getWithdrawalsAdmin(filters?: WithdrawalFilters): Promise<{ 
@@ -131,16 +246,27 @@ export async function getWithdrawalsAdmin(filters?: WithdrawalFilters): Promise<
   message: string 
 }> {
   try {
+    console.log('[getWithdrawalsAdmin] Starting...');
+    
     const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
+      console.error('[getWithdrawalsAdmin] No session found');
       return { success: false, message: 'Unauthorized' };
     }
 
     await connectToDatabase();
+    console.log('[getWithdrawalsAdmin] Database connected');
+
     const adminUser = await Profile.findOne({ email: session.user.email });
     
+    if (!adminUser) {
+      console.error('[getWithdrawalsAdmin] User not found');
+      return { success: false, message: 'User not found' };
+    }
+
     if (!['admin', 'support'].includes(adminUser?.role)) {
+      console.error('[getWithdrawalsAdmin] Insufficient permissions, role:', adminUser.role);
       return { success: false, message: 'Admin access required' };
     }
 
@@ -157,19 +283,27 @@ export async function getWithdrawalsAdmin(filters?: WithdrawalFilters): Promise<
     if (filters?.search) {
       query.$or = [
         { mpesa_number: { $regex: filters.search, $options: 'i' } },
-        { transaction_code: { $regex: filters.search, $options: 'i' } }
+        { transaction_code: { $regex: filters.search, $options: 'i' } },
+        { 'user_id.username': { $regex: filters.search, $options: 'i' } },
+        { 'user_id.email': { $regex: filters.search, $options: 'i' } }
       ];
     }
     
     if (filters?.startDate || filters?.endDate) {
       query.created_at = {};
       if (filters.startDate) {
-        query.created_at.$gte = new Date(filters.startDate);
+        const startDate = new Date(filters.startDate);
+        startDate.setUTCHours(0, 0, 0, 0);
+        query.created_at.$gte = startDate;
       }
       if (filters.endDate) {
-        query.created_at.$lte = new Date(filters.endDate);
+        const endDate = new Date(filters.endDate);
+        endDate.setUTCHours(23, 59, 59, 999);
+        query.created_at.$lte = endDate;
       }
     }
+
+    console.log('[getWithdrawalsAdmin] Query:', JSON.stringify(query));
 
     const [withdrawals, total] = await Promise.all([
       Withdrawal.find(query)
@@ -182,14 +316,16 @@ export async function getWithdrawalsAdmin(filters?: WithdrawalFilters): Promise<
       Withdrawal.countDocuments(query)
     ]);
 
+    console.log(`[getWithdrawalsAdmin] Found ${withdrawals.length} withdrawals, total: ${total}`);
+
     const formattedWithdrawals = withdrawals.map((w: any) => ({
       _id: w._id.toString(),
       userId: w.user_id?._id || w.user_id,
       user: {
-        id: w.user_id?._id,
-        username: w.user_id?.username,
-        email: w.user_id?.email,
-        phone: w.user_id?.phone_number,
+        id: w.user_id?._id?.toString() || w.user_id?.toString(),
+        username: w.user_id?.username || 'Unknown',
+        email: w.user_id?.email || 'Unknown',
+        phone: w.user_id?.phone_number || 'Unknown',
         balance: w.user_id?.balance_cents || 0
       },
       amount: w.amount_cents / 100,
@@ -199,7 +335,7 @@ export async function getWithdrawalsAdmin(filters?: WithdrawalFilters): Promise<
       transactionCode: w.transaction_code,
       mpesaReceiptNumber: w.mpesa_receipt_number,
       approvedBy: w.approved_by ? {
-        id: w.approved_by._id,
+        id: w.approved_by._id?.toString(),
         username: w.approved_by.username,
         email: w.approved_by.email
       } : null,
@@ -224,8 +360,11 @@ export async function getWithdrawalsAdmin(filters?: WithdrawalFilters): Promise<
     };
 
   } catch (error) {
-    console.error('Get withdrawals error:', error);
-    return { success: false, message: 'Failed to fetch withdrawals' };
+    console.error('[getWithdrawalsAdmin] Error:', error);
+    return { 
+      success: false, 
+      message: 'Failed to fetch withdrawals: ' + (error instanceof Error ? error.message : 'Unknown error')
+    };
   }
 }
 
@@ -235,6 +374,8 @@ export async function getWithdrawalStatsAdmin(): Promise<{
   message: string 
 }> {
   try {
+    console.log('[getWithdrawalStatsAdmin] Starting...');
+    
     const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
@@ -257,6 +398,8 @@ export async function getWithdrawalStatsAdmin(): Promise<{
         }
       }
     ]);
+
+    console.log('[getWithdrawalStatsAdmin] Raw stats:', stats);
 
     const result: any = {
       total: 0,
@@ -282,6 +425,8 @@ export async function getWithdrawalStatsAdmin(): Promise<{
       ? Math.round(result.totalAmountCents / result.total) 
       : 0;
 
+    console.log('[getWithdrawalStatsAdmin] Final result:', result);
+
     return {
       success: true,
       data: result,
@@ -289,7 +434,7 @@ export async function getWithdrawalStatsAdmin(): Promise<{
     };
 
   } catch (error) {
-    console.error('Get withdrawal stats error:', error);
+    console.error('[getWithdrawalStatsAdmin] Error:', error);
     return { success: false, message: 'Failed to fetch withdrawal stats' };
   }
 }
@@ -1154,7 +1299,7 @@ export async function updateSpinSchedule(settings: {
 }
 
 // ===========================
-// USER MANAGEMENT
+// USER MANAGEMENT - IMPROVED
 // ===========================
 
 export async function getAdminUsers(filters?: {
@@ -1170,6 +1315,8 @@ export async function getAdminUsers(filters?: {
   message: string 
 }> {
   try {
+    console.log('[getAdminUsers] Starting...');
+    
     const session = await getServerSession(authOptions as AuthOptions);
     
     if (!session?.user?.email) {
@@ -1188,15 +1335,47 @@ export async function getAdminUsers(filters?: {
     const skip = (page - 1) * limit;
 
     const query: any = {};
-    if (filters?.status && filters.status !== 'all') query.status = filters.status;
+    
+    // Improved status filtering
+    if (filters?.status && filters.status !== 'all') {
+      if (filters.status === 'active') {
+        query.$and = [
+          { 
+            $or: [
+              { approval_status: 'approved' },
+              { approval_status: { $exists: false } }
+            ]
+          },
+          {
+            $or: [
+              { status: 'active' },
+              { is_active: true },
+              { status: { $exists: false } }
+            ]
+          }
+        ];
+      } else if (filters.status === 'pending') {
+        query.$or = [
+          { approval_status: 'pending' },
+          { approval_status: { $exists: false } }
+        ];
+      } else {
+        query.status = filters.status;
+      }
+    }
+    
     if (filters?.role && filters.role !== 'all') query.role = filters.role;
+    
     if (filters?.search) {
       query.$or = [
         { username: { $regex: filters.search, $options: 'i' } },
         { email: { $regex: filters.search, $options: 'i' } },
-        { phone_number: { $regex: filters.search, $options: 'i' } }
+        { phone_number: { $regex: filters.search, $options: 'i' } },
+        { full_name: { $regex: filters.search, $options: 'i' } }
       ];
     }
+
+    console.log('[getAdminUsers] Query:', JSON.stringify(query));
 
     const users = await Profile.find(query)
       .select('-password')
@@ -1206,6 +1385,8 @@ export async function getAdminUsers(filters?: {
       .lean();
 
     const total = await Profile.countDocuments(query);
+
+    console.log(`[getAdminUsers] Found ${users.length} users, total: ${total}`);
 
     return {
       success: true,
@@ -1220,8 +1401,11 @@ export async function getAdminUsers(filters?: {
     };
 
   } catch (error) {
-    console.error('Admin users error:', error);
-    return { success: false, message: 'Failed to fetch users' };
+    console.error('[getAdminUsers] Error:', error);
+    return { 
+      success: false, 
+      message: 'Failed to fetch users: ' + (error instanceof Error ? error.message : 'Unknown error')
+    };
   }
 }
 

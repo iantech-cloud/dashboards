@@ -12,20 +12,24 @@ import { randomInt } from 'crypto';
  * Normalize and standardize phone numbers
  */
 function normalizePhone(phone: string): string {
-  return phone.replace(/[\s\-\(\)]/g, '');
+  // Remove spaces, dashes, parentheses, and plus signs
+  return phone.replace(/[\s\-\(\)\+]/g, '');
 }
 
 function standardizePhone(phone: string): string {
   const normalized = normalizePhone(phone);
+  // Already in 254 format
   if (normalized.startsWith('254')) return normalized;
+  // Starts with 0 (e.g., 0712345678)
   if (normalized.startsWith('0')) return '254' + normalized.substring(1);
+  // Starts with 7 or 1 (e.g., 712345678 or 112345678)
   if (normalized.startsWith('7') || normalized.startsWith('1')) return '254' + normalized;
   return normalized;
 }
 
 function validatePhoneFormat(phone: string): boolean {
   const normalized = normalizePhone(phone);
-  // Accept: 254XXXXXXXXX, 07XXXXXXXX, 7XXXXXXXX, 01XXXXXXXX, 1XXXXXXXX
+  // Accept: 254XXXXXXXXX, 07XXXXXXXX, 7XXXXXXXX, 01XXXXXXXX, 1XXXXXXXX, +254XXXXXXXXX
   const phoneRegex = /^(254[0-9]{9}|0[0-9]{9}|[17][0-9]{8})$/;
   return phoneRegex.test(normalized);
 }

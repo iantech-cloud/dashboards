@@ -57,7 +57,7 @@ const AuditActionTypes = [
 ] as const;
 const AuditResourceTypes = [
   'user', 'transaction', 'activation', 'withdrawal', 'profile', 'referral',
-  'spin', 'spin_prize', 'spin_settings', 'spin_log', 'blog_post'
+  'spin', 'spin_prize', 'spin_settings', 'spin_log', 'blog_post', 'mpesa_change_request'
 ] as const;
 
 // --- New Spin to Win Enums ---
@@ -378,6 +378,12 @@ const AdminAuditLogSchema = new Schema({
       'COMPLETE_WITHDRAWAL',
       'REVERSE_WITHDRAWAL',
       'UPDATE_WITHDRAWAL_NOTES',
+      
+      // M-Pesa Change Request Actions
+      'CREATE_MPESA_CHANGE_REQUEST',
+      'APPROVE_MPESA_CHANGE',
+      'REJECT_MPESA_CHANGE',
+      'DELETE_MPESA_CHANGE_REQUEST',
       
       // Spin Actions
       'CREATE_SPIN_PRIZE',

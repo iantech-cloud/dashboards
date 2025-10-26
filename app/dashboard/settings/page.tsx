@@ -329,9 +329,12 @@ export default function SettingsPage() {
                 type="text"
                 value={oldMpesaNumber}
                 onChange={(e) => setOldMpesaNumber(e.target.value)}
-                placeholder="254XXXXXXXXX or 07XXXXXXXX"
+                placeholder="+254XXXXXXXXX or 254XXXXXXXXX or 07XXXXXXXX"
                 className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Supports: +254XXXXXXXXX, 254XXXXXXXXX, 07XXXXXXXX, or 7XXXXXXXX
+              </p>
             </div>
             <div className="mb-4">
               <label className="block font-medium mb-1">New M-Pesa Number</label>
@@ -339,9 +342,12 @@ export default function SettingsPage() {
                 type="text"
                 value={newMpesaNumber}
                 onChange={(e) => setNewMpesaNumber(e.target.value)}
-                placeholder="254XXXXXXXXX or 07XXXXXXXX"
+                placeholder="+254XXXXXXXXX or 254XXXXXXXXX or 07XXXXXXXX"
                 className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Supports: +254XXXXXXXXX, 254XXXXXXXXX, 07XXXXXXXX, or 7XXXXXXXX
+              </p>
             </div>
             <div className="mb-4">
               <label className="block font-medium mb-1">Reason for Change</label>
