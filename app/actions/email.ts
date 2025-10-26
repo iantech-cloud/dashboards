@@ -167,6 +167,126 @@ export async function sendVerificationEmail(email: string, token: string) {
   }
 }
 
+/**
+ * Send verification code email for sensitive operations
+ */
+export async function sendVerificationCodeEmail(
+  email: string, 
+  code: string, 
+  purpose: string = 'Account Verification'
+) {
+  try {
+    console.log(`📧 Sending verification code to: ${email} for ${purpose}`);
+    
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+      console.error('❌ Missing email environment variables');
+      return { 
+        success: false, 
+        error: 'Email service not configured properly' 
+      };
+    }
+
+    const mailOptions = {
+      from: `"HustleHub Africa" <${process.env.GMAIL_USER}>`,
+      to: email,
+      subject: `Verification Code - ${purpose}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Verification Code - HustleHub Africa</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f9fafb;">
+            <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
+                <!-- Header -->
+                <div style="background: linear-gradient(135deg, #4F46E5, #7E22CE); padding: 30px; text-align: center; color: white;">
+                    <h1 style="margin: 0; font-size: 28px; font-weight: bold;">HustleHub Africa</h1>
+                    <p style="margin: 5px 0 0 0; opacity: 0.9;">Verification Required</p>
+                </div>
+                
+                <!-- Content -->
+                <div style="padding: 30px;">
+                    <h2 style="color: #1f2937; margin-bottom: 20px;">${purpose}</h2>
+                    <p style="color: #6b7280; line-height: 1.6; margin-bottom: 25px;">
+                        You requested to perform a sensitive operation on your HustleHub Africa account. 
+                        Please use the verification code below to continue.
+                    </p>
+                    
+                    <!-- Verification Code -->
+                    <div style="text-align: center; margin: 30px 0;">
+                        <div style="background: linear-gradient(135deg, #4F46E5, #7E22CE); 
+                                    color: white; padding: 20px; 
+                                    border-radius: 12px; display: inline-block;
+                                    font-weight: bold; font-size: 36px; 
+                                    letter-spacing: 8px;
+                                    box-shadow: 0 4px 6px rgba(79, 70, 229, 0.3);">
+                            ${code}
+                        </div>
+                    </div>
+                    
+                    <!-- Important Notes -->
+                    <div style="background-color: #fef3c7; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #f59e0b;">
+                        <p style="margin: 0 0 10px 0; font-weight: bold; color: #92400e;">
+                            ⚠️ Important Security Information:
+                        </p>
+                        <ul style="margin: 0; padding-left: 20px; color: #92400e;">
+                            <li>This code will expire in <strong>10 minutes</strong></li>
+                            <li>Never share this code with anyone</li>
+                            <li>HustleHub staff will never ask for this code</li>
+                            <li>If you didn't request this, please secure your account immediately</li>
+                        </ul>
+                    </div>
+                    
+                    <!-- Security Note -->
+                    <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
+                        <p style="margin: 0; color: #6b7280; font-size: 14px;">
+                            If you didn't initiate this request, please ignore this email and consider changing your password.
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- Footer -->
+                <div style="background-color: #f9fafb; padding: 20px; text-align: center; border-top: 1px solid #e5e7eb;">
+                    <p style="margin: 0; color: #9ca3af; font-size: 12px;">
+                        © 2024 HustleHub Africa. All rights reserved.<br>
+                        Building Africa's Premier Earning Platform
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+      `,
+    };
+
+    await getTransporter().verify();
+    const result = await getTransporter().sendMail(mailOptions);
+    
+    console.log('✅ Verification code email sent successfully');
+    console.log('📨 Message ID:', result.messageId);
+    
+    return { 
+      success: true, 
+      messageId: result.messageId 
+    };
+  } catch (error) {
+    console.error('❌ Verification code email error:', error);
+    return { 
+      success: false, 
+      error: 'Failed to send verification code',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+/**
+ * Send password reset email
+ */
+export async function sendPasswordResetEmail(email: string, code: string) {
+  return sendVerificationCodeEmail(email, code, 'Password Reset');
+}
+
 // Test email configuration function
 export async function testEmailConfig() {
   try {

@@ -1,4 +1,4 @@
-// app/dashboard/settings/page.tsx
+// app/dashboard/settings/page.tsx - UPDATED VERSION
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -21,24 +21,43 @@ export default function SettingsPage() {
   const { user, apiFetch } = useDashboard();
   const [name, setName] = useState(user.name);
   const [phone, setPhone] = useState(user.phone);
+  
+  // M-Pesa Change Request
   const [oldMpesaNumber, setOldMpesaNumber] = useState('');
   const [newMpesaNumber, setNewMpesaNumber] = useState('');
   const [reason, setReason] = useState('');
+  const [mpesaVerificationCode, setMpesaVerificationCode] = useState('');
+  const [mpesaVerificationMethod, setMpesaVerificationMethod] = useState<'2fa' | 'email' | null>(null);
+  const [needsMpesaVerification, setNeedsMpesaVerification] = useState(false);
+  
+  // Password Reset
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordVerificationCode, setPasswordVerificationCode] = useState('');
+  const [passwordVerificationMethod, setPasswordVerificationMethod] = useState<'2fa' | 'email' | null>(null);
+  const [needsPasswordVerification, setNeedsPasswordVerification] = useState(false);
+  
   const [message, setMessage] = useState<string | null>(null);
   const [messageType, setMessageType] = useState<'success' | 'error' | 'info'>('info');
   const [mpesaRequests, setMpesaRequests] = useState<MpesaChangeRequest[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const fetchMpesaRequests = async () => {
-      const result = await apiFetch<MpesaChangeRequest[]>('/mpesa-change-requests', 'GET');
-      if (result.success && result.data) setMpesaRequests(result.data);
+      const response = await fetch('/api/mpesa-change-requests', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setMpesaRequests(data);
+      }
     };
     
     fetchMpesaRequests();
-  }, [apiFetch]);
+  }, []);
 
   const handleUpdateProfile = async () => {
     const result = await apiFetch('/update-profile', 'POST', { name, phone });
@@ -52,78 +71,205 @@ export default function SettingsPage() {
   };
 
   const handleMpesaChange = async () => {
-    if (!oldMpesaNumber || !newMpesaNumber || !reason) {
-      setMessage('All fields are required for M-Pesa change request.');
-      setMessageType('error');
-      return;
-    }
-    if (!oldMpesaNumber.match(/^254[0-9]{9}$/) || !newMpesaNumber.match(/^254[0-9]{9}$/)) {
-      setMessage('Please enter valid M-Pesa numbers (format: 2547XXXXXXXX).');
-      setMessageType('error');
-      return;
-    }
-    if (oldMpesaNumber !== user.phone) {
-      setMessage('Old M-Pesa number does not match your registered number.');
-      setMessageType('error');
-      return;
-    }
-    if (oldMpesaNumber === newMpesaNumber) {
-      setMessage('New M-Pesa number cannot be the same as the old one.');
-      setMessageType('error');
-      return;
-    }
-    
-    const result = await apiFetch('/mpesa-change', 'POST', { 
-      oldNumber: oldMpesaNumber, 
-      newNumber: newMpesaNumber, 
-      reason 
-    });
-    
-    if (result.success) {
-      setMessage('M-Pesa number change request submitted for admin review.');
-      setMessageType('success');
-      setOldMpesaNumber('');
-      setNewMpesaNumber('');
-      setReason('');
-      const requestsResult = await apiFetch<MpesaChangeRequest[]>('/mpesa-change-requests', 'GET');
-      if (requestsResult.success && requestsResult.data) setMpesaRequests(requestsResult.data);
+    if (!needsMpesaVerification) {
+      // First submission - request verification
+      if (!oldMpesaNumber || !newMpesaNumber || !reason) {
+        setMessage('All fields are required for M-Pesa change request.');
+        setMessageType('error');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const response = await fetch('/api/mpesa-change-requests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ oldNumber: oldMpesaNumber, newNumber: newMpesaNumber, reason }),
+        });
+
+        const data = await response.json();
+
+        if (data.needsVerification) {
+          setNeedsMpesaVerification(true);
+          setMpesaVerificationMethod(data.verificationMethod);
+          setMessage(data.message);
+          setMessageType('info');
+        } else if (response.ok && data.success) {
+          setMessage(data.message);
+          setMessageType('success');
+          // Reset form
+          setOldMpesaNumber('');
+          setNewMpesaNumber('');
+          setReason('');
+          // Refresh requests
+          const requestsResponse = await fetch('/api/mpesa-change-requests');
+          if (requestsResponse.ok) {
+            const requestsData = await requestsResponse.json();
+            setMpesaRequests(requestsData);
+          }
+        } else {
+          setMessage(data.error || 'Failed to submit request.');
+          setMessageType('error');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        setMessage('An error occurred. Please try again.');
+        setMessageType('error');
+      } finally {
+        setLoading(false);
+      }
     } else {
-      setMessage(result.message || 'Failed to submit M-Pesa change request.');
-      setMessageType('error');
+      // Second submission - with verification code
+      if (!mpesaVerificationCode) {
+        setMessage('Please enter the verification code.');
+        setMessageType('error');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const response = await fetch('/api/mpesa-change-requests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            oldNumber: oldMpesaNumber,
+            newNumber: newMpesaNumber,
+            reason,
+            verificationCode: mpesaVerificationCode,
+            verificationMethod: mpesaVerificationMethod,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          setMessage(data.message);
+          setMessageType('success');
+          // Reset all fields
+          setOldMpesaNumber('');
+          setNewMpesaNumber('');
+          setReason('');
+          setMpesaVerificationCode('');
+          setNeedsMpesaVerification(false);
+          setMpesaVerificationMethod(null);
+          // Refresh requests
+          const requestsResponse = await fetch('/api/mpesa-change-requests');
+          if (requestsResponse.ok) {
+            const requestsData = await requestsResponse.json();
+            setMpesaRequests(requestsData);
+          }
+        } else {
+          setMessage(data.error || 'Verification failed.');
+          setMessageType('error');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        setMessage('An error occurred. Please try again.');
+        setMessageType('error');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
   const handleResetPassword = async () => {
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      setMessage('All password fields are required.');
-      setMessageType('error');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setMessage('New passwords do not match.');
-      setMessageType('error');
-      return;
-    }
-    if (newPassword.length < 6) {
-      setMessage('New password must be at least 6 characters long.');
-      setMessageType('error');
-      return;
-    }
-    
-    const result = await apiFetch('/reset-password', 'POST', { 
-      currentPassword, 
-      newPassword 
-    });
-    
-    if (result.success) {
-      setMessage('Password updated successfully!');
-      setMessageType('success');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
+    if (!needsPasswordVerification) {
+      // First submission - request verification
+      if (!currentPassword || !newPassword || !confirmPassword) {
+        setMessage('All password fields are required.');
+        setMessageType('error');
+        return;
+      }
+      
+      if (newPassword !== confirmPassword) {
+        setMessage('New passwords do not match.');
+        setMessageType('error');
+        return;
+      }
+      
+      if (newPassword.length < 8) {
+        setMessage('New password must be at least 8 characters long.');
+        setMessageType('error');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const response = await fetch('/api/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentPassword, newPassword }),
+        });
+
+        const data = await response.json();
+
+        if (data.needsVerification) {
+          setNeedsPasswordVerification(true);
+          setPasswordVerificationMethod(data.verificationMethod);
+          setMessage(data.message);
+          setMessageType('info');
+        } else if (response.ok && data.success) {
+          setMessage(data.message);
+          setMessageType('success');
+          // Reset form
+          setCurrentPassword('');
+          setNewPassword('');
+          setConfirmPassword('');
+        } else {
+          setMessage(data.error || 'Failed to reset password.');
+          setMessageType('error');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        setMessage('An error occurred. Please try again.');
+        setMessageType('error');
+      } finally {
+        setLoading(false);
+      }
     } else {
-      setMessage(result.message || 'Failed to update password.');
-      setMessageType('error');
+      // Second submission - with verification code
+      if (!passwordVerificationCode) {
+        setMessage('Please enter the verification code.');
+        setMessageType('error');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const response = await fetch('/api/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            currentPassword,
+            newPassword,
+            verificationCode: passwordVerificationCode,
+            verificationMethod: passwordVerificationMethod,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          setMessage(data.message);
+          setMessageType('success');
+          // Reset all fields
+          setCurrentPassword('');
+          setNewPassword('');
+          setConfirmPassword('');
+          setPasswordVerificationCode('');
+          setNeedsPasswordVerification(false);
+          setPasswordVerificationMethod(null);
+        } else {
+          setMessage(data.error || 'Verification failed.');
+          setMessageType('error');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        setMessage('An error occurred. Please try again.');
+        setMessageType('error');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -133,8 +279,10 @@ export default function SettingsPage() {
       
       {message && <Alert type={messageType} message={message} onClose={() => setMessage(null)} />}
       
-      {/* Two-Factor Authentication Section - Using the separate component */}
-      <TwoFactorAuth userEmail={user.email} />
+      {/* Two-Factor Authentication Section */}
+      <div className="mb-8">
+        <TwoFactorAuth userEmail={user.email} />
+      </div>
 
       {/* Profile Update Section */}
       <div className="bg-white p-6 rounded-xl shadow-lg mb-8">
@@ -162,7 +310,8 @@ export default function SettingsPage() {
         </div>
         <button 
           onClick={handleUpdateProfile}
-          className="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+          disabled={loading}
+          className="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium disabled:bg-indigo-400"
         >
           Update Profile
         </button>
@@ -171,41 +320,77 @@ export default function SettingsPage() {
       {/* M-Pesa Change Request Section */}
       <div className="bg-white p-6 rounded-xl shadow-lg mb-8">
         <h3 className="text-xl font-semibold mb-4">Change M-Pesa Number</h3>
-        <div className="mb-4">
-          <label className="block font-medium mb-1">Old M-Pesa Number</label>
-          <input
-            type="text"
-            value={oldMpesaNumber}
-            onChange={(e) => setOldMpesaNumber(e.target.value)}
-            placeholder="2547XXXXXXXX"
-            className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-          />
-        </div>
-        <div className="mb-4">
-          <label className="block font-medium mb-1">New M-Pesa Number</label>
-          <input
-            type="text"
-            value={newMpesaNumber}
-            onChange={(e) => setNewMpesaNumber(e.target.value)}
-            placeholder="2547XXXXXXXX"
-            className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-          />
-        </div>
-        <div className="mb-4">
-          <label className="block font-medium mb-1">Reason for Change</label>
-          <textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Explain why you need to change your M-Pesa number..."
-            rows={4}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-          />
-        </div>
+        
+        {!needsMpesaVerification ? (
+          <>
+            <div className="mb-4">
+              <label className="block font-medium mb-1">Old M-Pesa Number</label>
+              <input
+                type="text"
+                value={oldMpesaNumber}
+                onChange={(e) => setOldMpesaNumber(e.target.value)}
+                placeholder="254XXXXXXXXX or 07XXXXXXXX"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </div>
+            <div className="mb-4">
+              <label className="block font-medium mb-1">New M-Pesa Number</label>
+              <input
+                type="text"
+                value={newMpesaNumber}
+                onChange={(e) => setNewMpesaNumber(e.target.value)}
+                placeholder="254XXXXXXXXX or 07XXXXXXXX"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </div>
+            <div className="mb-4">
+              <label className="block font-medium mb-1">Reason for Change</label>
+              <textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Explain why you need to change your M-Pesa number..."
+                rows={4}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </div>
+          </>
+        ) : (
+          <div className="mb-4">
+            <label className="block font-medium mb-1">
+              {mpesaVerificationMethod === '2fa' ? 'Google Authenticator Code' : 'Email Verification Code'}
+            </label>
+            <input
+              type="text"
+              value={mpesaVerificationCode}
+              onChange={(e) => setMpesaVerificationCode(e.target.value)}
+              placeholder="Enter 6-digit code"
+              maxLength={6}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-center text-2xl font-mono tracking-widest"
+            />
+            <p className="text-sm text-gray-500 mt-2">
+              {mpesaVerificationMethod === '2fa' 
+                ? 'Enter the code from your Google Authenticator app' 
+                : 'Check your email for the verification code'}
+            </p>
+            <button
+              onClick={() => {
+                setNeedsMpesaVerification(false);
+                setMpesaVerificationCode('');
+                setMpesaVerificationMethod(null);
+              }}
+              className="mt-2 text-sm text-indigo-600 hover:text-indigo-800"
+            >
+              ← Cancel and go back
+            </button>
+          </div>
+        )}
+        
         <button 
           onClick={handleMpesaChange}
-          className="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+          disabled={loading}
+          className="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium disabled:bg-indigo-400"
         >
-          Submit M-Pesa Change Request
+          {loading ? 'Processing...' : needsMpesaVerification ? 'Verify and Submit' : 'Submit M-Pesa Change Request'}
         </button>
       </div>
 
@@ -254,41 +439,80 @@ export default function SettingsPage() {
       {/* Password Reset Section */}
       <div className="bg-white p-6 rounded-xl shadow-lg">
         <h3 className="text-xl font-semibold mb-4">Reset Password</h3>
-        <div className="mb-4">
-          <label className="block font-medium mb-1">Current Password</label>
-          <input
-            type="password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            placeholder="Enter current password"
-          />
-        </div>
-        <div className="mb-4">
-          <label className="block font-medium mb-1">New Password</label>
-          <input
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            placeholder="Enter new password"
-          />
-        </div>
-        <div className="mb-4">
-          <label className="block font-medium mb-1">Confirm New Password</label>
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            placeholder="Confirm new password"
-          />
-        </div>
+        
+        {!needsPasswordVerification ? (
+          <>
+            <div className="mb-4">
+              <label className="block font-medium mb-1">Current Password</label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="Enter current password"
+              />
+            </div>
+            <div className="mb-4">
+              <label className="block font-medium mb-1">New Password</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="Enter new password (min. 8 characters)"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Password must contain uppercase, lowercase, and numbers
+              </p>
+            </div>
+            <div className="mb-4">
+              <label className="block font-medium mb-1">Confirm New Password</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="Confirm new password"
+              />
+            </div>
+          </>
+        ) : (
+          <div className="mb-4">
+            <label className="block font-medium mb-1">
+              {passwordVerificationMethod === '2fa' ? 'Google Authenticator Code' : 'Email Verification Code'}
+            </label>
+            <input
+              type="text"
+              value={passwordVerificationCode}
+              onChange={(e) => setPasswordVerificationCode(e.target.value)}
+              placeholder="Enter 6-digit code"
+              maxLength={6}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-center text-2xl font-mono tracking-widest"
+            />
+            <p className="text-sm text-gray-500 mt-2">
+              {passwordVerificationMethod === '2fa' 
+                ? 'Enter the code from your Google Authenticator app' 
+                : 'Check your email for the verification code'}
+            </p>
+            <button
+              onClick={() => {
+                setNeedsPasswordVerification(false);
+                setPasswordVerificationCode('');
+                setPasswordVerificationMethod(null);
+              }}
+              className="mt-2 text-sm text-indigo-600 hover:text-indigo-800"
+            >
+              ← Cancel and go back
+            </button>
+          </div>
+        )}
+        
         <button 
           onClick={handleResetPassword}
-          className="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+          disabled={loading}
+          className="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium disabled:bg-indigo-400"
         >
-          Reset Password
+          {loading ? 'Processing...' : needsPasswordVerification ? 'Verify and Reset Password' : 'Reset Password'}
         </button>
       </div>
     </div>

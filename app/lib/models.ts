@@ -1387,23 +1387,50 @@ const SurveyAssignmentSchema = new Schema({
 export const SurveyAssignment = getModel('SurveyAssignment', SurveyAssignmentSchema);
 
 /**
- * 21. VerificationToken Model (for email verification)
+ * 21. VerificationToken Model (for email verification and 2FA codes) - ENHANCED
  */
 const VerificationTokenSchema = new Schema({
-  token: { type: String, required: true, unique: true },
-  user_id: { type: String, ref: 'Profile', required: true },
-  expires: { type: Date, required: true },
+  token: { type: String, required: true, index: true },
+  user_id: { type: String, ref: 'Profile', required: true, index: true },
+  expires: { type: Date, required: true }, // Remove index: true to avoid duplicate
+  
+  // Purpose of the verification token
+  purpose: { 
+    type: String, 
+    enum: ['email_verification', 'password_reset', 'mpesa_change', '2fa_setup', 'account_recovery'],
+    default: 'email_verification',
+    required: true,
+    index: true
+  },
+  
+  // Metadata for storing additional information
+  metadata: {
+    type: Schema.Types.Mixed,
+    default: {}
+  },
+  
+  // Track usage
+  used: { type: Boolean, default: false },
+  used_at: { type: Date },
+  
+  // IP tracking for security
+  ip_address: { type: String },
+  user_agent: { type: String },
+  
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
   indexes: [
     { fields: { token: 1 } },
-    { fields: { user_id: 1 } },
-    { fields: { expires: 1 } },
+    { fields: { user_id: 1, purpose: 1 } },
+    { fields: { used: 1 } },
+    { fields: { purpose: 1 } },
   ]
 });
 
-export const VerificationToken = getModel('VerificationToken', VerificationTokenSchema);
+// Index to automatically delete expired tokens after 24 hours (TTL index)
+VerificationTokenSchema.index({ expires: 1 }, { expireAfterSeconds: 86400 });
 
+export const VerificationToken = getModel('VerificationToken', VerificationTokenSchema);
 /**
  * 22. SystemSettings Model - For storing system-wide settings
  */
