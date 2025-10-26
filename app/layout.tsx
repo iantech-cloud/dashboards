@@ -4,7 +4,8 @@ import './ui/global.css';
 import { timesNewRoman } from './ui/fonts';
 import type { Metadata, Viewport } from 'next';
 import { DashboardProvider } from './dashboard/DashboardContext';
-import { UserProvider } from '../components/UserProvider'; // Import from components
+import { UserProvider } from '../components/UserProvider';
+import SessionProvider from './providers/SessionProvider'; // Import SessionProvider
 
 export const metadata: Metadata = {
   title: {
@@ -52,10 +53,12 @@ export default function RootLayout({
   return (
     <html lang="en" className={timesNewRoman.variable}>
       <body className={`${timesNewRoman.className} antialiased`}>
-        <DashboardProvider value={contextValue}>
-          <UserProvider /> {/* Add this line */}
-          {children}
-        </DashboardProvider>
+        <SessionProvider>
+          <DashboardProvider value={contextValue}>
+            <UserProvider />
+            {children}
+          </DashboardProvider>
+        </SessionProvider>
       </body>
     </html>
   );

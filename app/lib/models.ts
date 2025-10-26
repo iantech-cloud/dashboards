@@ -360,14 +360,25 @@ const AdminAuditLogSchema = new Schema({
     required: true, 
     maxlength: 100,
     enum: [
+      // User Management Actions
       'APPROVE_USER',
+      'REJECT_USER',
       'ACTIVATE_USER',
-      'ADD_SPINS',
-      'UPDATE_USER_STATUS',
-      'RESET_USER_LIMITS',
-      'DELETE_USER',
       'SUSPEND_USER',
       'BAN_USER',
+      'ADD_SPINS',
+      'UPDATE_USER_STATUS',
+      'UPDATE_USER_BALANCE',
+      'RESET_USER_LIMITS',
+      'DELETE_USER',
+      
+      // Withdrawal Management Actions
+      'APPROVE_WITHDRAWAL',
+      'REJECT_WITHDRAWAL',
+      'COMPLETE_WITHDRAWAL',
+      'REVERSE_WITHDRAWAL',
+      'UPDATE_WITHDRAWAL_NOTES',
+      
       // Spin Actions
       'CREATE_SPIN_PRIZE',
       'UPDATE_SPIN_PRIZE',
@@ -378,10 +389,28 @@ const AdminAuditLogSchema = new Schema({
       'UPDATE_SPIN_SCHEDULE',
       'VIEW_SPIN_LOGS',
       'MANAGE_SPIN_PRIZES',
+      
       // Blog Actions
       'CREATE_BLOG_POST',
       'UPDATE_BLOG_POST',
-      'DELETE_BLOG_POST'
+      'DELETE_BLOG_POST',
+      
+      // Survey Actions
+      'CREATE_SURVEY',
+      'UPDATE_SURVEY',
+      'DELETE_SURVEY',
+      'ACTIVATE_SURVEY',
+      'DEACTIVATE_SURVEY',
+      
+      // Transaction Actions
+      'CREATE_TRANSACTION',
+      'UPDATE_TRANSACTION',
+      'REVERSE_TRANSACTION',
+      
+      // System Actions
+      'UPDATE_SYSTEM_SETTINGS',
+      'VIEW_AUDIT_LOGS',
+      'EXPORT_DATA'
     ]
   },
   target_type: { type: String, required: true, maxlength: 50 },
@@ -434,7 +463,6 @@ const AdminAuditLogSchema = new Schema({
     { fields: { 'spin_related.prize_type': 1 } },
   ]
 });
-
 export const AdminAuditLog = getModel('AdminAuditLog', AdminAuditLogSchema);
 
 /**
