@@ -6,7 +6,6 @@ import { connectToDatabase, Profile, Transaction, Withdrawal } from '@/app/lib/m
 
 export async function GET(request: NextRequest) {
   try {
-    // Check authentication
     const session = await getServerSession(authOptions);
     
     if (!session?.user?.email) {
@@ -18,7 +17,6 @@ export async function GET(request: NextRequest) {
 
     await connectToDatabase();
 
-    // Verify user is admin
     const user = await Profile.findOne({ email: session.user.email });
     if (!user || user.role !== 'admin') {
       return NextResponse.json(
@@ -31,24 +29,19 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('start') || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
     const endDate = searchParams.get('end') || new Date().toISOString().split('T')[0];
 
-    // Create date objects for query
     const start = new Date(startDate);
     const end = new Date(endDate + 'T23:59:59.999Z');
 
-    console.log('Fetching reports for period:', startDate, 'to', endDate);
-
-    // Get all completed transactions in the date range
-    const transactions = await Transaction.find({
-      status: 'completed',
-      created_at: {
-        $gte: start,
-        $lte: end
-      }
+    // Get all transactions (not just completed - we need to see the full picture)
+    const allTransactions = await Transaction.find({
+      created_at: { $gte: start, $lte: end }
     }).populate('user_id', 'username email').lean();
 
-    console.log(`Found ${transactions.length} completed transactions`);
+    // For balance sheet, we need ALL TIME data
+    const allTimeTransactions = await Transaction.find({
+      status: 'completed'
+    }).lean();
 
-    // Get all users for balance calculations
     const totalUsers = await Profile.countDocuments();
     const activeUsers = await Profile.countDocuments({ 
       is_active: true, 
@@ -56,116 +49,167 @@ export async function GET(request: NextRequest) {
       approval_status: 'approved'
     });
 
-    // Calculate financial metrics
-    const revenue = transactions
-      .filter(t => ['ACTIVATION_FEE', 'COMPANY_REVENUE'].includes(t.type))
+    // ============================================================
+    // INCOME STATEMENT (Period-based: Start to End Date)
+    // ============================================================
+    
+    const completedInPeriod = allTransactions.filter(t => t.status === 'completed');
+    
+    // REVENUE (Money coming INTO the company)
+    // 1. Activation fees - Full KES 1,000 per activation
+    const activationFeeRevenue = completedInPeriod
+      .filter(t => t.type === 'ACTIVATION_FEE')
       .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
-
-    // Deposits are liabilities until used
-    const deposits = transactions
+    
+    // 2. Any other company revenue streams
+    const otherRevenue = completedInPeriod
+      .filter(t => t.type === 'COMPANY_REVENUE')
+      .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
+    
+    const totalRevenue = activationFeeRevenue + otherRevenue;
+    
+    // EXPENSES (Money going OUT from the company)
+    // 1. Referral bonuses paid (KES 700 per referral)
+    const referralExpense = completedInPeriod
+      .filter(t => t.type === 'REFERRAL')
+      .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
+    
+    // 2. User earnings - all payments to users for their work
+    const bonusExpense = completedInPeriod
+      .filter(t => t.type === 'BONUS')
+      .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
+    
+    const taskPaymentExpense = completedInPeriod
+      .filter(t => t.type === 'TASK_PAYMENT')
+      .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
+    
+    const surveyExpense = completedInPeriod
+      .filter(t => t.type === 'SURVEY')
+      .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
+    
+    const spinWinExpense = completedInPeriod
+      .filter(t => t.type === 'SPIN_WIN')
+      .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
+    
+    // 3. Withdrawals - cash paid out to users
+    const withdrawalExpense = completedInPeriod
+      .filter(t => t.type === 'WITHDRAWAL')
+      .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
+    
+    const totalExpenses = referralExpense + bonusExpense + taskPaymentExpense + 
+                          surveyExpense + spinWinExpense + withdrawalExpense;
+    
+    const netIncome = totalRevenue - totalExpenses;
+    
+    // ============================================================
+    // BALANCE SHEET (Point in time: As of End Date)
+    // ============================================================
+    
+    // Calculate cumulative totals from all time
+    const allCompleted = allTimeTransactions.filter(t => t.status === 'completed');
+    
+    // ASSETS (What the company HAS)
+    // 1. Cash from deposits (money users put into the system)
+    const totalDeposits = allCompleted
       .filter(t => t.type === 'DEPOSIT')
       .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
-
-    const expenses = transactions
-      .filter(t => ['WITHDRAWAL', 'BONUS', 'TASK_PAYMENT', 'SPIN_WIN', 'REFERRAL', 'SURVEY'].includes(t.type))
+    
+    // 2. Less: Cash paid out as withdrawals
+    const totalWithdrawals = allCompleted
+      .filter(t => t.type === 'WITHDRAWAL')
       .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
-
-    const netIncome = revenue - expenses;
-
-    // Calculate actual balances from database
-    const totalUserBalances = await Profile.aggregate([
-      { 
-        $match: { 
-          is_active: true,
-          status: 'active',
-          approval_status: 'approved'
-        } 
-      },
-      {
-        $group: {
-          _id: null,
-          totalBalance: { $sum: '$balance_cents' }
-        }
-      }
+    
+    // 3. Add: Revenue collected (activation fees)
+    const allTimeRevenue = allCompleted
+      .filter(t => ['ACTIVATION_FEE', 'COMPANY_REVENUE'].includes(t.type))
+      .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
+    
+    // Cash on hand = Deposits + Revenue - Withdrawals - User Earnings Paid
+    const userEarningsPaid = allCompleted
+      .filter(t => ['BONUS', 'TASK_PAYMENT', 'SURVEY', 'SPIN_WIN', 'REFERRAL'].includes(t.type))
+      .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
+    
+    const cashAssets = totalDeposits + allTimeRevenue - totalWithdrawals - userEarningsPaid;
+    
+    // Total Assets
+    const totalAssets = Math.max(0, cashAssets);
+    
+    // LIABILITIES (What the company OWES)
+    // 1. Current user wallet balances
+    const userBalancesResult = await Profile.aggregate([
+      { $match: { is_active: true, status: 'active', approval_status: 'approved' } },
+      { $group: { _id: null, totalBalance: { $sum: '$balance_cents' } } }
     ]);
-
-    const totalBalance = totalUserBalances.length > 0 ? totalUserBalances[0].totalBalance / 100 : 0;
-
-    // Calculate total deposits (cash in system) - all time
-    const totalDepositsResult = await Transaction.aggregate([
-      {
-        $match: {
-          type: 'DEPOSIT',
-          status: 'completed'
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$amount_cents' }
-        }
-      }
-    ]);
-
-    const totalDepositsAllTime = totalDepositsResult.length > 0 ? totalDepositsResult[0].total / 100 : 0;
-
-    // Calculate total withdrawals - all time
-    const totalWithdrawalsResult = await Transaction.aggregate([
-      {
-        $match: {
-          type: 'WITHDRAWAL',
-          status: 'completed'
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$amount_cents' }
-        }
-      }
-    ]);
-
-    const totalWithdrawalsAllTime = totalWithdrawalsResult.length > 0 ? totalWithdrawalsResult[0].total / 100 : 0;
-
-    // Calculate company equity (deposits - user balances - withdrawals)
-    const companyEquity = totalDepositsAllTime - totalBalance - totalWithdrawalsAllTime;
-
-    // Real balance sheet calculations
-    const assets = totalDepositsAllTime; // Cash from deposits
-    const liabilities = totalBalance + totalWithdrawalsAllTime; // What we owe users (their balances + paid withdrawals)
-    const equity = companyEquity; // Company's actual equity
-
-    // Cash flow calculations for the period
-    const operatingCashFlow = netIncome; // Simplified - revenue minus expenses
-    const investingCashFlow = 0; // No investments in current model
-    const financingCashFlow = deposits - expenses; // Deposits and expenses for the period
-    const netCashChange = operatingCashFlow + investingCashFlow + financingCashFlow;
-
-    // Accounts Receivable - pending withdrawals
-    const pendingWithdrawals = await Withdrawal.find({
-      status: 'pending'
-    }).populate('user_id', 'username email').lean();
-
+    const userWalletBalances = userBalancesResult.length > 0 ? userBalancesResult[0].totalBalance / 100 : 0;
+    
+    // 2. Pending withdrawals (obligations to pay)
+    const pendingWithdrawals = await Withdrawal.find({ status: 'pending' }).lean();
+    const pendingWithdrawalAmount = pendingWithdrawals.reduce((sum, w) => sum + (w.amount_cents / 100), 0);
+    
+    const totalLiabilities = userWalletBalances + pendingWithdrawalAmount;
+    
+    // EQUITY (What belongs to the company)
+    // Assets - Liabilities = Equity
+    const totalEquity = totalAssets - totalLiabilities;
+    
+    // ============================================================
+    // CASH FLOW STATEMENT (Period-based)
+    // ============================================================
+    
+    // Operating Activities (day-to-day business)
+    // Cash IN: Activation fees
+    // Cash OUT: Referral bonuses, task payments, bonuses, surveys, spin wins
+    const operatingCashIn = activationFeeRevenue + otherRevenue;
+    const operatingCashOut = referralExpense + bonusExpense + taskPaymentExpense + 
+                             surveyExpense + spinWinExpense;
+    const operatingCashFlow = operatingCashIn - operatingCashOut;
+    
+    // Financing Activities (user deposits and withdrawals)
+    const depositsInPeriod = completedInPeriod
+      .filter(t => t.type === 'DEPOSIT')
+      .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
+    
+    const withdrawalsInPeriod = withdrawalExpense;
+    const financingCashFlow = depositsInPeriod - withdrawalsInPeriod;
+    
+    // Investing Activities (none in current system)
+    const investingCashFlow = 0;
+    
+    const netCashChange = operatingCashFlow + financingCashFlow + investingCashFlow;
+    
+    // ============================================================
+    // EQUITY STATEMENT (Period-based)
+    // ============================================================
+    
+    // Calculate beginning equity (total equity minus period net income)
+    const beginningEquity = totalEquity - netIncome;
+    
+    const equityStatement = {
+      beginningEquity: Math.max(0, beginningEquity),
+      netIncome: netIncome,
+      deposits: depositsInPeriod, // Capital contributions
+      withdrawals: withdrawalsInPeriod, // Distributions
+      endingEquity: totalEquity,
+      period: `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`
+    };
+    
+    // ============================================================
+    // ACCOUNTS RECEIVABLE AGING (Pending Withdrawals)
+    // ============================================================
+    
     const accountsReceivable = pendingWithdrawals.map((withdrawal: any) => {
       const dueDate = new Date(withdrawal.created_at);
-      dueDate.setDate(dueDate.getDate() + 7); // Assume 7 days processing time
+      dueDate.setDate(dueDate.getDate() + 7);
       
       const now = new Date();
       const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
       
-      let status: 'current' | '30_days' | '60_days' | '90_days' | 'over_90_days' = 'current';
-      
-      if (daysOverdue <= 0) {
-        status = 'current';
-      } else if (daysOverdue <= 30) {
-        status = '30_days';
-      } else if (daysOverdue <= 60) {
-        status = '60_days';
-      } else if (daysOverdue <= 90) {
-        status = '90_days';
-      } else {
-        status = 'over_90_days';
-      }
+      let status: 'current' | '30_days' | '60_days' | '90_days' | 'over_90_days';
+      if (daysOverdue <= 0) status = 'current';
+      else if (daysOverdue <= 30) status = '30_days';
+      else if (daysOverdue <= 60) status = '60_days';
+      else if (daysOverdue <= 90) status = '90_days';
+      else status = 'over_90_days';
 
       return {
         customer: withdrawal.user_id?.username || 'Unknown User',
@@ -176,51 +220,40 @@ export async function GET(request: NextRequest) {
         daysOverdue: Math.max(0, daysOverdue)
       };
     });
-
-    // Generate comprehensive reports
+    
+    // ============================================================
+    // FINAL REPORT STRUCTURE
+    // ============================================================
+    
     const reports = {
       incomeStatement: {
-        revenue,
-        expenses,
-        netIncome,
+        revenue: totalRevenue,
+        expenses: totalExpenses,
+        netIncome: netIncome,
         period: `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`,
         breakdown: {
-          activationFees: transactions
-            .filter(t => t.type === 'ACTIVATION_FEE')
-            .reduce((sum, t) => sum + (t.amount_cents / 100), 0),
-          companyRevenue: transactions
-            .filter(t => t.type === 'COMPANY_REVENUE')
-            .reduce((sum, t) => sum + (t.amount_cents / 100), 0),
-          withdrawals: transactions
-            .filter(t => t.type === 'WITHDRAWAL')
-            .reduce((sum, t) => sum + (t.amount_cents / 100), 0),
-          bonuses: transactions
-            .filter(t => t.type === 'BONUS')
-            .reduce((sum, t) => sum + (t.amount_cents / 100), 0),
-          taskPayments: transactions
-            .filter(t => t.type === 'TASK_PAYMENT')
-            .reduce((sum, t) => sum + (t.amount_cents / 100), 0),
-          referralBonuses: transactions
-            .filter(t => t.type === 'REFERRAL')
-            .reduce((sum, t) => sum + (t.amount_cents / 100), 0),
-          surveyPayments: transactions
-            .filter(t => t.type === 'SURVEY')
-            .reduce((sum, t) => sum + (t.amount_cents / 100), 0),
-          spinWins: transactions
-            .filter(t => t.type === 'SPIN_WIN')
-            .reduce((sum, t) => sum + (t.amount_cents / 100), 0)
+          // Revenue breakdown
+          activationFees: activationFeeRevenue,
+          companyRevenue: otherRevenue,
+          // Expense breakdown
+          referralBonuses: referralExpense,
+          bonuses: bonusExpense,
+          taskPayments: taskPaymentExpense,
+          surveyPayments: surveyExpense,
+          spinWins: spinWinExpense,
+          withdrawals: withdrawalExpense
         }
       },
       balanceSheet: {
-        assets,
-        liabilities,
-        equity,
+        assets: totalAssets,
+        liabilities: totalLiabilities,
+        equity: totalEquity,
         date: new Date().toLocaleDateString(),
         breakdown: {
-          cash: assets,
-          userBalances: totalBalance,
-          pendingWithdrawals: pendingWithdrawals.reduce((sum, w) => sum + (w.amount_cents / 100), 0),
-          companyEquity
+          cash: cashAssets,
+          userBalances: userWalletBalances,
+          pendingWithdrawals: pendingWithdrawalAmount,
+          companyEquity: totalEquity
         }
       },
       cashFlow: {
@@ -235,30 +268,22 @@ export async function GET(request: NextRequest) {
           cashFromFinancing: financingCashFlow
         }
       },
-      equityStatement: {
-        beginningEquity: Math.max(0, companyEquity - netIncome), // Don't go negative
-        netIncome,
-        withdrawals: expenses,
-        endingEquity: Math.max(0, companyEquity), // Don't show negative equity
-        period: `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`
-      },
+      equityStatement,
       accountsReceivable,
       userMetrics: {
         totalUsers,
         activeUsers,
-        totalDeposits: totalDepositsAllTime,
-        totalWithdrawals: totalWithdrawalsAllTime,
-        averageBalance: activeUsers > 0 ? totalBalance / activeUsers : 0,
-        depositRate: activeUsers > 0 ? (deposits / activeUsers) : 0
+        totalDeposits: totalDeposits,
+        totalWithdrawals: totalWithdrawals,
+        averageBalance: activeUsers > 0 ? userWalletBalances / activeUsers : 0,
+        depositRate: totalUsers > 0 ? (totalDeposits / totalUsers) : 0
       },
       periodMetrics: {
         startDate: start.toISOString(),
         endDate: end.toISOString(),
-        transactionCount: transactions.length,
-        totalDepositsPeriod: deposits,
-        totalWithdrawalsPeriod: transactions
-          .filter(t => t.type === 'WITHDRAWAL')
-          .reduce((sum, t) => sum + (t.amount_cents / 100), 0)
+        transactionCount: completedInPeriod.length,
+        totalDepositsPeriod: depositsInPeriod,
+        totalWithdrawalsPeriod: withdrawalsInPeriod
       }
     };
 

@@ -2,53 +2,109 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import { 
+  getWithdrawals, 
+  getWithdrawalStats,
+  approveWithdrawal,
+  rejectWithdrawal,
+  completeWithdrawal,
+  reverseWithdrawal,
+  bulkApproveWithdrawals
+} from '@/actions/withdrawals';
+import { toast } from 'sonner';
+import { 
+  CheckCircle, 
+  XCircle, 
+  Clock, 
+  AlertCircle, 
+  Download,
+  Search,
+  Filter,
+  ChevronLeft,
+  ChevronRight,
+  Check,
+  X,
+  RotateCcw,
+  Eye
+} from 'lucide-react';
 
 interface Withdrawal {
   _id: string;
-  user: string;
+  userId: string;
+  user: {
+    id: string;
+    username: string;
+    email: string;
+    phone: string;
+    balance: number;
+  };
   amount: number;
-  status: 'pending' | 'approved' | 'rejected';
-  date: string;
+  amountCents: number;
+  status: 'pending' | 'approved' | 'rejected' | 'completed';
+  mpesaNumber: string;
+  transactionCode?: string;
+  mpesaReceiptNumber?: string;
+  approvedBy?: {
+    id: string;
+    username: string;
+    email: string;
+  };
+  approvedAt?: string;
+  processedAt?: string;
+  processingNotes?: string;
+  failureReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface WithdrawalStats {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  completed: number;
+  totalAmountCents: number;
+  averageAmountCents: number;
 }
 
 export default function WithdrawalsPage() {
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [stats, setStats] = useState<WithdrawalStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState<string | null>(null);
+  const [selectedWithdrawals, setSelectedWithdrawals] = useState<string[]>([]);
+  
+  // Filters
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [dateFilter, setDateFilter] = useState<string>('all');
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  
+  // Modals
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [showReverseModal, setShowReverseModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [selectedWithdrawal, setSelectedWithdrawal] = useState<Withdrawal | null>(null);
+  const [modalInput, setModalInput] = useState('');
 
-  useEffect(() => {
-    const mockData: Withdrawal[] = [
-      { _id: '1', user: 'john@example.com', amount: 100, status: 'pending', date: new Date().toISOString() },
-      { _id: '2', user: 'jane@example.com', amount: 50, status: 'approved', date: new Date().toISOString() },
-    ];
-    setWithdrawals(mockData);
-    setLoading(false);
-  }, []);
-
-  if (loading) return <div className="p-6">Loading withdrawals...</div>;
-
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Withdrawals</h1>
-      <div className="bg-white rounded-lg border">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="p-3 text-left">User</th>
-              <th className="p-3 text-left">Amount</th>
-              <th className="p-3 text-left">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {withdrawals.map((w) => (
-              <tr key={w._id} className="border-t">
-                <td className="p-3">{w.user}</td>
-                <td className="p-3">KES {w.amount}</td>
-                <td className="p-3 capitalize">{w.status}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
+  const fetchWithdrawals = async () => {
+    try {
+      setLoading(true);
+      
+      const filters: any = {};
+      if (statusFilter !== 'all') {
+        filters.status = statusFilter;
+      }
+      if (searchQuery) {
+        filters.search = searchQuery;
+      }
+      if (dateFilter !== 'all') {
+        const now = new Date();
+        if (dateFilter === 'today') {
+          filters.startDate = new Date(now.setHours(0, 0, 0, 0));
+        } else if (dateFilter === 'week')

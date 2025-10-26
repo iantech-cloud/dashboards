@@ -9,7 +9,10 @@ import {
   MpesaTransaction, 
   ActivationPayment, 
   Transaction, 
-  ActivationLog 
+  ActivationLog,
+  Referral,
+  Earning,
+  AdminAuditLog
 } from '@/app/lib/models';
 
 // =============================================================================
@@ -892,7 +895,7 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
 
 /**
  * Complete activation after successful payment
- * This is used by the frontend after payment is confirmed via status check.
+ * FIXED: Properly splits activation fee into company revenue and referral bonus
  */
 export async function completeActivationAfterPayment(activationPaymentId: string): Promise<ApiResponse<ActivationCompletionData>> {
   try {
@@ -912,28 +915,20 @@ export async function completeActivationAfterPayment(activationPaymentId: string
 
     // Check if already activated
     if (userProfile.activation_paid_at) {
-      // The account is already activated, return success to indicate no further action needed
       return { success: true, message: 'Account already activated' };
     }
 
-    // Check if payment is completed (status should have been updated by M-Pesa callback)
+    // Check if payment is completed
     if (activationPayment.status !== 'completed') {
       return { success: false, message: 'Payment not completed yet' };
     }
 
-    // Update user activation status
-    userProfile.activation_paid_at = new Date();
-    userProfile.is_active = true;
-    userProfile.status = 'active';
-    userProfile.is_verified = true;
-    userProfile.level = 1;
-    userProfile.rank = 'Activated Member';
-    await userProfile.save();
-
-    // Create transaction record
-    const transaction = new (Transaction as any)({
+    // =============================================================================
+    // STEP 1: Record User's Activation Fee Payment (Expense for User)
+    // =============================================================================
+    const activationFeeTransaction = new (Transaction as any)({
       user_id: userProfile._id,
-      amount_cents: activationPayment.amount_cents,
+      amount_cents: activationPayment.amount_cents, // Full KES 1,000
       type: 'ACTIVATION_FEE',
       description: 'Account activation fee payment',
       status: 'completed',
@@ -941,20 +936,158 @@ export async function completeActivationAfterPayment(activationPaymentId: string
       is_activation_fee: true,
       activation_payment_id: activationPayment._id,
       balance_before_cents: userProfile.balance_cents,
-      balance_after_cents: userProfile.balance_cents
+      balance_after_cents: userProfile.balance_cents, // No change to user balance
+      metadata: {
+        payment_method: 'mpesa',
+        mpesa_receipt: activationPayment.mpesa_receipt_number,
+        phone_number: activationPayment.phone_number
+      }
     });
-    await transaction.save();
+    await activationFeeTransaction.save();
 
-    // Update user with transaction reference
-    userProfile.activation_transaction_id = transaction._id;
+    // =============================================================================
+    // STEP 2: Process Referral Bonus (if user was referred)
+    // =============================================================================
+    let referralBonus = null;
+    const REFERRAL_BONUS_CENTS = 70000; // KES 700
+    
+    if (userProfile.referred_by) {
+      try {
+        // Find the referrer
+        const referrer = await (Profile as any).findById(userProfile.referred_by);
+        
+        if (referrer) {
+          // Update referral record
+          const referralRecord = await (Referral as any).findOne({
+            referrer_id: referrer._id,
+            referred_id: userProfile._id
+          });
+
+          if (referralRecord && !referralRecord.referral_bonus_paid) {
+            // Create REFERRAL transaction for the referrer (Income for referrer)
+            const referralTransaction = new (Transaction as any)({
+              user_id: referrer._id,
+              amount_cents: REFERRAL_BONUS_CENTS,
+              type: 'REFERRAL',
+              description: `Referral bonus for ${userProfile.username}'s activation`,
+              status: 'completed',
+              source: 'activation',
+              balance_before_cents: referrer.balance_cents,
+              balance_after_cents: referrer.balance_cents + REFERRAL_BONUS_CENTS,
+              metadata: {
+                referred_user_id: userProfile._id,
+                referred_username: userProfile.username,
+                activation_payment_id: activationPayment._id,
+                referral_id: referralRecord._id
+              }
+            });
+            await referralTransaction.save();
+
+            // Update referrer's balance
+            referrer.balance_cents += REFERRAL_BONUS_CENTS;
+            referrer.total_earnings_cents += REFERRAL_BONUS_CENTS;
+            await referrer.save();
+
+            // Update referral record
+            referralRecord.referral_bonus_paid = true;
+            referralRecord.referral_bonus_amount_cents = REFERRAL_BONUS_CENTS;
+            referralRecord.bonus_paid_at = new Date();
+            referralRecord.status = 'bonus_paid';
+            referralRecord.referred_user_activated = true;
+            referralRecord.referred_user_activated_at = new Date();
+            await referralRecord.save();
+
+            // Create earning record for referrer
+            const earning = new (Earning as any)({
+              user_id: referrer._id,
+              amount_cents: REFERRAL_BONUS_CENTS,
+              type: 'REFERRAL',
+              description: `Referral bonus for ${userProfile.username}`,
+              source_id: referralRecord._id,
+              source_type: 'referral',
+              transaction_id: referralTransaction._id,
+              processed: true,
+              processed_at: new Date()
+            });
+            await earning.save();
+
+            referralBonus = {
+              referrer_id: referrer._id,
+              referrer_username: referrer.username,
+              amount_cents: REFERRAL_BONUS_CENTS,
+              transaction_id: referralTransaction._id
+            };
+
+            console.log('✅ Referral bonus paid:', {
+              referrer: referrer.username,
+              amount: REFERRAL_BONUS_CENTS,
+              newUser: userProfile.username
+            });
+          }
+        }
+      } catch (referralError) {
+        console.error('⚠️ Error processing referral bonus:', referralError);
+        // Don't fail activation if referral bonus fails - log and continue
+      }
+    }
+
+    // =============================================================================
+    // STEP 3: Record Company Revenue
+    // =============================================================================
+    // Company keeps KES 300 if there was a referral, or KES 1,000 if no referral
+    const companyRevenueCents = userProfile.referred_by ? 30000 : 100000;
+    
+    const companyRevenueTransaction = new (Transaction as any)({
+      user_id: userProfile._id, // For tracking purposes
+      amount_cents: companyRevenueCents,
+      type: 'COMPANY_REVENUE',
+      description: userProfile.referred_by 
+        ? 'Company revenue from activation (after referral bonus)'
+        : 'Company revenue from activation (no referral)',
+      status: 'completed',
+      source: 'activation',
+      activation_payment_id: activationPayment._id,
+      metadata: {
+        total_activation_fee: activationPayment.amount_cents,
+        referral_bonus_paid: userProfile.referred_by ? REFERRAL_BONUS_CENTS : 0,
+        net_company_revenue: companyRevenueCents,
+        has_referrer: !!userProfile.referred_by,
+        referrer_id: userProfile.referred_by || null
+      }
+    });
+    await companyRevenueTransaction.save();
+
+    // =============================================================================
+    // STEP 4: Activate User Account
+    // =============================================================================
+    userProfile.activation_paid_at = new Date();
+    userProfile.is_active = true;
+    userProfile.status = 'active';
+    userProfile.is_verified = true;
+    userProfile.approval_status = 'approved';
+    userProfile.level = 1;
+    userProfile.rank = 'Activated Member';
+    userProfile.activation_transaction_id = activationFeeTransaction._id;
     await userProfile.save();
 
-    // Update activation payment as processed (by the frontend-initiated flow)
+    // =============================================================================
+    // STEP 5: Update Activation Payment Record
+    // =============================================================================
     activationPayment.processed_by_system = true;
     activationPayment.processed_at = new Date();
+    activationPayment.metadata = {
+      ...activationPayment.metadata,
+      activation_transaction_id: activationFeeTransaction._id,
+      company_revenue_transaction_id: companyRevenueTransaction._id,
+      referral_bonus_transaction_id: referralBonus?.transaction_id || null,
+      referral_bonus_paid: !!referralBonus,
+      company_net_revenue_cents: companyRevenueCents
+    };
     await activationPayment.save();
 
-    // Log successful activation
+    // =============================================================================
+    // STEP 6: Log Successful Activation
+    // =============================================================================
     const activationLog = new (ActivationLog as any)({
       user_id: userProfile._id,
       action: 'activated',
@@ -963,13 +1096,62 @@ export async function completeActivationAfterPayment(activationPaymentId: string
       status: 'success',
       metadata: {
         activation_payment_id: activationPayment._id,
-        transaction_id: transaction._id,
-        mpesa_receipt_number: activationPayment.mpesa_receipt_number
+        activation_fee_transaction_id: activationFeeTransaction._id,
+        company_revenue_transaction_id: companyRevenueTransaction._id,
+        referral_bonus_transaction_id: referralBonus?.transaction_id || null,
+        mpesa_receipt_number: activationPayment.mpesa_receipt_number,
+        referred_by: userProfile.referred_by || null,
+        referral_bonus_paid: !!referralBonus,
+        company_revenue_cents: companyRevenueCents
       }
     });
     await activationLog.save();
 
+    // =============================================================================
+    // STEP 7: Create Admin Audit Log
+    // =============================================================================
+    const auditLog = new (AdminAuditLog as any)({
+      actor_id: userProfile._id,
+      action: 'ACTIVATE_USER',
+      target_type: 'user',
+      target_id: userProfile._id,
+      resource_type: 'user',
+      resource_id: userProfile._id,
+      action_type: 'activate',
+      changes: {
+        activation_paid_at: new Date(),
+        is_active: true,
+        status: 'active',
+        activation_fee_paid: activationPayment.amount_cents,
+        referral_bonus_paid: referralBonus ? REFERRAL_BONUS_CENTS : 0,
+        company_revenue: companyRevenueCents
+      },
+      metadata: {
+        activation_payment_id: activationPayment._id,
+        has_referrer: !!userProfile.referred_by,
+        referrer_id: userProfile.referred_by || null,
+        transactions_created: {
+          activation_fee: activationFeeTransaction._id,
+          company_revenue: companyRevenueTransaction._id,
+          referral_bonus: referralBonus?.transaction_id || null
+        }
+      }
+    });
+    await auditLog.save();
+
+    // Revalidate paths
     revalidatePath('/dashboard');
+    revalidatePath('/admin/users');
+    revalidatePath('/admin/transactions');
+
+    console.log('🎉 Activation completed successfully:', {
+      user: userProfile.username,
+      activationFee: activationPayment.amount_cents,
+      companyRevenue: companyRevenueCents,
+      referralBonus: referralBonus ? REFERRAL_BONUS_CENTS : 0,
+      hasReferrer: !!userProfile.referred_by
+    });
+
     return { 
       success: true, 
       message: 'Account activated successfully',
@@ -978,8 +1160,9 @@ export async function completeActivationAfterPayment(activationPaymentId: string
         activationDate: userProfile.activation_paid_at
       }
     };
+
   } catch (error) {
-    console.error('Complete activation error:', error);
+    console.error('💥 Complete activation error:', error);
     return { success: false, message: 'Failed to complete activation' };
   }
 }
