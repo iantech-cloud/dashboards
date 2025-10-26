@@ -41,12 +41,14 @@ function serializeDocument(doc: any) {
   return serialized;
 }
 
-// Get users for admin management
+// Get users for admin management with enhanced filtering and pagination
 export async function getAdminUsers(filters?: {
   tab?: string;
   search?: string;
   page?: number;
   limit?: number;
+  status?: string;
+  role?: string;
 }): Promise<{
   success: boolean;
   data?: any[];
@@ -58,6 +60,12 @@ export async function getAdminUsers(filters?: {
     active: number;
     inactive: number;
   };
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
 }> {
   try {
     const admin = await checkAdminAccess();
@@ -67,11 +75,13 @@ export async function getAdminUsers(filters?: {
       search = '',
       page = 1,
       limit = 50,
+      status,
+      role,
     } = filters || {};
 
     await connectToDatabase();
 
-    // Build query based on tab
+    // Build query based on tab and filters
     const query: any = { role: { $ne: 'admin' } }; // Exclude admins from user management
 
     if (search) {
@@ -83,7 +93,17 @@ export async function getAdminUsers(filters?: {
       ];
     }
 
-    // Get stats
+    // Apply status filter if provided
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+
+    // Apply role filter if provided
+    if (role && role !== 'all') {
+      query.role = role;
+    }
+
+    // Get stats for all tabs
     const [total, pendingApproval, unapproved, active, inactive] = await Promise.all([
       Profile.countDocuments({ role: { $ne: 'admin' } }),
       Profile.countDocuments({ role: { $ne: 'admin' }, approval_status: 'pending' }),
@@ -113,6 +133,7 @@ export async function getAdminUsers(filters?: {
       .limit(limit)
       .lean();
 
+    const totalFiltered = await Profile.countDocuments(query);
     const serializedUsers = users.map(user => serializeDocument(user));
 
     return {
@@ -125,6 +146,12 @@ export async function getAdminUsers(filters?: {
         active,
         inactive,
       },
+      pagination: {
+        page,
+        limit,
+        total: totalFiltered,
+        pages: Math.ceil(totalFiltered / limit)
+      }
     };
   } catch (error) {
     console.error('Error fetching admin users:', error);
@@ -135,8 +162,8 @@ export async function getAdminUsers(filters?: {
   }
 }
 
-// Approve user account (administrative approval) - FIXED: Can be done independently of activation
-export async function approveUserAccount(userId: string): Promise<{
+// Approve user account (administrative approval) - Can be done independently of activation
+export async function approveUserAccount(userId: string, approvalNotes?: string): Promise<{
   success: boolean;
   message: string;
 }> {
@@ -158,6 +185,9 @@ export async function approveUserAccount(userId: string): Promise<{
     user.is_approved = true;
     user.approval_by = admin._id;
     user.approval_at = new Date();
+    if (approvalNotes) {
+      user.approval_notes = approvalNotes;
+    }
 
     await user.save();
 
@@ -176,10 +206,16 @@ export async function approveUserAccount(userId: string): Promise<{
         approval_by: admin._id,
         approval_at: new Date(),
       },
+      metadata: {
+        approval_notes: approvalNotes
+      },
+      ip_address: 'server-action',
+      user_agent: 'server-action'
     });
     await auditLog.save();
 
     revalidatePath('/admin/users');
+    revalidatePath('/admin/approvals');
 
     return { success: true, message: 'User account approved successfully' };
   } catch (error) {
@@ -191,7 +227,76 @@ export async function approveUserAccount(userId: string): Promise<{
   }
 }
 
-// Activate user account with financial logic (KSH 1,000 activation fee) - FIXED: Can be done independently of approval
+// Reject user account
+export async function rejectUserAccount(userId: string, rejectionReason: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  try {
+    const admin = await checkAdminAccess();
+    await connectToDatabase();
+
+    if (!rejectionReason || rejectionReason.trim().length === 0) {
+      return { success: false, message: 'Rejection reason is required' };
+    }
+
+    const user = await Profile.findById(userId);
+    if (!user) {
+      return { success: false, message: 'User not found' };
+    }
+
+    if (user.approval_status === 'rejected') {
+      return { success: false, message: 'User is already rejected' };
+    }
+
+    // Update user rejection fields
+    user.approval_status = 'rejected';
+    user.is_approved = false;
+    user.status = 'inactive';
+    user.is_active = false;
+    user.approval_by = admin._id;
+    user.approval_at = new Date();
+    user.approval_notes = rejectionReason;
+
+    await user.save();
+
+    // Log the action
+    const auditLog = new AdminAuditLog({
+      actor_id: admin._id,
+      action: 'REJECT_USER',
+      action_type: 'reject',
+      target_type: 'Profile',
+      target_id: userId,
+      resource_type: 'user',
+      resource_id: userId,
+      changes: {
+        approval_status: 'rejected',
+        is_approved: false,
+        status: 'inactive',
+        is_active: false,
+      },
+      metadata: {
+        rejection_reason: rejectionReason
+      },
+      ip_address: 'server-action',
+      user_agent: 'server-action'
+    });
+    await auditLog.save();
+
+    revalidatePath('/admin/users');
+    revalidatePath('/admin/approvals');
+
+    return { success: true, message: `User account rejected: ${rejectionReason}` };
+  } catch (error) {
+    console.error('Error rejecting user account:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Failed to reject user account',
+    };
+  }
+}
+
+// Activate user account with financial logic (KSH 1,000 activation fee)
 export async function activateUserAccount(userId: string): Promise<{
   success: boolean;
   message: string;
@@ -321,7 +426,7 @@ export async function activateUserAccount(userId: string): Promise<{
     const referral = await Referral.findOne({ referred_id: userId }).session(session);
     if (referral) {
       const referrer = await Profile.findById(referral.referrer_id).session(session);
-      if (referrer) {
+      if (referrer && referrer.is_active) {
         // Update referrer's balance and earnings
         referrer.balance_cents += REFERRAL_BONUS_CENTS;
         referrer.total_earnings_cents += REFERRAL_BONUS_CENTS;
@@ -413,12 +518,22 @@ export async function activateUserAccount(userId: string): Promise<{
         admin_override: !feeDeducted,
         company_account_credited: companyUser._id,
       },
+      metadata: {
+        activation_details: {
+          fee_deducted: feeDeducted,
+          referral_bonus_awarded: referralBonusAwarded,
+          referrer: referrerUsername || 'None'
+        }
+      },
+      ip_address: 'server-action',
+      user_agent: 'server-action'
     });
     await auditLog.save({ session });
 
     await session.commitTransaction();
 
     revalidatePath('/admin/users');
+    revalidatePath('/admin/approvals');
     revalidatePath('/dashboard');
 
     let message = `User account activated successfully. `;
@@ -472,6 +587,8 @@ export async function addUserSpins(userId: string, spins: number): Promise<{
       return { success: false, message: 'Cannot add spins to inactive user' };
     }
 
+    const oldSpins = user.available_spins;
+
     // Update user's spins
     user.available_spins += spins;
     await user.save();
@@ -487,8 +604,15 @@ export async function addUserSpins(userId: string, spins: number): Promise<{
       resource_id: userId,
       changes: {
         spins_added: spins,
+        old_spins_total: oldSpins,
         new_spins_total: user.available_spins,
       },
+      metadata: {
+        spins_operation: 'add',
+        amount: spins
+      },
+      ip_address: 'server-action',
+      user_agent: 'server-action'
     });
     await auditLog.save();
 
@@ -545,6 +669,11 @@ export async function updateUserStatus(userId: string, status: string): Promise<
         new_status: status,
         is_active: user.is_active,
       },
+      metadata: {
+        status_change: `${oldStatus} -> ${status}`
+      },
+      ip_address: 'server-action',
+      user_agent: 'server-action'
     });
     await auditLog.save();
 
@@ -590,9 +719,15 @@ export async function getUserDetails(userId: string): Promise<{
       .populate('referrer_id', 'username email')
       .lean();
 
+    // Get users referred by this user
+    const referrals = await Referral.find({ referrer_id: userId })
+      .populate('referred_id', 'username email is_active')
+      .lean();
+
     const serializedUser = serializeDocument(user);
     const serializedTransactions = transactions.map(tx => serializeDocument(tx));
     const serializedReferral = referral ? serializeDocument(referral) : null;
+    const serializedReferrals = referrals.map(ref => serializeDocument(ref));
 
     return {
       success: true,
@@ -600,6 +735,7 @@ export async function getUserDetails(userId: string): Promise<{
         user: serializedUser,
         recentTransactions: serializedTransactions,
         referral: serializedReferral,
+        referrals: serializedReferrals,
       },
     };
   } catch (error) {
@@ -625,6 +761,9 @@ export async function resetUserLimits(userId: string): Promise<{
       return { success: false, message: 'User not found' };
     }
 
+    const oldDepositLimit = user.total_deposits_today_cents || 0;
+    const oldWithdrawalLimit = user.total_withdrawals_today_cents || 0;
+
     // Reset daily deposit and withdrawal counters
     user.total_deposits_today_cents = 0;
     user.total_withdrawals_today_cents = 0;
@@ -645,8 +784,19 @@ export async function resetUserLimits(userId: string): Promise<{
       changes: {
         deposits_reset: true,
         withdrawals_reset: true,
+        old_deposit_limit: oldDepositLimit,
+        old_withdrawal_limit: oldWithdrawalLimit,
         reset_at: new Date(),
       },
+      metadata: {
+        reset_type: 'daily_limits',
+        limits_cleared: {
+          deposits: oldDepositLimit,
+          withdrawals: oldWithdrawalLimit
+        }
+      },
+      ip_address: 'server-action',
+      user_agent: 'server-action'
     });
     await auditLog.save();
 
@@ -662,7 +812,7 @@ export async function resetUserLimits(userId: string): Promise<{
   }
 }
 
-// Delete user account (admin only)
+// Delete user account (admin only) - Use with caution
 export async function deleteUserAccount(userId: string): Promise<{
   success: boolean;
   message: string;
@@ -681,6 +831,8 @@ export async function deleteUserAccount(userId: string): Promise<{
     }
 
     const username = user.username;
+    const email = user.email;
+    
     await Profile.findByIdAndDelete(userId);
 
     // Log the action
@@ -694,8 +846,18 @@ export async function deleteUserAccount(userId: string): Promise<{
       resource_id: userId,
       changes: {
         username: username,
+        email: email,
         deleted_at: new Date(),
       },
+      metadata: {
+        permanent_deletion: true,
+        user_details: {
+          username,
+          email
+        }
+      },
+      ip_address: 'server-action',
+      user_agent: 'server-action'
     });
     await auditLog.save();
 
@@ -725,6 +887,10 @@ export async function suspendUserAccount(userId: string, reason?: string): Promi
       return { success: false, message: 'User not found' };
     }
 
+    if (user.status === 'suspended') {
+      return { success: false, message: 'User is already suspended' };
+    }
+
     const oldStatus = user.status;
     user.status = 'suspended';
     user.is_active = false;
@@ -749,6 +915,11 @@ export async function suspendUserAccount(userId: string, reason?: string): Promi
         suspension_reason: reason,
         suspended_at: new Date(),
       },
+      metadata: {
+        suspension_reason: reason || 'No reason provided'
+      },
+      ip_address: 'server-action',
+      user_agent: 'server-action'
     });
     await auditLog.save();
 
@@ -778,6 +949,10 @@ export async function banUserAccount(userId: string, reason?: string): Promise<{
       return { success: false, message: 'User not found' };
     }
 
+    if (user.status === 'banned') {
+      return { success: false, message: 'User is already banned' };
+    }
+
     const oldStatus = user.status;
     user.status = 'banned';
     user.is_active = false;
@@ -802,6 +977,11 @@ export async function banUserAccount(userId: string, reason?: string): Promise<{
         ban_reason: reason,
         banned_at: new Date(),
       },
+      metadata: {
+        ban_reason: reason || 'No reason provided'
+      },
+      ip_address: 'server-action',
+      user_agent: 'server-action'
     });
     await auditLog.save();
 
@@ -813,6 +993,206 @@ export async function banUserAccount(userId: string, reason?: string): Promise<{
     return {
       success: false,
       message: error instanceof Error ? error.message : 'Failed to ban user account',
+    };
+  }
+}
+
+// Unban/Unsuspend user account
+export async function reinstateUserAccount(userId: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  try {
+    const admin = await checkAdminAccess();
+    await connectToDatabase();
+
+    const user = await Profile.findById(userId);
+    if (!user) {
+      return { success: false, message: 'User not found' };
+    }
+
+    if (user.status !== 'suspended' && user.status !== 'banned') {
+      return { success: false, message: 'User is not suspended or banned' };
+    }
+
+    const oldStatus = user.status;
+    user.status = 'active';
+    user.is_active = true;
+    user.suspension_reason = undefined;
+    user.suspended_at = undefined;
+    user.ban_reason = undefined;
+    user.banned_at = undefined;
+
+    await user.save();
+
+    // Log the action
+    const auditLog = new AdminAuditLog({
+      actor_id: admin._id,
+      action: 'REINSTATE_USER',
+      action_type: 'reinstate',
+      target_type: 'Profile',
+      target_id: userId,
+      resource_type: 'user',
+      resource_id: userId,
+      changes: {
+        old_status: oldStatus,
+        new_status: 'active',
+        is_active: true,
+        reinstated_at: new Date(),
+      },
+      metadata: {
+        previous_status: oldStatus,
+        action: 'account_reinstated'
+      },
+      ip_address: 'server-action',
+      user_agent: 'server-action'
+    });
+    await auditLog.save();
+
+    revalidatePath('/admin/users');
+
+    return { success: true, message: `User account reinstated successfully` };
+  } catch (error) {
+    console.error('Error reinstating user account:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Failed to reinstate user account',
+    };
+  }
+}
+
+// Adjust user balance (add or deduct)
+export async function adjustUserBalance(
+  userId: string, 
+  amountCents: number, 
+  reason: string,
+  type: 'credit' | 'debit'
+): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  try {
+    const admin = await checkAdminAccess();
+    await connectToDatabase();
+
+    if (!reason || reason.trim().length === 0) {
+      return { success: false, message: 'Reason is required for balance adjustment' };
+    }
+
+    if (amountCents <= 0) {
+      return { success: false, message: 'Amount must be greater than 0' };
+    }
+
+    const user = await Profile.findById(userId);
+    if (!user) {
+      return { success: false, message: 'User not found' };
+    }
+
+    const oldBalance = user.balance_cents;
+    const adjustmentAmount = type === 'credit' ? amountCents : -amountCents;
+
+    // Check if debit would result in negative balance
+    if (type === 'debit' && user.balance_cents < amountCents) {
+      return { success: false, message: 'Insufficient balance for debit adjustment' };
+    }
+
+    user.balance_cents += adjustmentAmount;
+    
+    // Update earnings if it's a credit
+    if (type === 'credit') {
+      user.total_earnings_cents += amountCents;
+    }
+
+    await user.save();
+
+    // Create transaction record
+    const transaction = new Transaction({
+      user_id: userId,
+      amount_cents: adjustmentAmount,
+      type: type === 'credit' ? 'ADMIN_CREDIT' : 'ADMIN_DEBIT',
+      description: `Admin balance adjustment: ${reason}`,
+      status: 'completed',
+      metadata: {
+        adjustment_type: type,
+        adjustment_reason: reason,
+        processed_by: admin._id,
+        old_balance: oldBalance,
+        new_balance: user.balance_cents,
+      },
+    });
+    await transaction.save();
+
+    // Log the action
+    const auditLog = new AdminAuditLog({
+      actor_id: admin._id,
+      action: type === 'credit' ? 'CREDIT_USER_BALANCE' : 'DEBIT_USER_BALANCE',
+      action_type: 'balance_adjustment',
+      target_type: 'Profile',
+      target_id: userId,
+      resource_type: 'user',
+      resource_id: userId,
+      changes: {
+        adjustment_type: type,
+        amount_cents: amountCents,
+        old_balance: oldBalance,
+        new_balance: user.balance_cents,
+        reason: reason,
+      },
+      metadata: {
+        transaction_id: transaction._id,
+        adjustment_details: {
+          type,
+          amount: amountCents,
+          reason
+        }
+      },
+      ip_address: 'server-action',
+      user_agent: 'server-action'
+    });
+    await auditLog.save();
+
+    revalidatePath('/admin/users');
+
+    return { 
+      success: true, 
+      message: `Successfully ${type === 'credit' ? 'credited' : 'debited'} KES ${amountCents / 100} ${type === 'credit' ? 'to' : 'from'} user account` 
+    };
+  } catch (error) {
+    console.error('Error adjusting user balance:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Failed to adjust user balance',
+    };
+  }
+}
+
+// Get admin audit logs for a specific user
+export async function getUserAuditLogs(userId: string, limit: number = 20): Promise<{
+  success: boolean;
+  data?: any[];
+  message?: string;
+}> {
+  try {
+    const admin = await checkAdminAccess();
+    await connectToDatabase();
+
+    const logs = await AdminAuditLog.find({ target_id: userId })
+      .sort({ created_at: -1 })
+      .limit(limit)
+      .populate('actor_id', 'username email')
+      .lean();
+
+    const serializedLogs = logs.map(log => serializeDocument(log));
+
+    return {
+      success: true,
+      data: serializedLogs,
+    };
+  } catch (error) {
+    console.error('Error fetching user audit logs:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Failed to load audit logs',
     };
   }
 }

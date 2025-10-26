@@ -3,14 +3,14 @@
 
 import { useState, useEffect } from 'react';
 import { 
-  getWithdrawalsAdmin,
-  getWithdrawalStatsAdmin,
-  approveWithdrawalAdmin,
-  rejectWithdrawalAdmin,
-  completeWithdrawalAdmin,
-  reverseWithdrawalAdmin,
-  bulkApproveWithdrawalsAdmin
-} from '../../actions/admin';
+  getWithdrawals,
+  getWithdrawalStats,
+  approveWithdrawal,
+  rejectWithdrawal,
+  completeWithdrawal,
+  reverseWithdrawal,
+  bulkApproveWithdrawals
+} from '../../actions/withdrawals';
 import { toast } from 'sonner';
 import { 
   CheckCircle, 
@@ -123,7 +123,7 @@ export default function WithdrawalsPage() {
         }
       }
 
-      const result = await getWithdrawalsAdmin(filters);
+      const result = await getWithdrawals(filters);
       
       if (result.success && result.data) {
         setWithdrawals(result.data);
@@ -144,7 +144,7 @@ export default function WithdrawalsPage() {
 
   const fetchStats = async () => {
     try {
-      const result = await getWithdrawalStatsAdmin();
+      const result = await getWithdrawalStats();
       if (result.success && result.data) {
         setStats(result.data);
       }
@@ -168,7 +168,7 @@ export default function WithdrawalsPage() {
     
     setProcessing(withdrawalId);
     try {
-      const result = await approveWithdrawalAdmin(withdrawalId);
+      const result = await approveWithdrawal(withdrawalId);
       if (result.success) {
         toast.success(result.message);
         fetchWithdrawals();
@@ -193,7 +193,7 @@ export default function WithdrawalsPage() {
     
     setProcessing(selectedWithdrawal._id);
     try {
-      const result = await rejectWithdrawalAdmin(selectedWithdrawal._id, modalInput);
+      const result = await rejectWithdrawal(selectedWithdrawal._id, modalInput);
       if (result.success) {
         toast.success(result.message);
         setShowRejectModal(false);
@@ -221,7 +221,7 @@ export default function WithdrawalsPage() {
     
     setProcessing(selectedWithdrawal._id);
     try {
-      const result = await completeWithdrawalAdmin(selectedWithdrawal._id, modalInput);
+      const result = await completeWithdrawal(selectedWithdrawal._id, modalInput);
       if (result.success) {
         toast.success(result.message);
         setShowCompleteModal(false);
@@ -249,7 +249,7 @@ export default function WithdrawalsPage() {
     
     setProcessing(selectedWithdrawal._id);
     try {
-      const result = await reverseWithdrawalAdmin(selectedWithdrawal._id, modalInput);
+      const result = await reverseWithdrawal(selectedWithdrawal._id, modalInput);
       if (result.success) {
         toast.success(result.message);
         setShowReverseModal(false);
@@ -275,7 +275,7 @@ export default function WithdrawalsPage() {
 
     setProcessing('bulk');
     try {
-      const result = await bulkApproveWithdrawalsAdmin(selectedWithdrawals);
+      const result = await bulkApproveWithdrawals(selectedWithdrawals);
       if (result.success) {
         toast.success(result.message);
         setSelectedWithdrawals([]);
@@ -283,6 +283,9 @@ export default function WithdrawalsPage() {
         fetchStats();
       } else {
         toast.error(result.message);
+        if (result.errors && result.errors.length > 0) {
+          result.errors.slice(0, 3).forEach(err => toast.error(err));
+        }
       }
     } catch (error) {
       toast.error('Failed to bulk approve');
@@ -300,10 +303,11 @@ export default function WithdrawalsPage() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedWithdrawals.length === withdrawals.filter(w => w.status === 'pending').length) {
+    const pendingWithdrawals = withdrawals.filter(w => w.status === 'pending');
+    if (selectedWithdrawals.length === pendingWithdrawals.length && pendingWithdrawals.length > 0) {
       setSelectedWithdrawals([]);
     } else {
-      setSelectedWithdrawals(withdrawals.filter(w => w.status === 'pending').map(w => w._id));
+      setSelectedWithdrawals(pendingWithdrawals.map(w => w._id));
     }
   };
 
@@ -355,7 +359,10 @@ export default function WithdrawalsPage() {
           <p className="text-gray-600 mt-1">Review and process user withdrawal requests</p>
         </div>
         <button
-          onClick={() => window.location.reload()}
+          onClick={() => {
+            fetchWithdrawals();
+            fetchStats();
+          }}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
         >
           Refresh
@@ -508,7 +515,10 @@ export default function WithdrawalsPage() {
                   <th className="px-4 py-3 text-left">
                     <input
                       type="checkbox"
-                      checked={selectedWithdrawals.length === withdrawals.filter(w => w.status === 'pending').length && withdrawals.filter(w => w.status === 'pending').length > 0}
+                      checked={
+                        selectedWithdrawals.length === withdrawals.filter(w => w.status === 'pending').length && 
+                        withdrawals.filter(w => w.status === 'pending').length > 0
+                      }
                       onChange={toggleSelectAll}
                       className="rounded border-gray-300"
                     />
