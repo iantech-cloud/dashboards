@@ -1,4 +1,4 @@
-// auth.ts - COMPLETE VERSION WITH 2FA SUPPORT (FIXED)
+// auth.ts - FIXED VERSION: Allow login at any stage, redirect appropriately
 import NextAuth, { DefaultSession, NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from 'bcryptjs';
@@ -14,6 +14,7 @@ if (!process.env.NEXTAUTH_SECRET) {
 function getDashboardRoute(role: string): string {
     switch (role) {
         case 'admin':
+        case 'super_admin':
             return '/admin';
         case 'support':
             return '/support';
@@ -24,18 +25,27 @@ function getDashboardRoute(role: string): string {
 
 // Helper function to get user status redirect
 function getUserStatusRedirect(user: any): string {
+    // Check email verification first
     if (!user.is_verified) {
         return '/auth/confirm';
     }
+    
+    // Then check activation payment
     if (!user.activation_paid_at) {
         return '/auth/activate';
     }
+    
+    // Then check approval status
     if (!user.is_approved || user.approval_status !== 'approved') {
         return '/auth/pending-approval';
     }
-    if (!user.is_active) {
+    
+    // Check if account is active
+    if (!user.is_active || user.status !== 'active') {
         return '/auth/login?error=Inactive';
     }
+    
+    // All conditions met - go to dashboard
     return getDashboardRoute(user.role);
 }
 
@@ -76,7 +86,7 @@ export const authOptions: NextAuthConfig = {
                         throw new Error('Email and password are required.');
                     }
 
-                    // Find user with password AND 2FA secret
+                    // Find user with password
                     const user = await Profile.findOne({ email: credentials.email })
                         .select('+password');
 
@@ -102,30 +112,16 @@ export const authOptions: NextAuthConfig = {
                         throw new Error('Invalid email or password.');
                     }
                     
-                    // ===== ACCOUNT STATUS CHECKS (BEFORE 2FA) =====
+                    // ===== CRITICAL STATUS CHECKS (BLOCK LOGIN) =====
+                    // Only block login for banned/permanently suspended accounts
                     
-                    // Check if email is verified
-                    if (!user.is_verified) {
-                        throw new Error('UnverifiedEmail: Please verify your email address before logging in.');
-                    }
-
-                    // Check if activation payment is completed
-                    if (!user.activation_paid_at) {
-                        throw new Error('PaymentRequired: Please complete the activation payment to access your account.');
-                    }
-
-                    // Check approval status
-                    if (user.approval_status !== 'approved' || !user.is_approved) {
-                        throw new Error('PendingApproval: Your account is awaiting admin approval. Please check back later.');
-                    }
-
                     // Check if user is banned
                     if (user.status === 'banned') {
                         const message = user.ban_reason || 'Your account has been permanently banned.';
                         throw new Error(`Banned: ${message}`);
                     }
 
-                    // Check if user is suspended
+                    // Check if user is suspended (and suspension hasn't expired)
                     if (user.status === 'suspended' && user.suspended_at && user.suspended_at.getTime() > Date.now()) {
                         let message = `Your account has been suspended until: ${new Date(user.suspended_at).toLocaleString()}.`;
                         if (user.suspension_reason) {
@@ -145,15 +141,9 @@ export const authOptions: NextAuthConfig = {
                         user.status = 'active'; 
                     }
 
-                    // Check if account is active
-                    if (!user.is_active || user.status === 'inactive') {
-                        throw new Error('Inactive: Your account is not active. Please contact support.');
-                    }
-
-                    // ===== 2FA VERIFICATION =====
-                    
-                    // Check if 2FA is enabled for this user
-                    if (user.twoFAEnabled && user.twoFASecret) {
+                    // ===== 2FA VERIFICATION (if enabled and email verified) =====
+                    // Only enforce 2FA if user has verified their email
+                    if (user.is_verified && user.twoFAEnabled && user.twoFASecret) {
                         console.log('2FA is enabled for user:', user.email);
                         
                         // If no 2FA token provided, return partial user to indicate 2FA required
@@ -168,7 +158,13 @@ export const authOptions: NextAuthConfig = {
                                 role: user.role,
                                 requires2FA: true,
                                 twoFAEnabled: true,
-                                // Don't include sensitive data or complete authorization
+                                // Include all status fields for proper routing
+                                is_verified: user.is_verified,
+                                is_active: user.is_active,
+                                is_approved: user.is_approved,
+                                approval_status: user.approval_status,
+                                activation_paid_at: user.activation_paid_at,
+                                status: user.status,
                                 dashboardRoute: getDashboardRoute(user.role),
                             } as any;
                         }
@@ -209,8 +205,18 @@ export const authOptions: NextAuthConfig = {
                     }
 
                     // ===== FULL USER OBJECT (AUTHENTICATION COMPLETE) =====
+                    // Allow login regardless of verification/activation/approval status
+                    // The redirect logic will handle routing them to the appropriate page
                     
                     console.log('Full authentication successful for user:', user.email);
+                    console.log('User status:', {
+                        is_verified: user.is_verified,
+                        activation_paid_at: user.activation_paid_at,
+                        is_approved: user.is_approved,
+                        approval_status: user.approval_status,
+                        is_active: user.is_active,
+                        status: user.status
+                    });
                     
                     // Return complete user object for session
                     return {
@@ -244,13 +250,13 @@ export const authOptions: NextAuthConfig = {
             if (account?.provider === 'credentials') {
                 // Check if 2FA is required but not yet verified
                 if ((user as any).requires2FA === true) {
-                    console.log('SignIn callback: 2FA required, blocking sign-in until verified');
-                    // Allow sign-in to proceed so we can show 2FA prompt
+                    console.log('SignIn callback: 2FA required, allowing sign-in for 2FA prompt');
                     return true;
                 }
                 
-                // Full authentication complete
-                console.log('SignIn callback: Full authentication complete');
+                // Full authentication complete - allow sign in
+                // The redirect callback will handle routing to the appropriate page
+                console.log('SignIn callback: Full authentication complete, allowing sign-in');
                 return true;
             }
             
@@ -288,7 +294,6 @@ export const authOptions: NextAuthConfig = {
                         token.activation_paid_at = updatedUser.activation_paid_at;
                         token.status = updatedUser.status;
                         token.twoFAEnabled = updatedUser.twoFAEnabled || false;
-                        // Don't update requires2FA on session update
                     }
                 } catch (error) {
                     console.error('JWT update error:', error);
@@ -320,6 +325,15 @@ export const authOptions: NextAuthConfig = {
         
         async redirect({ url, baseUrl }) {
             try {
+                console.log('Redirect callback - url:', url, 'baseUrl:', baseUrl);
+                
+                // If redirecting after sign in, check user status and redirect accordingly
+                if (url === baseUrl || url === `${baseUrl}/`) {
+                    // This is a default redirect after sign-in
+                    // The LoginContent component will handle the actual redirect
+                    return baseUrl;
+                }
+                
                 // If URL is already absolute, return it
                 if (url.startsWith('http')) {
                     return url;
@@ -376,6 +390,9 @@ const { handlers, auth, signIn, signOut } = NextAuth(authOptions);
 
 // Export the instance methods
 export { handlers, auth, signIn, signOut };
+
+// Export helper function for use in other files
+export { getUserStatusRedirect };
 
 // Type declarations
 declare module 'next-auth' {

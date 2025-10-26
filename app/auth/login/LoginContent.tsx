@@ -1,4 +1,4 @@
-// app/auth/login/LoginContent.tsx
+// app/auth/login/LoginContent.tsx - IMPROVED VERSION
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -34,43 +34,18 @@ const Alert: React.FC<AlertProps> = ({ type, message, onClose }) => {
 };
 
 /**
- * Utility to map NextAuth error codes to user-friendly messages and handle custom errors
+ * Utility to map NextAuth error codes to user-friendly messages
  */
-const handleNextAuthError = (errorParam: string | null): { message: string; redirectTo?: string } => {
+const handleNextAuthError = (errorParam: string | null): { message: string } => {
   if (!errorParam) return { message: '' };
   
-  // Handle custom error messages with redirect instructions
-  if (errorParam.includes('UnverifiedEmail')) {
-    return { 
-      message: 'Please verify your email address before logging in.',
-      redirectTo: '/auth/confirm'
-    };
-  }
-  
-  if (errorParam.includes('PaymentRequired')) {
-    return { 
-      message: 'Please complete the activation payment to access your account.',
-      redirectTo: '/auth/activate'
-    };
-  }
-  
-  if (errorParam.includes('PendingApproval')) {
-    return { 
-      message: 'Your account is awaiting admin approval. Please check back later.',
-      redirectTo: '/auth/pending-approval'
-    };
-  }
-  
+  // Handle custom error messages
   if (errorParam.includes('Banned:')) {
     return { message: errorParam.replace('Banned:', 'Your account has been banned:') };
   }
   
   if (errorParam.includes('Suspended:')) {
     return { message: errorParam.replace('Suspended:', 'Your account is suspended:') };
-  }
-  
-  if (errorParam.includes('Inactive')) {
-    return { message: 'Your account is not active. Please contact support.' };
   }
 
   // Handle 2FA specific errors
@@ -99,6 +74,50 @@ const handleNextAuthError = (errorParam: string | null): { message: string; redi
   }
 };
 
+/**
+ * Determine where to redirect user based on their account status
+ */
+const getRedirectPath = (user: any): string => {
+  console.log('Determining redirect path for user:', {
+    is_verified: user.is_verified,
+    activation_paid_at: user.activation_paid_at,
+    is_approved: user.is_approved,
+    approval_status: user.approval_status,
+    is_active: user.is_active,
+    status: user.status,
+    role: user.role
+  });
+
+  // Check email verification first
+  if (!user.is_verified) {
+    console.log('User not verified, redirecting to /auth/confirm');
+    return '/auth/confirm';
+  }
+  
+  // Then check activation payment
+  if (!user.activation_paid_at) {
+    console.log('User not activated, redirecting to /auth/activate');
+    return '/auth/activate';
+  }
+  
+  // Then check approval status
+  if (!user.is_approved || user.approval_status !== 'approved') {
+    console.log('User not approved, redirecting to /auth/pending-approval');
+    return '/auth/pending-approval';
+  }
+  
+  // Check if account is active
+  if (!user.is_active || user.status !== 'active') {
+    console.log('User account not active');
+    return '/auth/login?error=Inactive';
+  }
+  
+  // All conditions met - go to dashboard based on role
+  const dashboardRoute = user.role === 'admin' || user.role === 'super_admin' ? '/admin' : '/dashboard';
+  console.log('All conditions met, redirecting to:', dashboardRoute);
+  return dashboardRoute;
+};
+
 export default function LoginContent() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -114,7 +133,6 @@ export default function LoginContent() {
   // Handle URL parameters and errors
   useEffect(() => {
     const errorParam = searchParams.get('error');
-    const callbackUrl = searchParams.get('callbackUrl');
     const successParam = searchParams.get('success');
 
     if (successParam) {
@@ -128,19 +146,10 @@ export default function LoginContent() {
       }
     }
 
-    if (errorParam) {
-      if (errorParam === 'SignOut') return;
-
+    if (errorParam && errorParam !== 'SignOut') {
       const errorInfo = handleNextAuthError(errorParam);
       setMessage(errorInfo.message);
       setMessageType('error');
-      
-      // Auto-redirect for specific error types
-      if (errorInfo.redirectTo) {
-        setTimeout(() => {
-          router.push(errorInfo.redirectTo!);
-        }, 3000);
-      }
     }
   }, [searchParams, router]);
 
@@ -152,20 +161,6 @@ export default function LoginContent() {
     try {
       console.log('Attempting login for:', email);
       
-      // First, check if user has 2FA enabled
-      const statusResponse = await fetch('/api/auth/2fa/status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-
-      let user2FAStatus = false;
-      if (statusResponse.ok) {
-        const statusData = await statusResponse.json();
-        user2FAStatus = statusData.twoFAEnabled || false;
-        console.log('User 2FA status:', statusData.twoFAEnabled);
-      }
-
       // Attempt sign in with just credentials (no 2FA token yet)
       const result = await signIn('credentials', {
         email,
@@ -190,22 +185,28 @@ export default function LoginContent() {
         const errorInfo = handleNextAuthError(result.error);
         setMessage(errorInfo.message);
         setMessageType('error');
+        setLoading(false);
+        return;
+      } 
+      
+      if (result?.ok) {
+        // Login successful - get session to check status
+        console.log('Login successful, fetching session...');
         
-        console.log('Login error:', result.error);
+        const session = await getSession();
+        console.log('Session retrieved:', session);
         
-        // Auto-redirect for specific conditions
-        if (errorInfo.redirectTo) {
-          setTimeout(() => {
-            router.push(errorInfo.redirectTo!);
-          }, 2000);
+        if (!session?.user) {
+          setMessage('Session error. Please try again.');
+          setMessageType('error');
+          setLoading(false);
           return;
         }
-      } else if (result?.ok) {
-        // Login successful - check if 2FA is required
-        console.log('Login successful, checking if 2FA is required...');
-        
-        if (user2FAStatus) {
-          // User has 2FA enabled, show 2FA form
+
+        const user = session.user as any;
+
+        // Check if 2FA is required (user object will have requires2FA flag if needed)
+        if (user.requires2FA === true) {
           console.log('2FA required for user, showing 2FA form');
           setRequires2FA(true);
           setLoginStep('2fa');
@@ -215,31 +216,39 @@ export default function LoginContent() {
           return;
         }
 
-        // No 2FA required, proceed with normal login
-        setMessage('Login successful! Redirecting...');
+        // Determine where to redirect based on user status
+        setMessage('Login successful! Checking account status...');
         setMessageType('success');
         
-        setTimeout(async () => {
-          const session = await getSession();
-          if (session?.user) {
-            await handleSuccessfulLogin(session);
-          } else {
-            router.push('/dashboard');
-          }
-        }, 500);
+        const redirectPath = getRedirectPath(user);
+        
+        // Show appropriate message based on redirect
+        if (redirectPath === '/auth/confirm') {
+          setMessage('Please verify your email address first.');
+        } else if (redirectPath === '/auth/activate') {
+          setMessage('Please complete the activation payment.');
+        } else if (redirectPath === '/auth/pending-approval') {
+          setMessage('Your account is awaiting admin approval.');
+        } else {
+          setMessage('Login successful! Redirecting...');
+        }
+
+        setTimeout(() => {
+          console.log('Redirecting to:', redirectPath);
+          router.push(redirectPath);
+          router.refresh();
+        }, 1000);
       } else {
         console.warn('Unexpected login response:', result);
         setMessage('An unexpected login response occurred.');
         setMessageType('error');
+        setLoading(false);
       }
     } catch (error) {
       console.error('Login error:', error);
       setMessage('An unexpected network error occurred. Please try again.');
       setMessageType('error');
-    } finally {
-      if (!requires2FA) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   };
 
@@ -251,7 +260,7 @@ export default function LoginContent() {
     try {
       console.log('Submitting 2FA verification with credentials for:', email);
       
-      // IMPORTANT: Use signIn with 2FA token to create a proper authenticated session
+      // Use signIn with 2FA token to create a proper authenticated session
       const result = await signIn('credentials', {
         email,
         password,
@@ -280,10 +289,15 @@ export default function LoginContent() {
           console.log('Session after 2FA:', session);
           
           if (session?.user) {
-            await handleSuccessfulLogin(session);
+            const user = session.user as any;
+            const redirectPath = getRedirectPath(user);
+            
+            console.log('Redirecting to:', redirectPath);
+            router.push(redirectPath);
+            router.refresh();
           } else {
             // Fallback if session not available
-            setMessage('Login completed! Redirecting to dashboard...');
+            setMessage('Login completed! Redirecting...');
             setTimeout(() => {
               router.push('/dashboard');
               router.refresh();
@@ -297,77 +311,6 @@ export default function LoginContent() {
       setMessageType('error');
       setLoading(false);
     }
-  };
-
-  const handleSuccessfulLogin = async (session: any) => {
-    setMessage('Login successful! Checking account status...');
-    setMessageType('success');
-    
-    const user = session.user as any;
-    
-    console.log('User status:', {
-      is_verified: user.is_verified,
-      activation_paid_at: user.activation_paid_at,
-      is_approved: user.is_approved,
-      approval_status: user.approval_status,
-      is_active: user.is_active,
-      role: user.role,
-      requires2FA: user.requires2FA,
-      twoFAEnabled: user.twoFAEnabled
-    });
-
-    // Skip verification checks if 2FA was just completed
-    // (2FA can only be completed if account is already verified and active)
-    
-    // Check each condition and redirect accordingly
-    if (!user.is_verified) {
-      setMessage('Email not verified. Redirecting to verification...');
-      setTimeout(() => {
-        router.push('/auth/confirm');
-      }, 1500);
-      return;
-    }
-    
-    if (!user.activation_paid_at) {
-      setMessage('Account not activated. Redirecting to activation...');
-      setTimeout(() => {
-        router.push('/auth/activate');
-      }, 1500);
-      return;
-    }
-    
-    if (!user.is_approved || user.approval_status !== 'approved') {
-      setMessage('Account pending approval. Redirecting...');
-      setTimeout(() => {
-        router.push('/auth/pending-approval');
-      }, 1500);
-      return;
-    }
-
-    if (!user.is_active) {
-      setMessage('Account is inactive. Please contact support.');
-      setMessageType('error');
-      setLoading(false);
-      return;
-    }
-
-    // ALL CONDITIONS MET - Check user role and redirect accordingly
-    setMessage('All checks passed! Redirecting...');
-    setTimeout(() => {
-      // Determine redirect route based on user role
-      let redirectRoute = '/dashboard';
-      
-      if (user.role === 'admin' || user.role === 'super_admin') {
-        redirectRoute = '/admin';
-        console.log('Admin user detected, redirecting to admin dashboard');
-      } else {
-        console.log('Regular user, redirecting to user dashboard');
-      }
-
-      console.log('Redirecting to:', redirectRoute);
-      router.push(redirectRoute);
-      router.refresh();
-    }, 1000);
   };
 
   const clearMessage = () => {

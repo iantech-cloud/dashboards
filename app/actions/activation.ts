@@ -1066,7 +1066,7 @@ export async function completeActivationAfterPayment(activationPaymentId: string
     userProfile.is_verified = true;
     userProfile.approval_status = 'approved';
     userProfile.level = 1;
-    userProfile.rank = 'Activated Member';
+    userProfile.rank = 'Bronze';
     userProfile.activation_transaction_id = activationFeeTransaction._id;
     await userProfile.save();
 

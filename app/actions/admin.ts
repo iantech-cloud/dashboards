@@ -1,4 +1,4 @@
-// app/actions/admin.ts - COMPLETE FIXED VERSION
+// app/actions/admin.ts - UPDATED VERSION WITH MANUAL ACTIVATION
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -10,7 +10,8 @@ import {
   ActivationPayment,
   Referral,
   AdminAuditLog,
-  SpinSettings
+  SpinSettings,
+  Earning
 } from '../lib/models';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/auth';
@@ -40,6 +41,265 @@ interface WithdrawalFilters {
   search?: string;
   startDate?: string;
   endDate?: string;
+}
+
+// ===========================
+// MANUAL USER ACTIVATION - ADDED
+// ===========================
+
+/**
+ * Manually activate a user (with proper fee recording)
+ * IMPORTANT: This should be used instead of approveUser for activation
+ */
+export async function manuallyActivateUser(
+  userId: string,
+  activationNotes?: string,
+  waiveFee: boolean = false // Option to waive fee for special cases
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const session = await getServerSession(authOptions as AuthOptions);
+    
+    if (!session?.user?.email) {
+      return { success: false, message: 'Unauthorized' };
+    }
+
+    await connectToDatabase();
+    const adminUser = await Profile.findOne({ email: session.user.email });
+    
+    if (adminUser?.role !== 'admin') {
+      return { success: false, message: 'Admin access required' };
+    }
+
+    const user = await Profile.findById(userId);
+    
+    if (!user) {
+      return { success: false, message: 'User not found' };
+    }
+
+    // Check if already activated
+    if (user.activation_paid_at) {
+      return { success: false, message: 'User is already activated' };
+    }
+
+    const activationAmount = user.activation_amount_cents || 100000; // KES 1000
+    const REFERRAL_BONUS_CENTS = 70000; // KES 700
+
+    // =============================================================================
+    // STEP 1: Record Activation Fee (even if waived, we track it)
+    // =============================================================================
+    const activationFeeTransaction = new Transaction({
+      user_id: user._id,
+      amount_cents: waiveFee ? 0 : activationAmount,
+      type: 'ACTIVATION_FEE',
+      description: waiveFee 
+        ? `Account activation - Fee waived by admin (${adminUser.username})`
+        : `Account activation - Manual activation by admin (${adminUser.username})`,
+      status: 'completed',
+      source: 'dashboard',
+      is_activation_fee: true,
+      balance_before_cents: user.balance_cents,
+      balance_after_cents: user.balance_cents,
+      admin_processed: true,
+      admin_processed_by: adminUser._id,
+      admin_processed_at: new Date(),
+      metadata: {
+        manual_activation: true,
+        activated_by_admin: adminUser._id,
+        fee_waived: waiveFee,
+        activation_notes: activationNotes
+      }
+    });
+    await activationFeeTransaction.save();
+
+    // =============================================================================
+    // STEP 2: Process Referral Bonus (if user was referred and fee not waived)
+    // =============================================================================
+    let referralBonus = null;
+    
+    if (user.referred_by && !waiveFee) {
+      try {
+        const referrer = await Profile.findById(user.referred_by);
+        
+        if (referrer) {
+          const referralRecord = await Referral.findOne({
+            referrer_id: referrer._id,
+            referred_id: user._id
+          });
+
+          if (referralRecord && !referralRecord.referral_bonus_paid) {
+            // Create REFERRAL transaction for the referrer
+            const referralTransaction = new Transaction({
+              user_id: referrer._id,
+              amount_cents: REFERRAL_BONUS_CENTS,
+              type: 'REFERRAL',
+              description: `Referral bonus for ${user.username}'s activation (manual)`,
+              status: 'completed',
+              source: 'dashboard',
+              balance_before_cents: referrer.balance_cents,
+              balance_after_cents: referrer.balance_cents + REFERRAL_BONUS_CENTS,
+              admin_processed: true,
+              admin_processed_by: adminUser._id,
+              admin_processed_at: new Date(),
+              metadata: {
+                referred_user_id: user._id,
+                referred_username: user.username,
+                referral_id: referralRecord._id,
+                manual_activation: true
+              }
+            });
+            await referralTransaction.save();
+
+            // Update referrer's balance
+            referrer.balance_cents += REFERRAL_BONUS_CENTS;
+            referrer.total_earnings_cents += REFERRAL_BONUS_CENTS;
+            await referrer.save();
+
+            // Update referral record
+            referralRecord.referral_bonus_paid = true;
+            referralRecord.referral_bonus_amount_cents = REFERRAL_BONUS_CENTS;
+            referralRecord.bonus_paid_at = new Date();
+            referralRecord.status = 'bonus_paid';
+            referralRecord.referred_user_activated = true;
+            referralRecord.referred_user_activated_at = new Date();
+            await referralRecord.save();
+
+            // Create earning record
+            const earning = new Earning({
+              user_id: referrer._id,
+              amount_cents: REFERRAL_BONUS_CENTS,
+              type: 'REFERRAL',
+              description: `Referral bonus for ${user.username} (manual activation)`,
+              source_id: referralRecord._id,
+              source_type: 'referral',
+              transaction_id: referralTransaction._id,
+              processed: true,
+              processed_at: new Date()
+            });
+            await earning.save();
+
+            referralBonus = {
+              referrer_id: referrer._id,
+              referrer_username: referrer.username,
+              amount_cents: REFERRAL_BONUS_CENTS,
+              transaction_id: referralTransaction._id
+            };
+          }
+        }
+      } catch (referralError) {
+        console.error('Error processing referral bonus:', referralError);
+      }
+    }
+
+    // =============================================================================
+    // STEP 3: Record Company Revenue
+    // =============================================================================
+    const companyRevenueCents = waiveFee ? 0 : (user.referred_by ? 30000 : 100000);
+    
+    const companyRevenueTransaction = new Transaction({
+      user_id: user._id,
+      amount_cents: companyRevenueCents,
+      type: 'COMPANY_REVENUE',
+      description: waiveFee
+        ? `Company revenue waived - Manual activation by admin`
+        : user.referred_by 
+          ? 'Company revenue from activation (after referral bonus) - Manual activation'
+          : 'Company revenue from activation (no referral) - Manual activation',
+      status: 'completed',
+      source: 'dashboard',
+      admin_processed: true,
+      admin_processed_by: adminUser._id,
+      admin_processed_at: new Date(),
+      metadata: {
+        total_activation_fee: waiveFee ? 0 : activationAmount,
+        referral_bonus_paid: user.referred_by ? REFERRAL_BONUS_CENTS : 0,
+        net_company_revenue: companyRevenueCents,
+        has_referrer: !!user.referred_by,
+        referrer_id: user.referred_by || null,
+        manual_activation: true,
+        fee_waived: waiveFee
+      }
+    });
+    await companyRevenueTransaction.save();
+
+    // =============================================================================
+    // STEP 4: Activate User Account
+    // =============================================================================
+    user.activation_paid_at = new Date();
+    user.is_active = true;
+    user.status = 'active';
+    user.is_verified = true;
+    user.approval_status = 'approved';
+    user.is_approved = true;
+    user.level = 1;
+    user.rank = 'Activated Member';
+    user.activation_transaction_id = activationFeeTransaction._id;
+    user.activation_method = 'manual';
+    user.approval_by = adminUser._id;
+    user.approval_at = new Date();
+    user.approval_notes = activationNotes || `Manually activated by ${adminUser.username}`;
+    await user.save();
+
+    // =============================================================================
+    // STEP 5: Create Admin Audit Log
+    // =============================================================================
+    await AdminAuditLog.create({
+      actor_id: adminUser._id.toString(),
+      action: 'ACTIVATE_USER',
+      action_type: 'activate',
+      target_type: 'Profile',
+      target_id: userId,
+      resource_type: 'user',
+      resource_id: userId,
+      changes: {
+        activation_paid_at: new Date(),
+        is_active: true,
+        status: 'active',
+        activation_fee_paid: waiveFee ? 0 : activationAmount,
+        referral_bonus_paid: referralBonus ? REFERRAL_BONUS_CENTS : 0,
+        company_revenue: companyRevenueCents,
+        manual_activation: true,
+        fee_waived: waiveFee
+      },
+      metadata: {
+        has_referrer: !!user.referred_by,
+        referrer_id: user.referred_by || null,
+        activation_notes: activationNotes,
+        transactions_created: {
+          activation_fee: activationFeeTransaction._id,
+          company_revenue: companyRevenueTransaction._id,
+          referral_bonus: referralBonus?.transaction_id || null
+        }
+      },
+      ip_address: 'server-action',
+      user_agent: 'server-action'
+    });
+
+    revalidatePath('/admin/users');
+    revalidatePath('/admin/approvals');
+
+    console.log('✅ Manual activation completed:', {
+      user: user.username,
+      activationFee: waiveFee ? 0 : activationAmount,
+      companyRevenue: companyRevenueCents,
+      referralBonus: referralBonus ? REFERRAL_BONUS_CENTS : 0,
+      hasReferrer: !!user.referred_by,
+      feeWaived: waiveFee
+    });
+
+    return { 
+      success: true, 
+      message: waiveFee 
+        ? 'User activated successfully (fee waived)'
+        : 'User activated successfully with proper fee recording'
+    };
+
+  } catch (error) {
+    console.error('Manual activation error:', error);
+    return { 
+      success: false, 
+      message: 'Failed to activate user: ' + (error instanceof Error ? error.message : 'Unknown error')
+    };
+  }
 }
 
 // ===========================
@@ -1409,6 +1669,10 @@ export async function getAdminUsers(filters?: {
   }
 }
 
+/**
+ * Updated approveUser - Now just for profile approval, not activation
+ * Use manuallyActivateUser() for actual account activation
+ */
 export async function approveUser(userId: string, approvalNotes?: string): Promise<{ 
   success: boolean; 
   message: string 
@@ -1427,24 +1691,21 @@ export async function approveUser(userId: string, approvalNotes?: string): Promi
       return { success: false, message: 'Admin access required' };
     }
 
-    const user = await Profile.findByIdAndUpdate(
-      userId,
-      {
-        approval_status: 'approved',
-        is_approved: true,
-        status: 'active',
-        approval_by: adminUser._id,
-        approval_at: new Date(),
-        approval_notes: approvalNotes
-      },
-      { new: true }
-    );
-
+    const user = await Profile.findById(userId);
+    
     if (!user) {
       return { success: false, message: 'User not found' };
     }
 
-    // Log the approval action with correct fields
+    // Just approve the profile - don't activate
+    user.approval_status = 'approved';
+    user.is_approved = true;
+    user.approval_by = adminUser._id;
+    user.approval_at = new Date();
+    user.approval_notes = approvalNotes;
+    // Note: status remains 'pending' until activation payment
+    await user.save();
+
     await AdminAuditLog.create({
       actor_id: adminUser._id.toString(),
       action: 'APPROVE_USER',
@@ -1454,12 +1715,12 @@ export async function approveUser(userId: string, approvalNotes?: string): Promi
       resource_type: 'user',
       resource_id: userId,
       changes: { 
-        approval_status: 'approved', 
-        status: 'active',
+        approval_status: 'approved',
         is_approved: true
       },
       metadata: {
-        approval_notes: approvalNotes
+        approval_notes: approvalNotes,
+        note: 'Profile approved - user still needs to pay activation fee'
       },
       ip_address: 'server-action',
       user_agent: 'server-action'
@@ -1468,7 +1729,10 @@ export async function approveUser(userId: string, approvalNotes?: string): Promi
     revalidatePath('/admin/approvals');
     revalidatePath('/admin/users');
 
-    return { success: true, message: 'User approved successfully' };
+    return { 
+      success: true, 
+      message: 'User profile approved. User must still pay activation fee to become active.' 
+    };
 
   } catch (error) {
     console.error('Approve user error:', error);
