@@ -53,11 +53,17 @@ const SurveyStatuses = ['draft', 'scheduled', 'active', 'completed', 'cancelled'
 // Audit Log Action Types - UPDATED FOR USER MANAGEMENT & SPIN
 const AuditActionTypes = [
   'create', 'update', 'delete', 'approve', 'reject', 'activate', 'suspend', 'ban',
-  'spin_win', 'spin_attempt', 'spin_settings_update', 'spin_wheel_activated', 'spin_wheel_deactivated'
+  'spin_win', 'spin_attempt', 'spin_settings_update', 'spin_wheel_activated', 'spin_wheel_deactivated',
+  // ADD THESE SOKO-SPECIFIC ACTIONS:
+  'campaign_create', 'campaign_update', 'campaign_delete', 'campaign_toggle_status',
+  'conversion_approve', 'conversion_reject', 
+  'payout_approve', 'payout_reject', 'payout_process'
 ] as const;
 const AuditResourceTypes = [
   'user', 'transaction', 'activation', 'withdrawal', 'profile', 'referral',
-  'spin', 'spin_prize', 'spin_settings', 'spin_log', 'blog_post', 'mpesa_change_request'
+  'spin', 'spin_prize', 'spin_settings', 'spin_log', 'blog_post', 'mpesa_change_request',
+  // ADD THESE SOKO-SPECIFIC RESOURCES:
+  'campaign', 'affiliate_link', 'conversion', 'payout', 'soko'
 ] as const;
 
 // --- New Spin to Win Enums ---
@@ -359,7 +365,7 @@ const AdminAuditLogSchema = new Schema({
     type: String, 
     required: true, 
     maxlength: 100,
-    enum: [
+   enum: [
       // User Management Actions
       'APPROVE_USER',
       'REJECT_USER',
@@ -416,7 +422,18 @@ const AdminAuditLogSchema = new Schema({
       // System Actions
       'UPDATE_SYSTEM_SETTINGS',
       'VIEW_AUDIT_LOGS',
-      'EXPORT_DATA'
+      'EXPORT_DATA',
+      
+      // SOKO Actions - ADD THESE:
+      'CAMPAIGN_CREATE',
+      'CAMPAIGN_UPDATE',
+      'CAMPAIGN_DELETE',
+      'CAMPAIGN_TOGGLE_STATUS',
+      'CONVERSION_APPROVE',
+      'CONVERSION_REJECT',
+      'PAYOUT_APPROVE',
+      'PAYOUT_REJECT',
+      'PAYOUT_PROCESS'
     ]
   },
   target_type: { type: String, required: true, maxlength: 50 },
@@ -2258,3 +2275,27 @@ const CompanySchema = new Schema({
 export const Company = getModel('Company', CompanySchema);
 
 export { mongoose, connectToDatabase };
+// Add this at the end of lib/models.ts after all existing exports
+
+// ============================================================================
+// SOKO (AFFILIATE MARKETING) MODELS - Import from Soko.ts
+// ============================================================================
+
+export {
+  SokoCampaign,
+  UserAffiliateLink,
+  ClickTracking,
+  AffiliateConversion,
+  AffiliatePayout,
+  AffiliateNotification,
+  CampaignStatuses,
+  CampaignTypes,
+  CommissionTypes,
+  ClickStatuses,
+  ConversionStatuses,
+  PayoutStatuses,
+  PayoutMethods
+} from './models/Soko';
+
+// This allows you to import Soko models like:
+// import { SokoCampaign, UserAffiliateLink } from '@/app/lib/models';

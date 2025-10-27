@@ -1,4 +1,4 @@
-// app/api/transactions/route.ts - COMPLETE FIXED VERSION
+// app/api/transactions/route.ts - COMPLETELY FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server';
 import { Transaction, MpesaTransaction, Profile, connectToDatabase } from '@/app/lib/models';
 import { getServerSession } from 'next-auth';
@@ -33,10 +33,14 @@ export async function GET(request: NextRequest) {
     const endDate = searchParams.get('endDate');
     const includeMpesaDetails = searchParams.get('includeMpesaDetails') === 'true';
 
-    // FIXED: Only get user's transactions (target_type: 'user')
+    // ✅ FIXED: Get user's transactions with backward compatibility
     const filter: any = { 
       user_id: currentUser._id.toString(),
-      target_type: 'user' // Only personal transactions
+      // ✅ CRITICAL FIX: Support both old (no target_type) and new (with target_type) transactions
+      $or: [
+        { target_type: 'user' },
+        { target_type: { $exists: false } } // Include old transactions without target_type
+      ]
     };
 
     if (type) {
@@ -105,8 +109,9 @@ export async function GET(request: NextRequest) {
           transaction_code: transaction.transaction_code,
           mpesa_receipt_number: mpesaReceiptNumber,
           user_id: transaction.user_id,
+          // ✅ FIXED: Provide default for old transactions
           target_type: transaction.target_type || 'user',
-          target_id: transaction.target_id?.toString(),
+          target_id: transaction.target_id?.toString() || transaction.user_id?.toString(),
           metadata: transaction.metadata || {},
           mpesaDetails,
           source: transaction.source || 'wallet',
@@ -175,6 +180,7 @@ export async function POST(request: NextRequest) {
       source = 'api'
     } = body;
 
+    // Validation
     if (!amount || !type || !description) {
       return NextResponse.json(
         { success: false, message: 'Missing required fields: amount, type, description' },
@@ -191,7 +197,7 @@ export async function POST(request: NextRequest) {
 
     const validTypes = [
       'DEPOSIT', 'WITHDRAWAL', 'BONUS', 'TASK_PAYMENT', 'SPIN_WIN', 
-      'REFERRAL', 'SURVEY', 'ACTIVATION_FEE'
+      'REFERRAL', 'SURVEY', 'ACTIVATION_FEE', 'SPIN_COST', 'SPIN_PRIZE'
     ];
     
     if (!validTypes.includes(type)) {
@@ -209,6 +215,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate M-Pesa transaction if provided
     if (mpesaTransactionId) {
       const mpesaTransaction = await MpesaTransaction.findById(mpesaTransactionId);
       if (!mpesaTransaction) {
@@ -229,27 +236,64 @@ export async function POST(request: NextRequest) {
     const transactionCode = `TX${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
     const amountCents = Math.round(amount * 100);
 
-    // FIXED: Add target_type and target_id
+    // Get current balance for tracking
+    const balanceBeforeCents = currentUser.balance_cents || 0;
+    let balanceAfterCents = balanceBeforeCents;
+
+    // Calculate balance after based on transaction type
+    if (status === 'completed') {
+      switch (type) {
+        case 'DEPOSIT':
+        case 'BONUS':
+        case 'TASK_PAYMENT':
+        case 'SPIN_WIN':
+        case 'REFERRAL':
+        case 'SURVEY':
+        case 'SPIN_PRIZE':
+          balanceAfterCents = balanceBeforeCents + amountCents;
+          break;
+        case 'WITHDRAWAL':
+        case 'ACTIVATION_FEE':
+        case 'SPIN_COST':
+          balanceAfterCents = balanceBeforeCents - amountCents;
+          break;
+      }
+    }
+
+    // ✅ CRITICAL FIX: Add target_type and target_id
     const newTransaction = await Transaction.create({
-      target_type: 'user',
-      target_id: currentUser._id.toString(),
+      target_type: 'user', // ✅ FIXED: Always 'user' for API-created transactions
+      target_id: currentUser._id.toString(), // ✅ FIXED: Set target_id
       user_id: currentUser._id.toString(),
       amount_cents: amountCents,
       type,
       description,
       status,
       transaction_code: transactionCode,
+      balance_before_cents: balanceBeforeCents,
+      balance_after_cents: balanceAfterCents,
       metadata: {
         ...metadata,
         createdVia: 'api',
         userEmail: currentUser.email,
-        userPhone: currentUser.phone_number
+        userPhone: currentUser.phone_number,
+        apiCreatedAt: new Date().toISOString()
       },
       mpesa_transaction_id: mpesaTransactionId,
       source,
       created_at: new Date()
     });
 
+    console.log('✅ Transaction created via API:', {
+      id: newTransaction._id.toString(),
+      type,
+      amount: amount,
+      status,
+      target_type: 'user',
+      target_id: currentUser._id.toString()
+    });
+
+    // Update user balance if transaction is completed
     if (status === 'completed') {
       await updateUserBalance(currentUser._id.toString(), type, amountCents);
     }
@@ -266,6 +310,8 @@ export async function POST(request: NextRequest) {
       user_id: newTransaction.user_id,
       target_type: newTransaction.target_type,
       target_id: newTransaction.target_id,
+      balance_before: newTransaction.balance_before_cents / 100,
+      balance_after: newTransaction.balance_after_cents / 100,
       metadata: newTransaction.metadata,
       source: newTransaction.source,
       mpesaTransactionId: newTransaction.mpesa_transaction_id
@@ -286,43 +332,65 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { 
         success: false, 
-        message: 'Internal Server Error while creating transaction.' 
+        message: 'Internal Server Error while creating transaction.',
+        error: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     );
   }
 }
 
+/**
+ * ✅ FIXED: Update user balance helper with proper error handling
+ */
 async function updateUserBalance(userId: string, type: string, amountCents: number) {
-  const updateQuery: any = {};
-  
-  switch (type) {
-    case 'DEPOSIT':
-    case 'BONUS':
-    case 'TASK_PAYMENT':
-    case 'SPIN_WIN':
-    case 'REFERRAL':
-    case 'SURVEY':
-      updateQuery.$inc = { 
-        balance_cents: amountCents,
-        total_earnings_cents: amountCents
-      };
-      break;
-      
-    case 'WITHDRAWAL':
-    case 'ACTIVATION_FEE':
-      updateQuery.$inc = { 
-        balance_cents: -amountCents,
-        total_withdrawals_cents: amountCents
-      };
-      break;
-      
-    default:
-      console.log(`No balance update needed for transaction type: ${type}`);
-      return;
-  }
+  try {
+    const updateQuery: any = {};
+    
+    switch (type) {
+      case 'DEPOSIT':
+      case 'BONUS':
+      case 'TASK_PAYMENT':
+      case 'SPIN_WIN':
+      case 'REFERRAL':
+      case 'SURVEY':
+      case 'SPIN_PRIZE':
+        updateQuery.$inc = { 
+          balance_cents: amountCents,
+          total_earnings_cents: amountCents
+        };
+        break;
+        
+      case 'WITHDRAWAL':
+      case 'ACTIVATION_FEE':
+      case 'SPIN_COST':
+        updateQuery.$inc = { 
+          balance_cents: -amountCents,
+          total_withdrawals_cents: amountCents
+        };
+        break;
+        
+      default:
+        console.log(`ℹ️ No balance update needed for transaction type: ${type}`);
+        return;
+    }
 
-  await Profile.findByIdAndUpdate(userId, updateQuery);
+    const updatedUser = await Profile.findByIdAndUpdate(userId, updateQuery, { new: true });
+    
+    if (updatedUser) {
+      console.log('✅ User balance updated:', {
+        userId,
+        type,
+        amountCents,
+        newBalance: updatedUser.balance_cents / 100
+      });
+    } else {
+      console.error('❌ Failed to update user balance - user not found:', userId);
+    }
+  } catch (error) {
+    console.error('❌ Error updating user balance:', error);
+    throw error;
+  }
 }
 
 export async function PATCH(request: NextRequest) {
@@ -347,6 +415,14 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    const validStatuses = ['pending', 'completed', 'failed', 'cancelled', 'timeout'];
+    if (!validStatuses.includes(status)) {
+      return NextResponse.json(
+        { success: false, message: `Invalid status. Must be one of: ${validStatuses.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
     const transaction = await Transaction.findById(transactionId);
     if (!transaction) {
       return NextResponse.json(
@@ -363,6 +439,8 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    const previousStatus = transaction.status;
+
     const updateData: any = { 
       status,
       updated_at: new Date()
@@ -372,17 +450,44 @@ export async function PATCH(request: NextRequest) {
       updateData.metadata = { ...transaction.metadata, ...metadata };
     }
 
+    // ✅ FIXED: Ensure target fields are preserved if missing
+    if (!transaction.target_type) {
+      updateData.target_type = 'user';
+    }
+    if (!transaction.target_id) {
+      updateData.target_id = transaction.user_id.toString();
+    }
+
     const updatedTransaction = await Transaction.findByIdAndUpdate(
       transactionId,
       updateData,
       { new: true }
     ).lean();
 
-    if (status === 'completed' && transaction.status !== 'completed') {
+    console.log('✅ Transaction updated:', {
+      id: transactionId,
+      previousStatus,
+      newStatus: status,
+      type: updatedTransaction.type
+    });
+
+    // Update user balance if status changed to completed
+    if (status === 'completed' && previousStatus !== 'completed') {
       await updateUserBalance(
         currentUser._id.toString(), 
         transaction.type, 
         transaction.amount_cents
+      );
+    }
+
+    // Revert balance if status changed from completed to failed/cancelled
+    if (previousStatus === 'completed' && ['failed', 'cancelled'].includes(status)) {
+      // Reverse the transaction
+      const reverseAmountCents = -transaction.amount_cents;
+      await updateUserBalance(
+        currentUser._id.toString(), 
+        transaction.type, 
+        reverseAmountCents
       );
     }
 
@@ -397,7 +502,9 @@ export async function PATCH(request: NextRequest) {
       mpesa_receipt_number: updatedTransaction.metadata?.mpesaReceiptNumber || updatedTransaction.transaction_code,
       user_id: updatedTransaction.user_id,
       target_type: updatedTransaction.target_type || 'user',
-      target_id: updatedTransaction.target_id?.toString(),
+      target_id: updatedTransaction.target_id?.toString() || updatedTransaction.user_id?.toString(),
+      balance_before: updatedTransaction.balance_before_cents / 100,
+      balance_after: updatedTransaction.balance_after_cents / 100,
       metadata: updatedTransaction.metadata
     };
 
@@ -413,7 +520,8 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json(
       { 
         success: false, 
-        message: 'Internal Server Error while updating transaction.' 
+        message: 'Internal Server Error while updating transaction.',
+        error: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     );
