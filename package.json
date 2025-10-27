@@ -6,7 +6,8 @@
     "start": "next start -p 5000 -H 0.0.0.0",
     "seed": "ts-node scripts/seed-spin-prizes.ts",
     "clean": "rm -rf .next node_modules out dist build && pnpm store prune && pnpm install",
-    "migrate:transactions": "node scripts/update-company-id.js"
+    "migrate:transactions": "node scripts/migrate-transactions.js",
+    "update:company": "node scripts/update-company-id.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
