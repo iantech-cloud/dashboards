@@ -1,4 +1,4 @@
-// app/admin/reports/page.tsx
+// app/admin/reports/page.tsx - UPDATED FOR COMPANY MODEL
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -8,14 +8,15 @@ import {
   TrendingDown, 
   DollarSign, 
   BarChart3,
-  PieChart,
   Calendar,
   Users,
   CreditCard,
   AlertCircle,
   RefreshCw,
   FileText,
-  Activity
+  Activity,
+  Building2,
+  Wallet
 } from 'lucide-react';
 
 interface FinancialReport {
@@ -27,6 +28,7 @@ interface FinancialReport {
     breakdown: {
       activationFees: number;
       companyRevenue: number;
+      unclaimedReferrals: number;
       withdrawals: number;
       bonuses: number;
       taskPayments: number;
@@ -42,6 +44,7 @@ interface FinancialReport {
     date: string;
     breakdown: {
       cash: number;
+      userDeposits: number;
       userBalances: number;
       pendingWithdrawals: number;
       companyEquity: number;
@@ -62,6 +65,7 @@ interface FinancialReport {
   equityStatement: {
     beginningEquity: number;
     netIncome: number;
+    deposits: number;
     withdrawals: number;
     endingEquity: number;
     period: string;
@@ -89,6 +93,13 @@ interface FinancialReport {
     totalDepositsPeriod: number;
     totalWithdrawalsPeriod: number;
   };
+  companyMetrics?: {
+    companyWalletBalance: number;
+    totalCompanyRevenue: number;
+    totalCompanyExpenses: number;
+    activationRevenue: number;
+    unclaimedReferralRevenue: number;
+  };
 }
 
 export default function ReportsPage() {
@@ -111,7 +122,6 @@ export default function ReportsPage() {
       
       const response = await fetch(`/api/admin/reports?start=${dateRange.start}&end=${dateRange.end}`);
       
-      // Check if response is JSON
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
         const text = await response.text();
@@ -165,7 +175,6 @@ export default function ReportsPage() {
         filename = `accounts_receivable_${dateRange.start}.csv`;
         break;
       case 'full':
-        // Export all reports in one file
         const fullHeaders = ['Report Type', 'Metric', 'Value', 'Period'];
         const fullRows = [
           ['Income Statement', 'Revenue', reports.incomeStatement.revenue, reports.incomeStatement.period],
@@ -243,7 +252,7 @@ export default function ReportsPage() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Financial Reports</h1>
-          <p className="text-gray-600 mt-1">Comprehensive financial analysis and reporting</p>
+          <p className="text-gray-600 mt-1">Company financial analysis and reporting</p>
         </div>
         <button
           onClick={() => exportReport('full')}
@@ -290,7 +299,70 @@ export default function ReportsPage() {
 
       {reports && (
         <div className="space-y-6">
-          {/* User Metrics Summary */}
+          {/* Company Metrics Summary - NEW */}
+          {reports.companyMetrics && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow border border-blue-200">
+              <div className="p-4 border-b border-blue-200">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-5 w-5 text-blue-600" />
+                  <h2 className="text-xl font-semibold text-gray-900">Company Financial Overview</h2>
+                </div>
+              </div>
+              <div className="p-6">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  <div className="text-center p-4 bg-white rounded-lg shadow-sm">
+                    <Wallet className="h-6 w-6 text-blue-600 mx-auto mb-2" />
+                    <p className="text-xl font-bold text-blue-600">
+                      KES {reports.companyMetrics.companyWalletBalance.toFixed(2)}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">Company Wallet</p>
+                  </div>
+                  <div className="text-center p-4 bg-white rounded-lg shadow-sm">
+                    <TrendingUp className="h-6 w-6 text-green-600 mx-auto mb-2" />
+                    <p className="text-xl font-bold text-green-600">
+                      KES {reports.companyMetrics.totalCompanyRevenue.toFixed(2)}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">Total Revenue</p>
+                  </div>
+                  <div className="text-center p-4 bg-white rounded-lg shadow-sm">
+                    <TrendingDown className="h-6 w-6 text-orange-600 mx-auto mb-2" />
+                    <p className="text-xl font-bold text-orange-600">
+                      KES {reports.companyMetrics.totalCompanyExpenses.toFixed(2)}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">Total Expenses</p>
+                  </div>
+                  <div className="text-center p-4 bg-white rounded-lg shadow-sm">
+                    <DollarSign className="h-6 w-6 text-purple-600 mx-auto mb-2" />
+                    <p className="text-xl font-bold text-purple-600">
+                      KES {reports.companyMetrics.activationRevenue.toFixed(2)}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">Activation Revenue</p>
+                  </div>
+                  <div className="text-center p-4 bg-white rounded-lg shadow-sm">
+                    <BarChart3 className="h-6 w-6 text-indigo-600 mx-auto mb-2" />
+                    <p className="text-xl font-bold text-indigo-600">
+                      KES {reports.companyMetrics.unclaimedReferralRevenue.toFixed(2)}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">Unclaimed Referrals</p>
+                  </div>
+                </div>
+                <div className="mt-4 p-3 bg-white rounded-lg shadow-sm">
+                  <p className="text-sm text-gray-600 text-center">
+                    <span className="font-semibold text-gray-800">Net Profit:</span>{' '}
+                    <span className={`font-bold ${
+                      (reports.companyMetrics.totalCompanyRevenue - reports.companyMetrics.totalCompanyExpenses) >= 0 
+                        ? 'text-green-600' 
+                        : 'text-red-600'
+                    }`}>
+                      KES {(reports.companyMetrics.totalCompanyRevenue - reports.companyMetrics.totalCompanyExpenses).toFixed(2)}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Platform Overview */}
           <div className="bg-white rounded-lg shadow">
             <div className="p-4 border-b">
               <h2 className="text-xl font-semibold text-gray-900">Platform Overview</h2>
@@ -368,26 +440,42 @@ export default function ReportsPage() {
               <div className="mt-6">
                 <h3 className="text-lg font-semibold mb-4">Revenue & Expense Breakdown</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-3 bg-green-50 rounded">
-                    <p className="text-sm font-medium text-green-800">Activation Fees</p>
-                    <p className="text-lg font-bold">KES {reports.incomeStatement.breakdown.activationFees.toFixed(2)}</p>
+                  <div className="text-center p-3 bg-green-50 rounded border border-green-200">
+                    <p className="text-sm font-medium text-green-800">Company Revenue</p>
+                    <p className="text-lg font-bold text-green-600">KES {reports.incomeStatement.breakdown.companyRevenue.toFixed(2)}</p>
                   </div>
-                  <div className="text-center p-3 bg-red-50 rounded">
+                  <div className="text-center p-3 bg-green-50 rounded border border-green-200">
+                    <p className="text-sm font-medium text-green-800">Unclaimed Referrals</p>
+                    <p className="text-lg font-bold text-green-600">KES {reports.incomeStatement.breakdown.unclaimedReferrals.toFixed(2)}</p>
+                  </div>
+                  <div className="text-center p-3 bg-red-50 rounded border border-red-200">
+                    <p className="text-sm font-medium text-red-800">Referral Bonuses</p>
+                    <p className="text-lg font-bold text-red-600">KES {reports.incomeStatement.breakdown.referralBonuses.toFixed(2)}</p>
+                  </div>
+                  <div className="text-center p-3 bg-red-50 rounded border border-red-200">
                     <p className="text-sm font-medium text-red-800">Withdrawals</p>
-                    <p className="text-lg font-bold">KES {reports.incomeStatement.breakdown.withdrawals.toFixed(2)}</p>
+                    <p className="text-lg font-bold text-red-600">KES {reports.incomeStatement.breakdown.withdrawals.toFixed(2)}</p>
                   </div>
-                  <div className="text-center p-3 bg-red-50 rounded">
+                  <div className="text-center p-3 bg-red-50 rounded border border-red-200">
                     <p className="text-sm font-medium text-red-800">Bonuses</p>
-                    <p className="text-lg font-bold">KES {reports.incomeStatement.breakdown.bonuses.toFixed(2)}</p>
+                    <p className="text-lg font-bold text-red-600">KES {reports.incomeStatement.breakdown.bonuses.toFixed(2)}</p>
                   </div>
-                  <div className="text-center p-3 bg-red-50 rounded">
+                  <div className="text-center p-3 bg-red-50 rounded border border-red-200">
                     <p className="text-sm font-medium text-red-800">Task Payments</p>
-                    <p className="text-lg font-bold">KES {reports.incomeStatement.breakdown.taskPayments.toFixed(2)}</p>
+                    <p className="text-lg font-bold text-red-600">KES {reports.incomeStatement.breakdown.taskPayments.toFixed(2)}</p>
+                  </div>
+                  <div className="text-center p-3 bg-red-50 rounded border border-red-200">
+                    <p className="text-sm font-medium text-red-800">Survey Payments</p>
+                    <p className="text-lg font-bold text-red-600">KES {reports.incomeStatement.breakdown.surveyPayments.toFixed(2)}</p>
+                  </div>
+                  <div className="text-center p-3 bg-red-50 rounded border border-red-200">
+                    <p className="text-sm font-medium text-red-800">Spin Wins</p>
+                    <p className="text-lg font-bold text-red-600">KES {reports.incomeStatement.breakdown.spinWins.toFixed(2)}</p>
                   </div>
                 </div>
               </div>
               
-              <p className="text-center text-gray-500 mt-4">
+              <p className="text-center text-gray-500 mt-6 text-sm">
                 Period: {reports.incomeStatement.period}
               </p>
             </div>
@@ -432,24 +520,39 @@ export default function ReportsPage() {
               
               {/* Balance Sheet Breakdown */}
               <div className="mt-6">
-                <h3 className="text-lg font-semibold mb-4">Balance Sheet Breakdown</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="text-center p-3 bg-blue-50 rounded">
-                    <p className="text-sm font-medium text-blue-800">Cash Assets</p>
-                    <p className="text-lg font-bold">KES {reports.balanceSheet.breakdown.cash.toFixed(2)}</p>
+                <h3 className="text-lg font-semibold mb-4">Balance Sheet Details</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                    <h4 className="font-semibold text-blue-800 mb-3">Assets</h4>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-blue-700">Company Cash</span>
+                        <span className="font-semibold text-blue-900">KES {reports.balanceSheet.breakdown.cash.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-blue-700">User Deposits Held</span>
+                        <span className="font-semibold text-blue-900">KES {reports.balanceSheet.breakdown.userDeposits.toFixed(2)}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-center p-3 bg-orange-50 rounded">
-                    <p className="text-sm font-medium text-orange-800">User Balances</p>
-                    <p className="text-lg font-bold">KES {reports.balanceSheet.breakdown.userBalances.toFixed(2)}</p>
-                  </div>
-                  <div className="text-center p-3 bg-purple-50 rounded">
-                    <p className="text-sm font-medium text-purple-800">Pending Withdrawals</p>
-                    <p className="text-lg font-bold">KES {reports.balanceSheet.breakdown.pendingWithdrawals.toFixed(2)}</p>
+                  
+                  <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+                    <h4 className="font-semibold text-orange-800 mb-3">Liabilities</h4>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-orange-700">User Balances</span>
+                        <span className="font-semibold text-orange-900">KES {reports.balanceSheet.breakdown.userBalances.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-orange-700">Pending Withdrawals</span>
+                        <span className="font-semibold text-orange-900">KES {reports.balanceSheet.breakdown.pendingWithdrawals.toFixed(2)}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
               
-              <p className="text-center text-gray-500 mt-4">
+              <p className="text-center text-gray-500 mt-6 text-sm">
                 As of: {reports.balanceSheet.date}
               </p>
             </div>
@@ -498,7 +601,7 @@ export default function ReportsPage() {
                   <p className="text-sm text-gray-600">Net Change</p>
                 </div>
               </div>
-              <p className="text-center text-gray-500 mt-4">
+              <p className="text-center text-gray-500 mt-6 text-sm">
                 Period: {reports.cashFlow.period}
               </p>
             </div>

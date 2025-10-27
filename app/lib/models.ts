@@ -596,10 +596,10 @@ const WithdrawalSchema = new Schema({
 export const Withdrawal = getModel('Withdrawal', WithdrawalSchema);
 
 /**
- * 9. Transaction Model (replaces transactions table) - ENHANCED FOR M-PESA & ACTIVATION & SPIN
+ * 9. Transaction Model (replaces transactions table) - ENHANCED FOR M-PESA & ACTIVATION & SPIN & COMPANY
  */
 const TransactionSchema = new Schema({
-  user_id: { type: String, ref: 'Profile', required: true, index: true },
+  user_id: { type: String, ref: 'Profile', required: false, index: true }, // Now optional for company transactions
   amount_cents: { type: Number, required: true },
   type: {
     type: String,
@@ -659,6 +659,22 @@ const TransactionSchema = new Schema({
   admin_processed: { type: Boolean, default: false },
   admin_processed_by: { type: String, ref: 'Profile' },
   admin_processed_at: { type: Date },
+
+  // NEW: Company transaction support
+  target_type: {
+    type: String,
+    enum: ['user', 'company'],
+    required: true,
+    default: 'user',
+    index: true
+  },
+  
+  // NEW: Target entity ID (can be user_id or company_id)
+  target_id: {
+    type: String,
+    required: true,
+    index: true
+  },
   
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
@@ -673,6 +689,7 @@ const TransactionSchema = new Schema({
     { fields: { is_activation_fee: 1 } },
     { fields: { admin_processed: 1 } },
     { fields: { 'spin_related.prize_type': 1 } },
+    { fields: { target_type: 1, target_id: 1 } }, // NEW index for company transactions
   ]
 });
 
@@ -2159,5 +2176,85 @@ export const SpinAnalytics = getModel('SpinAnalytics', SpinAnalyticsSchema);
 
 // --- End Enhanced Spin to Win Models ---
 
+/**
+ * 30. Company Model - Independent company entity separate from users
+ */
+const CompanySchema = new Schema({
+  name: { 
+    type: String, 
+    required: true,
+    default: 'HustleHub Africa Ltd'
+  },
+  email: { 
+    type: String, 
+    required: true, 
+    unique: true,
+    default: 'company@hustlehubafrica.com'
+  },
+  phone_number: { 
+    type: String,
+    default: '+254700000000'
+  },
+  
+  // Financial tracking
+  wallet_balance_cents: { 
+    type: Number, 
+    default: 0,
+    required: true 
+  },
+  total_revenue_cents: { 
+    type: Number, 
+    default: 0 
+  },
+  total_expenses_cents: { 
+    type: Number, 
+    default: 0 
+  },
+  
+  // Revenue breakdown
+  activation_revenue_cents: { 
+    type: Number, 
+    default: 0 
+  },
+  unclaimed_referral_revenue_cents: { 
+    type: Number, 
+    default: 0 
+  },
+  content_payment_revenue_cents: { 
+    type: Number, 
+    default: 0 
+  },
+  other_revenue_cents: { 
+    type: Number, 
+    default: 0 
+  },
+  
+  // Company info
+  registration_number: { type: String },
+  tax_id: { type: String },
+  address: { type: String },
+  
+  // Settings
+  is_active: { 
+    type: Boolean, 
+    default: true 
+  },
+  
+  // Metadata
+  metadata: { 
+    type: Schema.Types.Mixed, 
+    default: {} 
+  },
+  
+}, {
+  timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+  indexes: [
+    { fields: { email: 1 } },
+    { fields: { is_active: 1 } },
+  ]
+});
+
+// Export the Company model
+export const Company = getModel('Company', CompanySchema);
 
 export { mongoose, connectToDatabase };
