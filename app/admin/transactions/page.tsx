@@ -1,8 +1,8 @@
-// app/admin/transactions/page.tsx - UPDATED
+// app/admin/transactions/page.tsx - CORRECTED FOR COMPANY MODEL
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Download, Search, Filter, RefreshCw, TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
+import { Download, Search, RefreshCw, TrendingUp, TrendingDown, DollarSign, Building2, Users } from 'lucide-react';
 
 interface Transaction {
   id: string;
@@ -10,19 +10,30 @@ interface Transaction {
   user_email: string;
   user_username: string;
   amount: number;
-  type: 'DEPOSIT' | 'WITHDRAWAL' | 'BONUS' | 'TASK_PAYMENT' | 'SPIN_WIN' | 'REFERRAL' | 'SURVEY' | 'ACTIVATION_FEE' | 'COMPANY_REVENUE' | 'ACCOUNT_ACTIVATION';
+  type: string;
   status: 'pending' | 'completed' | 'failed' | 'cancelled' | 'timeout';
   description: string;
   date: string;
   transaction_code: string;
   mpesa_receipt_number?: string;
   phone_number?: string;
+  target_type: 'user' | 'company';
+  target_id: string;
+  metadata?: any;
 }
 
 interface Stats {
   totalTransactions: number;
-  totalCredit: number;
-  totalDebit: number;
+  userTransactions: number;
+  companyTransactions: number;
+  
+  // User transactions (payments TO users - expenses)
+  userPayments: number;
+  
+  // Company transactions (revenue)
+  companyRevenue: number;
+  
+  // Status counts
   pendingCount: number;
   completedCount: number;
   failedCount: number;
@@ -36,8 +47,10 @@ export default function TransactionsPage() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<Stats>({
     totalTransactions: 0,
-    totalCredit: 0,
-    totalDebit: 0,
+    userTransactions: 0,
+    companyTransactions: 0,
+    userPayments: 0,
+    companyRevenue: 0,
     pendingCount: 0,
     completedCount: 0,
     failedCount: 0,
@@ -49,6 +62,7 @@ export default function TransactionsPage() {
     search: '',
     type: 'all',
     status: 'all',
+    targetType: 'all',
     dateFrom: '',
     dateTo: ''
   });
@@ -65,7 +79,6 @@ export default function TransactionsPage() {
     try {
       setLoading(true);
       
-      // Build query params
       const params = new URLSearchParams();
       params.append('limit', '1000');
       if (filters.type !== 'all') params.append('type', filters.type);
@@ -90,23 +103,30 @@ export default function TransactionsPage() {
   };
 
   const calculateStats = (txns: Transaction[]) => {
-    const creditTypes = ['DEPOSIT', 'BONUS', 'TASK_PAYMENT', 'SPIN_WIN', 'REFERRAL', 'SURVEY'];
-    const debitTypes = ['WITHDRAWAL', 'ACTIVATION_FEE', 'COMPANY_REVENUE', 'ACCOUNT_ACTIVATION'];
-    
     const completedTxns = txns.filter(t => t.status === 'completed');
     
-    const totalCredit = completedTxns
-      .filter(t => creditTypes.includes(t.type))
+    // Separate user and company transactions
+    const userTxns = completedTxns.filter(t => t.target_type === 'user');
+    const companyTxns = completedTxns.filter(t => t.target_type === 'company');
+    
+    // User payments (money paid TO users - these are expenses from company perspective)
+    const userPaymentTypes = ['REFERRAL', 'BONUS', 'TASK_PAYMENT', 'SURVEY', 'SPIN_WIN'];
+    const userPayments = userTxns
+      .filter(t => userPaymentTypes.includes(t.type))
       .reduce((sum, t) => sum + t.amount, 0);
-      
-    const totalDebit = completedTxns
-      .filter(t => debitTypes.includes(t.type))
+    
+    // Company revenue (money earned BY company)
+    const companyRevenueTypes = ['COMPANY_REVENUE', 'ACTIVATION_FEE', 'UNCLAIMED_REFERRAL'];
+    const companyRevenue = companyTxns
+      .filter(t => companyRevenueTypes.includes(t.type))
       .reduce((sum, t) => sum + t.amount, 0);
     
     setStats({
       totalTransactions: txns.length,
-      totalCredit,
-      totalDebit,
+      userTransactions: userTxns.length,
+      companyTransactions: companyTxns.length,
+      userPayments,
+      companyRevenue,
       pendingCount: txns.filter(t => t.status === 'pending').length,
       completedCount: txns.filter(t => t.status === 'completed').length,
       failedCount: txns.filter(t => t.status === 'failed').length,
@@ -136,6 +156,10 @@ export default function TransactionsPage() {
       filtered = filtered.filter(t => t.status === filters.status);
     }
     
+    if (filters.targetType !== 'all') {
+      filtered = filtered.filter(t => t.target_type === filters.targetType);
+    }
+    
     if (filters.dateFrom) {
       filtered = filtered.filter(t => new Date(t.date) >= new Date(filters.dateFrom));
     }
@@ -160,22 +184,65 @@ export default function TransactionsPage() {
     }
   };
 
-  const getTypeColor = (type: string) => {
-    const creditTypes = ['DEPOSIT', 'BONUS', 'TASK_PAYMENT', 'SPIN_WIN', 'REFERRAL', 'SURVEY'];
-    return creditTypes.includes(type) ? 'text-green-600' : 'text-red-600';
+  const getTypeColor = (type: string, targetType: string) => {
+    // Company revenue = green (income)
+    if (targetType === 'company' && ['COMPANY_REVENUE', 'UNCLAIMED_REFERRAL'].includes(type)) {
+      return 'text-green-600';
+    }
+    // User payments = red (expense from company view)
+    if (targetType === 'user' && ['REFERRAL', 'BONUS', 'TASK_PAYMENT', 'SURVEY', 'SPIN_WIN'].includes(type)) {
+      return 'text-red-600';
+    }
+    // User deposits = green (assets increase)
+    if (type === 'DEPOSIT') {
+      return 'text-green-600';
+    }
+    // Withdrawals = red (assets decrease)
+    if (type === 'WITHDRAWAL') {
+      return 'text-red-600';
+    }
+    return 'text-gray-600';
   };
 
-  const getTypeIcon = (type: string) => {
-    const creditTypes = ['DEPOSIT', 'BONUS', 'TASK_PAYMENT', 'SPIN_WIN', 'REFERRAL', 'SURVEY'];
-    return creditTypes.includes(type) ? '+' : '-';
+  const getTypeIcon = (type: string, targetType: string) => {
+    if (targetType === 'company' && ['COMPANY_REVENUE', 'UNCLAIMED_REFERRAL'].includes(type)) {
+      return '+';
+    }
+    if (targetType === 'user' && ['REFERRAL', 'BONUS', 'TASK_PAYMENT', 'SURVEY', 'SPIN_WIN'].includes(type)) {
+      return '-';
+    }
+    if (type === 'DEPOSIT') return '+';
+    if (type === 'WITHDRAWAL') return '-';
+    return '';
+  };
+
+  const getTargetBadge = (targetType: string) => {
+    if (targetType === 'company') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
+          <Building2 className="w-3 h-3" />
+          Company
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 border border-purple-200">
+        <Users className="w-3 h-3" />
+        User
+      </span>
+    );
   };
 
   const exportToCSV = () => {
-    const headers = ['Date', 'Transaction Code', 'User', 'Type', 'Amount', 'Status', 'Description', 'M-Pesa Receipt', 'Phone Number'];
+    const headers = [
+      'Date', 'Transaction Code', 'Target Type', 'User', 'Type', 
+      'Amount', 'Status', 'Description', 'M-Pesa Receipt', 'Phone Number'
+    ];
     const rows = filteredTransactions.map(t => [
       new Date(t.date).toLocaleString(),
       t.transaction_code || 'N/A',
-      `${t.user_username} (${t.user_email})`,
+      t.target_type,
+      `${t.user_username || 'N/A'} (${t.user_email || 'N/A'})`,
       t.type,
       t.amount.toFixed(2),
       t.status,
@@ -200,10 +267,6 @@ export default function TransactionsPage() {
     window.URL.revokeObjectURL(url);
   };
 
-  const refreshData = () => {
-    fetchTransactions();
-  };
-
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-screen">
@@ -220,10 +283,10 @@ export default function TransactionsPage() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Transaction Management</h1>
-          <p className="text-gray-600 mt-1">Monitor and manage all platform transactions</p>
+          <p className="text-gray-600 mt-1">Monitor all platform transactions (User & Company)</p>
         </div>
         <button
-          onClick={refreshData}
+          onClick={fetchTransactions}
           className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 flex items-center gap-2"
         >
           <RefreshCw className="h-4 w-4" />
@@ -231,35 +294,38 @@ export default function TransactionsPage() {
         </button>
       </div>
 
-      {/* Stats Cards */}
+      {/* Stats Cards - UPDATED */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total Credit (Incoming)</p>
-              <p className="text-2xl font-bold text-green-600">KES {stats.totalCredit.toFixed(2)}</p>
+              <p className="text-sm text-gray-600 mb-1">Company Revenue</p>
+              <p className="text-2xl font-bold text-green-600">KES {stats.companyRevenue.toFixed(2)}</p>
+              <p className="text-xs text-gray-500 mt-1">{stats.companyTransactions} transactions</p>
             </div>
-            <TrendingUp className="h-10 w-10 text-green-500" />
+            <Building2 className="h-10 w-10 text-green-500" />
           </div>
         </div>
         
         <div className="bg-white rounded-lg shadow p-6 border-l-4 border-red-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total Debit (Outgoing)</p>
-              <p className="text-2xl font-bold text-red-600">KES {stats.totalDebit.toFixed(2)}</p>
+              <p className="text-sm text-gray-600 mb-1">User Payments (Expenses)</p>
+              <p className="text-2xl font-bold text-red-600">KES {stats.userPayments.toFixed(2)}</p>
+              <p className="text-xs text-gray-500 mt-1">{stats.userTransactions} transactions</p>
             </div>
-            <TrendingDown className="h-10 w-10 text-red-500" />
+            <Users className="h-10 w-10 text-red-500" />
           </div>
         </div>
         
         <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Net Flow</p>
-              <p className={`text-2xl font-bold ${stats.totalCredit - stats.totalDebit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                KES {(stats.totalCredit - stats.totalDebit).toFixed(2)}
+              <p className="text-sm text-gray-600 mb-1">Net Profit</p>
+              <p className={`text-2xl font-bold ${stats.companyRevenue - stats.userPayments >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                KES {(stats.companyRevenue - stats.userPayments).toFixed(2)}
               </p>
+              <p className="text-xs text-gray-500 mt-1">Revenue - Expenses</p>
             </div>
             <DollarSign className="h-10 w-10 text-blue-500" />
           </div>
@@ -295,9 +361,9 @@ export default function TransactionsPage() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filters - UPDATED */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
             <input
@@ -310,18 +376,31 @@ export default function TransactionsPage() {
           </div>
           
           <select
+            value={filters.targetType}
+            onChange={(e) => setFilters({...filters, targetType: e.target.value})}
+            className="border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          >
+            <option value="all">All Targets</option>
+            <option value="company">Company</option>
+            <option value="user">User</option>
+          </select>
+          
+          <select
             value={filters.type}
             onChange={(e) => setFilters({...filters, type: e.target.value})}
             className="border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
           >
             <option value="all">All Types</option>
-            <option value="DEPOSIT">Deposit</option>
-            <option value="WITHDRAWAL">Withdrawal</option>
+            <option value="COMPANY_REVENUE">Company Revenue</option>
+            <option value="UNCLAIMED_REFERRAL">Unclaimed Referral</option>
+            <option value="REFERRAL">Referral Bonus</option>
             <option value="BONUS">Bonus</option>
             <option value="TASK_PAYMENT">Task Payment</option>
-            <option value="ACTIVATION_FEE">Activation Fee</option>
-            <option value="REFERRAL">Referral</option>
+            <option value="SURVEY">Survey</option>
             <option value="SPIN_WIN">Spin Win</option>
+            <option value="DEPOSIT">Deposit</option>
+            <option value="WITHDRAWAL">Withdrawal</option>
+            <option value="ACTIVATION_FEE">Activation Fee</option>
           </select>
           
           <select
@@ -355,13 +434,14 @@ export default function TransactionsPage() {
         </div>
       </div>
 
-      {/* Transactions Table */}
+      {/* Transactions Table - UPDATED */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
@@ -373,7 +453,7 @@ export default function TransactionsPage() {
             <tbody className="divide-y divide-gray-200">
               {filteredTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
                     No transactions found matching your filters
                   </td>
                 </tr>
@@ -389,23 +469,26 @@ export default function TransactionsPage() {
                         minute: '2-digit'
                       })}
                     </td>
+                    <td className="px-4 py-3 text-sm">
+                      {getTargetBadge(txn.target_type)}
+                    </td>
                     <td className="px-4 py-3 text-sm font-mono text-gray-600">
                       {txn.transaction_code || 'N/A'}
                     </td>
                     <td className="px-4 py-3 text-sm">
                       <div>
-                        <p className="font-medium text-gray-900">{txn.user_username || 'N/A'}</p>
+                        <p className="font-medium text-gray-900">{txn.user_username || 'System'}</p>
                         <p className="text-gray-500 text-xs">{txn.user_email || 'N/A'}</p>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      <span className={`font-medium ${getTypeColor(txn.type)}`}>
+                      <span className={`font-medium ${getTypeColor(txn.type, txn.target_type)}`}>
                         {txn.type.replace(/_/g, ' ')}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      <span className={`font-bold ${getTypeColor(txn.type)}`}>
-                        {getTypeIcon(txn.type)}
+                      <span className={`font-bold ${getTypeColor(txn.type, txn.target_type)}`}>
+                        {getTypeIcon(txn.type, txn.target_type)}
                         KES {txn.amount.toFixed(2)}
                       </span>
                     </td>
@@ -435,6 +518,13 @@ export default function TransactionsPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Summary Footer */}
+      <div className="mt-4 text-sm text-gray-600 text-center">
+        <p>
+          Showing {filteredTransactions.length} of {transactions.length} transactions
+        </p>
       </div>
     </div>
   );

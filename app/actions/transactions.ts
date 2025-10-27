@@ -1,3 +1,4 @@
+// app/actions/transactions.ts - COMPLETE FIXED VERSION FOR COMPANY MODEL
 'use server';
 
 import {
@@ -19,7 +20,7 @@ const MPESA_CONFIG = {
 	shortCode: process.env.MPESA_SHORTCODE!,
 	passkey: process.env.MPESA_PASSKEY!,
 	callbackURL: process.env.MPESA_CALLBACK_URL!,
-	environment: process.env.MPESA_ENVIRONMENT || 'sandbox', // sandbox or production
+	environment: process.env.MPESA_ENVIRONMENT || 'sandbox',
 };
 
 // Generate M-Pesa access token
@@ -46,17 +47,16 @@ async function getMpesaAccessToken(): Promise<string> {
 	return data.access_token;
 }
 
-// Generate M-Pesa password - FIXED TIMESTAMP
+// Generate M-Pesa password
 function generateMpesaPassword(timestamp: string): string {
 	const password = Buffer.from(`${MPESA_CONFIG.shortCode}${MPESA_CONFIG.passkey}${timestamp}`).toString('base64');
 	return password;
 }
 
-// Generate correct M-Pesa timestamp - FIXED
+// Generate correct M-Pesa timestamp
 function generateMpesaTimestamp(): string {
 	const now = new Date();
 	
-	// Format: YYYYMMDDHHmmss (M-Pesa required format)
 	const year = now.getFullYear();
 	const month = String(now.getMonth() + 1).padStart(2, '0');
 	const day = String(now.getDate()).padStart(2, '0');
@@ -97,6 +97,8 @@ function transformTransaction(transaction: any): any {
 	return {
 		id: plainTransaction._id?.toString(),
 		user_id: plainTransaction.user_id?.toString(),
+		target_type: plainTransaction.target_type || 'user',
+		target_id: plainTransaction.target_id?.toString(),
 		amount_cents: plainTransaction.amount_cents,
 		type: plainTransaction.type,
 		description: plainTransaction.description,
@@ -194,7 +196,11 @@ export async function getTransactions(limit: number = 50): Promise<{
 			return { success: false, message: 'User not found' };
 		}
 
-		const transactions = await Transaction.find({ user_id: currentUser._id })
+		// Only get user's personal transactions (target_type: 'user' and user_id matches)
+		const transactions = await Transaction.find({ 
+			user_id: currentUser._id,
+			target_type: 'user'
+		})
 			.sort({ created_at: -1 })
 			.limit(limit)
 			.lean(); 
@@ -240,21 +246,15 @@ export async function processMpesaDeposit(depositData: {
 			return { success: false, message: validationResult.message };
 		}
 
-		// Get M-Pesa access token
 		const accessToken = await getMpesaAccessToken();
-		
-		// FIXED: Use correct timestamp format
 		const timestamp = generateMpesaTimestamp();
 		const password = generateMpesaPassword(timestamp);
-		
-		// Convert amount to cents for internal records
 		const amountCents = Math.round(depositData.amount * 100);
 
-		// STK Push request payload - FIXED: Use the same timestamp
 		const stkPushPayload = {
 			BusinessShortCode: MPESA_CONFIG.shortCode,
 			Password: password,
-			Timestamp: timestamp, // Use the same timestamp here
+			Timestamp: timestamp,
 			TransactionType: 'CustomerPayBillOnline',
 			Amount: depositData.amount,
 			PartyA: depositData.phoneNumber,
@@ -265,12 +265,6 @@ export async function processMpesaDeposit(depositData: {
 			TransactionDesc: `Wallet deposit - ${currentUser.username}`
 		};
 
-		console.log('STK Push Payload:', {
-			...stkPushPayload,
-			Password: '***' // Don't log full password
-		});
-
-		// Initiate STK Push
 		const stkResponse = await fetch(
 			MPESA_CONFIG.environment === 'sandbox'
 				? 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest'
@@ -294,7 +288,6 @@ export async function processMpesaDeposit(depositData: {
 		const stkData = await stkResponse.json();
 
 		if (stkData.ResponseCode === '0') {
-			// Create M-Pesa transaction record
 			const mpesaTransaction = await MpesaTransaction.create({
 				user_id: currentUser._id,
 				amount_cents: amountCents,
@@ -309,13 +302,16 @@ export async function processMpesaDeposit(depositData: {
 				result_desc: 'STK Push initiated successfully'
 			});
 
-			// Create pending transaction record linked to M-Pesa transaction
+			// FIXED: Add target_type and target_id
 			const transaction = await Transaction.create({
+				target_type: 'user',
+				target_id: currentUser._id.toString(),
 				user_id: currentUser._id,
 				amount_cents: amountCents,
 				type: 'DEPOSIT',
 				description: `M-Pesa deposit from ${depositData.phoneNumber}`,
 				status: 'pending',
+				source: 'wallet',
 				mpesa_transaction_id: mpesaTransaction._id,
 				metadata: {
 					phoneNumber: depositData.phoneNumber,
@@ -396,12 +392,16 @@ export async function processWithdrawal(withdrawalData: {
 			status: 'pending'
 		});
 
+		// FIXED: Add target_type and target_id
 		const transaction = await Transaction.create({
+			target_type: 'user',
+			target_id: currentUser._id.toString(),
 			user_id: currentUser._id,
 			amount_cents: amountCents,
 			type: 'WITHDRAWAL',
 			description: `Withdrawal request to ${withdrawalData.mpesaNumber}`,
 			status: 'pending',
+			source: 'wallet',
 			metadata: {
 				withdrawalId: withdrawal._id.toString(),
 				mpesaNumber: withdrawalData.mpesaNumber
@@ -439,7 +439,7 @@ export async function processWithdrawal(withdrawalData: {
 }
 
 // ----------------------------------------------------------------------
-// NEW: M-PESA CALLBACK HANDLER
+// M-PESA CALLBACK HANDLER
 // ----------------------------------------------------------------------
 
 export async function handleMpesaCallback(callbackData: any): Promise<{ success: boolean; message: string }> {
@@ -449,7 +449,6 @@ export async function handleMpesaCallback(callbackData: any): Promise<{ success:
     const { Body: { stkCallback: callback } } = callbackData;
     const { CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = callback;
 
-    // Find the M-Pesa transaction
     const mpesaTransaction = await MpesaTransaction.findOne({ 
       checkout_request_id: CheckoutRequestID 
     });
@@ -459,7 +458,6 @@ export async function handleMpesaCallback(callbackData: any): Promise<{ success:
       return { success: false, message: 'Transaction not found' };
     }
 
-    // Find the associated transaction
     const transaction = await Transaction.findOne({
       mpesa_transaction_id: mpesaTransaction._id
     });
@@ -469,15 +467,12 @@ export async function handleMpesaCallback(callbackData: any): Promise<{ success:
       return { success: false, message: 'Transaction record not found' };
     }
 
-    // Update based on result code
     if (ResultCode === 0) {
-      // Success
       const metadata = CallbackMetadata?.Item || [];
       const amountItem = metadata.find((item: any) => item.Name === 'Amount');
       const receiptItem = metadata.find((item: any) => item.Name === 'MpesaReceiptNumber');
       const phoneItem = metadata.find((item: any) => item.Name === 'PhoneNumber');
 
-      // Update M-Pesa transaction
       await MpesaTransaction.findByIdAndUpdate(mpesaTransaction._id, {
         status: 'completed',
         result_code: ResultCode,
@@ -487,7 +482,6 @@ export async function handleMpesaCallback(callbackData: any): Promise<{ success:
         callback_metadata: callbackData
       });
 
-      // Update transaction
       await Transaction.findByIdAndUpdate(transaction._id, {
         status: 'completed',
         transaction_code: receiptItem?.Value,
@@ -499,13 +493,11 @@ export async function handleMpesaCallback(callbackData: any): Promise<{ success:
         }
       });
 
-      // Update user balance
       await Profile.findByIdAndUpdate(transaction.user_id, {
         $inc: { balance_cents: transaction.amount_cents }
       });
 
     } else {
-      // Failed/Cancelled/Timeout
       const status = ResultCode === 1032 ? 'cancelled' : 
                     ResultCode === 1037 ? 'timeout' : 'failed';
 
@@ -520,7 +512,6 @@ export async function handleMpesaCallback(callbackData: any): Promise<{ success:
         status
       });
 
-      // Refund daily deposit limit for failed transactions
       if (status === 'failed' || status === 'cancelled' || status === 'timeout') {
         await Profile.findByIdAndUpdate(transaction.user_id, {
           $inc: { total_deposits_today_cents: -transaction.amount_cents }
@@ -538,7 +529,7 @@ export async function handleMpesaCallback(callbackData: any): Promise<{ success:
 }
 
 // ----------------------------------------------------------------------
-// NEW: ADMIN TRANSACTIONS FUNCTION
+// ADMIN TRANSACTIONS FUNCTION - FIXED FOR COMPANY MODEL
 // ----------------------------------------------------------------------
 
 export async function getAdminTransactions(limit: number = 1000, filters: any = {}) {
@@ -547,7 +538,6 @@ export async function getAdminTransactions(limit: number = 1000, filters: any = 
 
     let query: any = {};
     
-    // Apply filters
     if (filters.type && filters.type !== 'all') {
       query.type = filters.type;
     }
@@ -575,9 +565,9 @@ export async function getAdminTransactions(limit: number = 1000, filters: any = 
 
     const transformedTransactions = transactions.map((txn: any) => ({
       id: txn._id.toString(),
-      user_id: txn.user_id?._id?.toString(),
-      user_email: txn.user_id?.email,
-      user_username: txn.user_id?.username,
+      user_id: txn.user_id?._id?.toString() || null,
+      user_email: txn.user_id?.email || 'System',
+      user_username: txn.user_id?.username || 'System',
       amount: txn.amount_cents / 100,
       type: txn.type,
       status: txn.status,
@@ -586,7 +576,11 @@ export async function getAdminTransactions(limit: number = 1000, filters: any = 
       transaction_code: txn.transaction_code,
       mpesa_receipt_number: txn.mpesa_transaction_id?.mpesa_receipt_number,
       phone_number: txn.mpesa_transaction_id?.phone_number,
-      metadata: txn.metadata
+      metadata: txn.metadata,
+      
+      // CRITICAL: Include target_type and target_id
+      target_type: txn.target_type || 'user',
+      target_id: txn.target_id?.toString() || txn.user_id?._id?.toString() || null
     }));
 
     return {
