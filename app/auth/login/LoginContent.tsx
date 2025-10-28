@@ -1,4 +1,4 @@
-// app/auth/login/LoginContent.tsx - IMPROVED VERSION
+// app/auth/login/LoginContent.tsx - UPDATED WITH FORGOT PASSWORD
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -118,6 +118,311 @@ const getRedirectPath = (user: any): string => {
   return dashboardRoute;
 };
 
+// Forgot Password Modal Component
+interface ForgotPasswordModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClose }) => {
+  const [step, setStep] = useState<'email' | 'verification' | 'success'>('email');
+  const [email, setEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [messageType, setMessageType] = useState<'success' | 'error' | 'info'>('info');
+  const [verificationMethod, setVerificationMethod] = useState<'email' | '2fa'>('email');
+
+  const clearMessage = () => {
+    setMessage(null);
+  };
+
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage(null);
+
+    try {
+      const response = await fetch('/api/reset-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          newPassword,
+          type: 'forgot'
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        if (data.needsVerification) {
+          setVerificationMethod(data.verificationMethod);
+          setStep('verification');
+          setMessage(data.message);
+          setMessageType('info');
+        } else {
+          setMessage(data.message || 'Password reset instructions sent to your email.');
+          setMessageType('success');
+        }
+      } else {
+        setMessage(data.error || 'Failed to process password reset request.');
+        setMessageType('error');
+      }
+    } catch (error) {
+      console.error('Password reset error:', error);
+      setMessage('An error occurred. Please try again.');
+      setMessageType('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerificationSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage(null);
+
+    try {
+      const response = await fetch('/api/reset-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          newPassword,
+          verificationCode,
+          verificationMethod,
+          type: 'forgot'
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setStep('success');
+        setMessage(data.message || 'Password reset successfully!');
+        setMessageType('success');
+      } else {
+        setMessage(data.error || 'Failed to verify code.');
+        setMessageType('error');
+      }
+    } catch (error) {
+      console.error('Verification error:', error);
+      setMessage('An error occurred during verification.');
+      setMessageType('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setStep('email');
+    setEmail('');
+    setNewPassword('');
+    setVerificationCode('');
+    setMessage(null);
+    setVerificationMethod('email');
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xl font-bold text-gray-900">
+              {step === 'email' && 'Reset Password'}
+              {step === 'verification' && 'Enter Verification Code'}
+              {step === 'success' && 'Password Reset Successful'}
+            </h3>
+            <button
+              onClick={handleClose}
+              className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
+            >
+              &times;
+            </button>
+          </div>
+
+          {message && (
+            <Alert 
+              type={messageType} 
+              message={message} 
+              onClose={clearMessage} 
+            />
+          )}
+
+          {step === 'email' && (
+            <form onSubmit={handleEmailSubmit} className="space-y-4">
+              <div>
+                <label htmlFor="forgot-email" className="block text-sm font-medium text-gray-700">
+                  Email Address
+                </label>
+                <input
+                  id="forgot-email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email address"
+                  className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                  disabled={loading}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="new-password" className="block text-sm font-medium text-gray-700">
+                  New Password
+                </label>
+                <input
+                  id="new-password"
+                  type="password"
+                  required
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Enter your new password"
+                  className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                  disabled={loading}
+                  minLength={8}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Password must be at least 8 characters long
+                </p>
+              </div>
+
+              <div className="flex space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  disabled={loading}
+                  className="flex-1 py-3 px-4 border border-gray-300 rounded-xl shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading || !email || !newPassword || newPassword.length < 8}
+                  className={`flex-1 flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white transition-all duration-200 
+                    ${loading || !email || !newPassword || newPassword.length < 8
+                        ? 'bg-indigo-400 cursor-not-allowed' 
+                        : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transform hover:scale-[1.01]'
+                    }`}
+                >
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Processing...
+                    </>
+                  ) : (
+                    'Reset Password'
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {step === 'verification' && (
+            <form onSubmit={handleVerificationSubmit} className="space-y-4">
+              <div>
+                <label htmlFor="verification-code" className="block text-sm font-medium text-gray-700">
+                  {verificationMethod === '2fa' 
+                    ? '6-Digit Google Authenticator Code' 
+                    : '6-Digit Email Verification Code'
+                  }
+                </label>
+                <input
+                  id="verification-code"
+                  type="text"
+                  inputMode="numeric"
+                  required
+                  maxLength={6}
+                  pattern="[0-9]{6}"
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="123456"
+                  className="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors text-center text-xl font-mono tracking-widest"
+                  disabled={loading}
+                  autoFocus
+                />
+                <p className="mt-2 text-xs text-gray-500 text-center">
+                  {verificationMethod === '2fa'
+                    ? 'Open your Google Authenticator app and enter the 6-digit code'
+                    : 'Check your email for the verification code'
+                  }
+                </p>
+              </div>
+
+              <div className="flex space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setStep('email')}
+                  disabled={loading}
+                  className="flex-1 py-3 px-4 border border-gray-300 rounded-xl shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading || verificationCode.length !== 6}
+                  className={`flex-1 flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white transition-all duration-200 
+                    ${loading || verificationCode.length !== 6
+                        ? 'bg-indigo-400 cursor-not-allowed' 
+                        : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transform hover:scale-[1.01]'
+                    }`}
+                >
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Verifying...
+                    </>
+                  ) : (
+                    'Verify & Reset'
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {step === 'success' && (
+            <div className="text-center space-y-4">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+                <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+              </div>
+              <p className="text-gray-700">
+                Your password has been reset successfully! You can now log in with your new password.
+              </p>
+              <button
+                onClick={handleClose}
+                className="w-full py-3 px-4 bg-indigo-600 text-white rounded-xl shadow-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors font-bold"
+              >
+                Back to Login
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function LoginContent() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -127,6 +432,8 @@ export default function LoginContent() {
   const [loading, setLoading] = useState(false);
   const [requires2FA, setRequires2FA] = useState(false);
   const [loginStep, setLoginStep] = useState<'credentials' | '2fa'>('credentials');
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -326,209 +633,217 @@ export default function LoginContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl p-6 sm:p-8 border border-indigo-100">
-        
-        <div className="text-center mb-8">
-          <div className="text-2xl font-extrabold text-indigo-600 mb-4">
-            HH HustleHub Africa
+    <>
+      <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl p-6 sm:p-8 border border-indigo-100">
+          
+          <div className="text-center mb-8">
+            <div className="text-2xl font-extrabold text-indigo-600 mb-4">
+              HH HustleHub Africa
+            </div>
+            <h2 className="text-3xl font-extrabold text-gray-900">
+              {loginStep === '2fa' ? 'Two-Factor Authentication' : 'Welcome Back!'}
+            </h2>
+            <p className="mt-2 text-sm text-gray-600">
+              {loginStep === '2fa' 
+                ? 'Enter your 6-digit verification code from Google Authenticator' 
+                : 'Sign in to your account to continue'
+              }
+            </p>
           </div>
-          <h2 className="text-3xl font-extrabold text-gray-900">
-            {loginStep === '2fa' ? 'Two-Factor Authentication' : 'Welcome Back!'}
-          </h2>
-          <p className="mt-2 text-sm text-gray-600">
-            {loginStep === '2fa' 
-              ? 'Enter your 6-digit verification code from Google Authenticator' 
-              : 'Sign in to your account to continue'
-            }
-          </p>
-        </div>
-        
-        {message && (
-          <Alert 
-            type={messageType} 
-            message={message} 
-            onClose={clearMessage} 
-          />
-        )}
-        
-        {loginStep === 'credentials' ? (
-          // Password Login Form
-          <form className="space-y-4" onSubmit={handlePasswordSubmit}>
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email Address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@email.com"
-                className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
-                disabled={loading}
-              />
-            </div>
+          
+          {message && (
+            <Alert 
+              type={messageType} 
+              message={message} 
+              onClose={clearMessage} 
+            />
+          )}
+          
+          {loginStep === 'credentials' ? (
+            // Password Login Form
+            <form className="space-y-4" onSubmit={handlePasswordSubmit}>
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                  Email Address
+                </label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@email.com"
+                  className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                  disabled={loading}
+                />
+              </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
-                disabled={loading}
-              />
-            </div>
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your password"
+                  className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                  disabled={loading}
+                />
+              </div>
 
-            <div>
-              <button
-                type="submit"
-                disabled={loading}
-                className={`w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white transition-all duration-200 
-                  ${loading 
-                      ? 'bg-indigo-400 cursor-not-allowed' 
-                      : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transform hover:scale-[1.01]'
-                  }`}
-              >
-                {loading ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Signing In...
-                  </>
-                ) : (
-                  'Sign In to Your Account'
-                )}
-              </button>
+              <div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className={`w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white transition-all duration-200 
+                    ${loading 
+                        ? 'bg-indigo-400 cursor-not-allowed' 
+                        : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transform hover:scale-[1.01]'
+                    }`}
+                >
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Signing In...
+                    </>
+                  ) : (
+                    'Sign In to Your Account'
+                  )}
+                </button>
+              </div>
+            </form>
+          ) : (
+            // 2FA Verification Form
+            <form className="space-y-4" onSubmit={handle2FASubmit}>
+              <div>
+                <label htmlFor="twoFAToken" className="block text-sm font-medium text-gray-700">
+                  6-Digit Verification Code
+                </label>
+                <input
+                  id="twoFAToken"
+                  name="twoFAToken"
+                  type="text"
+                  inputMode="numeric"
+                  required
+                  maxLength={6}
+                  pattern="[0-9]{6}"
+                  value={twoFAToken}
+                  onChange={(e) => setTwoFAToken(e.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="123456"
+                  className="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors text-center text-xl font-mono tracking-widest"
+                  disabled={loading}
+                  autoFocus
+                />
+                <p className="mt-2 text-xs text-gray-500 text-center">
+                  Open your Google Authenticator app and enter the 6-digit code
+                </p>
+              </div>
+
+              <div className="flex space-x-3">
+                <button
+                  type="button"
+                  onClick={backToPassword}
+                  disabled={loading}
+                  className="flex-1 py-3 px-4 border border-gray-300 rounded-xl shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                >
+                  Back to Login
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading || twoFAToken.length !== 6}
+                  className={`flex-1 flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white transition-all duration-200 
+                    ${loading || twoFAToken.length !== 6
+                        ? 'bg-indigo-400 cursor-not-allowed' 
+                        : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transform hover:scale-[1.01]'
+                    }`}
+                >
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Verifying...
+                    </>
+                  ) : (
+                    'Verify & Continue'
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {loginStep === 'credentials' && (
+            <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
+              <h3 className="text-sm font-semibold text-blue-800 mb-2">Account Status Flow:</h3>
+              <ol className="text-xs text-blue-700 space-y-1">
+                <li className="flex items-start">
+                  <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">1</span>
+                  Verify your email address
+                </li>
+                <li className="flex items-start">
+                  <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">2</span>
+                  Pay KSH 1,000 activation fee
+                </li>
+                <li className="flex items-start">
+                  <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">3</span>
+                  Wait for admin approval (24-48 hours)
+                </li>
+                <li className="flex items-start">
+                  <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">4</span>
+                  Access your dashboard and start earning!
+                </li>
+              </ol>
             </div>
-          </form>
-        ) : (
-          // 2FA Verification Form
-          <form className="space-y-4" onSubmit={handle2FASubmit}>
-            <div>
-              <label htmlFor="twoFAToken" className="block text-sm font-medium text-gray-700">
-                6-Digit Verification Code
-              </label>
-              <input
-                id="twoFAToken"
-                name="twoFAToken"
-                type="text"
-                inputMode="numeric"
-                required
-                maxLength={6}
-                pattern="[0-9]{6}"
-                value={twoFAToken}
-                onChange={(e) => setTwoFAToken(e.target.value.replace(/[^0-9]/g, ''))}
-                placeholder="123456"
-                className="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors text-center text-xl font-mono tracking-widest"
-                disabled={loading}
-                autoFocus
-              />
-              <p className="mt-2 text-xs text-gray-500 text-center">
-                Open your Google Authenticator app and enter the 6-digit code
+          )}
+
+          {loginStep === 'credentials' && (
+            <>
+              <p className="mt-6 text-center text-sm text-gray-600">
+                Don't have an account?{' '}
+                <a 
+                  href="/auth/sign-up" 
+                  className="font-medium text-indigo-600 hover:text-indigo-500 transition-colors"
+                >
+                  Create an account
+                </a>
+              </p>
+
+              <div className="mt-4 text-center">
+                <button
+                  onClick={() => setShowForgotPassword(true)}
+                  className="text-sm text-indigo-600 hover:text-indigo-500 transition-colors font-medium"
+                >
+                  Forgot your password?
+                </button>
+              </div>
+            </>
+          )}
+
+          {loginStep === '2fa' && (
+            <div className="mt-6 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
+              <p className="text-xs text-yellow-800">
+                <strong>Lost access to your authenticator?</strong> Contact support to disable 2FA and regain access to your account.
               </p>
             </div>
-
-            <div className="flex space-x-3">
-              <button
-                type="button"
-                onClick={backToPassword}
-                disabled={loading}
-                className="flex-1 py-3 px-4 border border-gray-300 rounded-xl shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
-              >
-                Back to Login
-              </button>
-              <button
-                type="submit"
-                disabled={loading || twoFAToken.length !== 6}
-                className={`flex-1 flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white transition-all duration-200 
-                  ${loading || twoFAToken.length !== 6
-                      ? 'bg-indigo-400 cursor-not-allowed' 
-                      : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transform hover:scale-[1.01]'
-                  }`}
-              >
-                {loading ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Verifying...
-                  </>
-                ) : (
-                  'Verify & Continue'
-                )}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {loginStep === 'credentials' && (
-          <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
-            <h3 className="text-sm font-semibold text-blue-800 mb-2">Account Status Flow:</h3>
-            <ol className="text-xs text-blue-700 space-y-1">
-              <li className="flex items-start">
-                <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">1</span>
-                Verify your email address
-              </li>
-              <li className="flex items-start">
-                <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">2</span>
-                Pay KSH 1,000 activation fee
-              </li>
-              <li className="flex items-start">
-                <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">3</span>
-                Wait for admin approval (24-48 hours)
-              </li>
-              <li className="flex items-start">
-                <span className="bg-blue-100 text-blue-800 rounded-full w-4 h-4 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">4</span>
-                Access your dashboard and start earning!
-              </li>
-            </ol>
-          </div>
-        )}
-
-        {loginStep === 'credentials' && (
-          <>
-            <p className="mt-6 text-center text-sm text-gray-600">
-              Don't have an account?{' '}
-              <a 
-                href="/auth/sign-up" 
-                className="font-medium text-indigo-600 hover:text-indigo-500 transition-colors"
-              >
-                Create an account
-              </a>
-            </p>
-
-            <div className="mt-4 text-center">
-              <a 
-                href="/auth/forgot-password" 
-                className="text-sm text-indigo-600 hover:text-indigo-500 transition-colors"
-              >
-                Forgot your password?
-              </a>
-            </div>
-          </>
-        )}
-
-        {loginStep === '2fa' && (
-          <div className="mt-6 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
-            <p className="text-xs text-yellow-800">
-              <strong>Lost access to your authenticator?</strong> Contact support to disable 2FA and regain access to your account.
-            </p>
-          </div>
-        )}
+          )}
+        </div>
       </div>
-    </div>
+
+      {/* Forgot Password Modal */}
+      <ForgotPasswordModal 
+        isOpen={showForgotPassword} 
+        onClose={() => setShowForgotPassword(false)} 
+      />
+    </>
   );
 }

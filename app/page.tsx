@@ -59,10 +59,23 @@ const Header: React.FC = () => {
     <header className="flex flex-col sm:flex-row justify-between items-center py-4 px-4 md:px-12 bg-white shadow-lg sticky top-0 z-50">
       
       <div className="flex justify-between items-center w-full sm:w-auto">
-        <div className="text-2xl font-extrabold text-indigo-600">
-            <Link href="/" className="hover:text-indigo-700 transition-colors" aria-label="Go to HustleHub Africa homepage">
-              HH <span className="hidden sm:inline">HustleHub Africa</span>
-            </Link>
+        <div className="flex items-center space-x-2">
+          <Link href="/" aria-label="Go to HustleHub Africa homepage">
+            <Image
+              src="/logo.png"
+              alt="HustleHub Africa Logo"
+              width={50}
+              height={50}
+              className="rounded-md ring-4 ring-blue-500 hover:ring-blue-600 transition duration-300"
+              priority
+            />
+          </Link>
+          <Link
+            href="/"
+            className="hover:text-indigo-700 transition-colors text-2xl font-extrabold text-indigo-600 hidden sm:inline"
+          >
+            HustleHub Africa
+          </Link>
         </div>
 
         <button
@@ -84,7 +97,7 @@ const Header: React.FC = () => {
         </button>
       </div>
       
-      <nav className="hidden sm:flex space-x-4 sm:space-x-8 items-center" aria-label="Primary  navigation">
+      <nav className="hidden sm:flex space-x-4 sm:space-x-8 items-center" aria-label="Primary navigation">
         <Link href="/" className="text-gray-600 hover:text-indigo-600 transition-colors">Home</Link>
         <Link href="/blog" className="text-gray-600 hover:text-indigo-600 transition-colors">Blog</Link>
         <Link href="#earning" className="text-gray-600 hover:text-indigo-600 transition-colors">Paid Surveys</Link>
@@ -108,11 +121,11 @@ const Header: React.FC = () => {
         <Link href="/" className="block py-2 px-3 text-gray-700 hover:bg-indigo-50 rounded-lg" onClick={toggleMenu}>Home</Link>
         <Link href="/blog" className="block py-2 px-3 text-gray-700 hover:bg-indigo-50 rounded-lg" onClick={toggleMenu}>Blog</Link>
         <Link href="#earning" className="block py-2 px-3 text-gray-700 hover:bg-indigo-50 rounded-lg" onClick={toggleMenu}>Paid Surveys</Link>
-        <Link href="/login" className="block py-2 px-3 text-gray-700 hover:bg-indigo-50 rounded-lg" onClick={toggleMenu}>Login</Link>
+        <Link href="/auth/login" className="block py-2 px-3 text-gray-700 hover:bg-indigo-50 rounded-lg" onClick={toggleMenu}>Login</Link>
         <Link href="/admin" className="block py-2 px-3 text-gray-700 hover:bg-indigo-50 rounded-lg" aria-label="Admin Login Portal" onClick={toggleMenu}>Admin Login</Link>
         
         <Link 
-          href="/register"
+          href="/auth/sign-up"
           className="w-full mt-4 py-2 bg-green-500 text-white font-medium rounded-xl hover:bg-green-600 transition-colors shadow-md text-center block"
           aria-label="Get started and create a new account (mobile)"
           onClick={toggleMenu}
@@ -127,11 +140,17 @@ const Header: React.FC = () => {
 const Footer: React.FC = () => (
   <footer className="bg-gray-900 text-gray-400 pt-12 pb-8 px-4 md:px-12">
     <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-8">
-      <div className="col-span-2 md:col-span-1">
-        <h3 className="text-3xl font-extrabold text-white mb-4">HH</h3>
-        <p className="text-sm max-w-xs">
-          Empowering Africans to achieve financial freedom through multiple income streams.
-        </p>
+      <div className="flex items-center space-x-2 mb-4">
+        <div className="p-1 rounded-full ring-4 ring-white">
+          <Image
+            src="/logo.png"
+            alt="HustleHub Africa Logo"
+            width={40}
+            height={40}
+            className="rounded-full"
+          />
+        </div>
+        <h3 className="text-2xl font-extrabold text-white">HustleHub Africa</h3>
       </div>
 
       <div>
@@ -250,7 +269,7 @@ const FourStepProcess: React.FC = () => (
                   {item.step.slice(1)}
                 </div>
                 {index < steps.length - 1 && (
-                    <div className="lg:hidden absolute left-5 top-10 h-full w-0.5 bg-indigo-200 -z-10"></div>
+                  <div className="lg:hidden absolute left-5 top-10 h-full w-0.5 bg-indigo-200 -z-10"></div>
                 )}
               </div>
               <h3 className="text-xl font-bold text-gray-900 mt-2 mb-2">{item.title}</h3>
@@ -291,7 +310,7 @@ const FinalCTA: React.FC = () => (
       </div>
 
       <p className="text-base font-semibold mt-2 mb-8 opacity-90">
-          <span className="text-green-400">One-time Registration Fee: Ksh 1000</span>
+        <span className="text-green-400">One-time Registration Fee: Ksh 1000</span>
       </p>
 
       <div className="flex flex-wrap justify-center items-center text-sm space-x-4 sm:space-x-8 mt-10">
@@ -348,20 +367,24 @@ const HeroSection: React.FC = () => (
       </div>
 
       <div className="lg:w-1/2 flex justify-center">
-        <Image
-        src="/hero-desktop.png"
-        width={1000}
-        height={760}
-        className="hidden md:block"
-        alt="Screenshots of the dashboard project showing desktop version"
-      />
-      <Image
-        src="/hero-mobile.png"
-        width={560}
-        height={620}
-        className="block md:hidden"
-        alt="Screenshot of the dashboard project showing mobile version"
-      />
+        <div className="hidden md:block p-2 ring-8 ring-blue-500 rounded-2xl">
+          <Image
+            src="/hero-desktop.png"
+            width={1000}
+            height={760}
+            className="hidden md:block"
+            alt="Screenshots of the dashboard project showing desktop version"
+          />
+        </div>
+        <div className="block md:hidden p-2 ring-8 ring-blue-500 rounded-2xl">
+          <Image
+            src="/hero-mobile.png"
+            width={560}
+            height={620}
+            className="block md:hidden"
+            alt="Screenshot of the dashboard project showing mobile version"
+          />
+        </div>
       </div>
     </div>
   </section>

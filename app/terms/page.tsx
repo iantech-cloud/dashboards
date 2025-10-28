@@ -1,0 +1,2 @@
+//app/terms/page.tsx
+

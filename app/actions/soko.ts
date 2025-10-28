@@ -294,24 +294,27 @@ export async function getMyCampaigns() {
     });
 
     return {
-      success: true,
-      data: eligibleCampaigns.map(c => ({
-        _id: c._id.toString(),
-        name: sanitizeString(c.name),
-        slug: c.slug,
-        description: sanitizeString(c.description),
-        short_description: sanitizeString(c.short_description),
-        featured_image: c.featured_image,
-        campaign_type: c.campaign_type,
-        commission_rate: sanitizeNumber(c.commission_rate),
-        commission_type: c.commission_type,
-        product_category: sanitizeString(c.product_category),
-        status: c.status,
-        start_date: c.start_date,
-        end_date: c.end_date,
-        is_featured: c.is_featured
-      }))
-    };
+    success: true,
+    data: eligibleCampaigns.map(c => ({
+    _id: c._id.toString(),
+    name: sanitizeString(c.name),
+    slug: c.slug,
+    description: sanitizeString(c.description),
+    short_description: sanitizeString(c.short_description),
+    featured_image: c.featured_image,
+    campaign_type: c.campaign_type,
+    commission_rate: sanitizeNumber(c.commission_rate),
+    commission_fixed_amount: sanitizeNumber(c.commission_fixed_amount),
+    commission_type: c.commission_type,
+    product_category: sanitizeString(c.product_category),
+    status: c.status,
+    start_date: c.start_date,
+    end_date: c.end_date,
+    is_featured: c.is_featured,
+    product_price: sanitizeNumber(c.product_price),
+    currency: c.currency || 'KES'
+  }))
+};
   } catch (error: any) {
     console.error('Error getting campaigns:', error);
     return { success: false, message: 'Failed to get campaigns' };
@@ -792,6 +795,26 @@ export async function trackClick(trackingCode: string, metadata?: any) {
       session_id: metadata?.session_id ? sanitizeString(metadata.session_id) : undefined,
     };
 
+    // Check for duplicate clicks from same IP in last 24 hours
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const existingClick = await ClickTracking.findOne({
+      affiliate_link_id: affiliateLink._id,
+      ip_address: sanitizedMetadata.ip_address,
+      clicked_at: { $gte: twentyFourHoursAgo }
+    });
+
+    // If duplicate click found, return success but don't increment counters
+    if (existingClick) {
+      return {
+        success: true,
+        data: {
+          redirect_url: affiliateLink.merchant_affiliate_url,
+          tracking_id: existingClick._id.toString(),
+          is_duplicate: true
+        }
+      };
+    }
+
     // Create click tracking
     const click = new ClickTracking({
       affiliate_link_id: affiliateLink._id,
@@ -816,7 +839,6 @@ export async function trackClick(trackingCode: string, metadata?: any) {
     });
 
     // Return the merchant's affiliate URL for redirect
-    // This is the original URL provided by the admin
     if (!affiliateLink.merchant_affiliate_url) {
       return { success: false, message: 'Merchant affiliate URL not found' };
     }
@@ -824,8 +846,9 @@ export async function trackClick(trackingCode: string, metadata?: any) {
     return {
       success: true,
       data: {
-        redirect_url: affiliateLink.merchant_affiliate_url, // Redirect to merchant's site
-        tracking_id: click._id.toString()
+        redirect_url: affiliateLink.merchant_affiliate_url,
+        tracking_id: click._id.toString(),
+        is_duplicate: false
       }
     };
   } catch (error: any) {
@@ -833,7 +856,6 @@ export async function trackClick(trackingCode: string, metadata?: any) {
     return { success: false, message: 'Failed to track click' };
   }
 }
-
 // ============================================================================
 // GET CAMPAIGN DETAILS (Public)
 // ============================================================================
@@ -860,25 +882,28 @@ export async function getCampaignDetails(slugOrId: string) {
     }
 
     return {
-      success: true,
-      data: {
-        _id: campaign._id.toString(),
-        name: sanitizeString(campaign.name),
-        slug: campaign.slug,
-        description: sanitizeString(campaign.description),
-        short_description: sanitizeString(campaign.short_description),
-        featured_image: campaign.featured_image,
-        gallery_images: campaign.gallery_images,
-        campaign_type: campaign.campaign_type,
-        commission_rate: sanitizeNumber(campaign.commission_rate),
-        commission_type: campaign.commission_type,
-        product_category: sanitizeString(campaign.product_category),
-        product_price: sanitizeNumber(campaign.product_price),
-        currency: campaign.currency,
-        terms_and_conditions: sanitizeString(campaign.terms_and_conditions),
-        is_featured: campaign.is_featured
-      }
-    };
+  success: true,
+  data: {
+    _id: campaign._id.toString(),
+    name: sanitizeString(campaign.name),
+    slug: campaign.slug,
+    description: sanitizeString(campaign.description),
+    short_description: sanitizeString(campaign.short_description),
+    featured_image: campaign.featured_image,
+    gallery_images: campaign.gallery_images,
+    campaign_type: campaign.campaign_type,
+    commission_rate: sanitizeNumber(campaign.commission_rate),
+    commission_fixed_amount: sanitizeNumber(campaign.commission_fixed_amount), // ADD THIS
+    commission_type: campaign.commission_type,
+    product_category: sanitizeString(campaign.product_category),
+    product_price: sanitizeNumber(campaign.product_price),
+    currency: campaign.currency,
+    start_date: campaign.start_date, // These should already be there
+    end_date: campaign.end_date,
+    terms_and_conditions: sanitizeString(campaign.terms_and_conditions),
+    is_featured: campaign.is_featured
+  }
+};
   } catch (error: any) {
     console.error('Error getting campaign details:', error);
     return { success: false, message: 'Failed to get campaign details' };
