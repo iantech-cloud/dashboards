@@ -1,9 +1,8 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { getServerSession } from "next-auth"
+import { auth } from "@/auth"
 import type { Session } from "next-auth"
-import { authOptions } from "@/auth"
 import {
   connectToDatabase,
   Survey,
@@ -385,7 +384,7 @@ export async function submitSurveyAnswers(
   }>,
 ): Promise<SurveyCompletionResult> {
   try {
-    const session = (await getServerSession(authOptions)) as Session | null
+    const session = await auth()
 
     if (!session?.user?.email) {
       return { success: false, message: "Unauthorized" }
@@ -641,6 +640,7 @@ export async function submitSurveyAnswers(
     }
   }
 }
+
 /**
  * Get user's survey history
  */
@@ -650,7 +650,7 @@ export async function getSurveyHistory(): Promise<{
   message?: string
 }> {
   try {
-    const session = (await getServerSession(authOptions)) as Session | null
+    const session = await auth()
 
     if (!session?.user?.email) {
       return { success: false, message: "Unauthorized" }
@@ -719,7 +719,7 @@ export async function getSurveyHistory(): Promise<{
  */
 export async function getAdminSurveys(page = 1, limit = 10, search?: string) {
   try {
-    const session = (await getServerSession(authOptions)) as Session | null
+    const session = await auth()
 
     if (!session?.user?.email) {
       return { success: false, message: "Unauthorized" }
@@ -779,7 +779,7 @@ export async function getAdminSurveys(page = 1, limit = 10, search?: string) {
  */
 export async function getAdminSurveyResponses(page = 1, limit = 10, search?: string) {
   try {
-    const session = (await getServerSession(authOptions)) as Session | null
+    const session = await auth()
 
     if (!session?.user?.email) {
       return { success: false, message: "Unauthorized" }
@@ -880,6 +880,7 @@ export async function getAdminSurveyResponses(page = 1, limit = 10, search?: str
     return { success: false, message: error.message || "Failed to fetch survey responses" }
   }
 }
+
 /**
  * AI-generated survey creation using the Gemini API
  */
@@ -889,7 +890,7 @@ export async function generateAISurvey(
   questionCount = 5,
 ): Promise<{ success: boolean; data?: any; message?: string }> {
   try {
-    const session = (await getServerSession(authOptions)) as Session | null
+    const session = await auth()
 
     if (!session?.user?.email) {
       return { success: false, message: "Unauthorized" }
@@ -1018,7 +1019,7 @@ export async function createSurvey(surveyData: {
   scheduled_for: Date
 }): Promise<{ success: boolean; message: string; surveyId?: string }> {
   try {
-    const session = (await getServerSession(authOptions)) as Session | null
+    const session = await auth()
 
     if (!session?.user?.email) {
       return { success: false, message: "Unauthorized" }
@@ -1129,7 +1130,7 @@ export async function toggleSurveyAvailability(surveyId: string): Promise<{
   isEnabled?: boolean
 }> {
   try {
-    const session = (await getServerSession(authOptions)) as Session | null
+    const session = await auth()
 
     if (!session?.user?.email) {
       return { success: false, message: "Unauthorized" }
@@ -1208,7 +1209,7 @@ export async function revokeSurveyResponse(
   reason: string
 ): Promise<{ success: boolean; message: string }> {
   try {
-    const session = (await getServerSession(authOptions)) as Session | null
+    const session = await auth()
 
     if (!session?.user?.email) {
       return { success: false, message: "Unauthorized" }
@@ -1309,7 +1310,7 @@ export async function getSurveyDetails(surveyId: string): Promise<{
   message?: string
 }> {
   try {
-    const session = (await getServerSession(authOptions)) as Session | null
+    const session = await auth()
 
     if (!session?.user?.email) {
       return { success: false, message: "Unauthorized" }
@@ -1380,7 +1381,7 @@ export async function getAvailableSurveys(): Promise<{
   message?: string
 }> {
   try {
-    const session = (await getServerSession(authOptions)) as Session | null
+    const session = await auth()
 
     if (!session?.user?.email) {
       return { success: false, message: "Unauthorized" }
@@ -1513,7 +1514,7 @@ export async function startSurvey(surveyId: string): Promise<{
   responseId?: string
 }> {
   try {
-    const session = (await getServerSession(authOptions)) as Session | null
+    const session = await auth()
 
     if (!session?.user?.email) {
       return { success: false, message: "Unauthorized" }

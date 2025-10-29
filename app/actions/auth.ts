@@ -12,6 +12,11 @@ export async function registerUser(userData: {
   phone: string;
   password: string;
   referralId?: string;
+  // NEW: Add these optional fields
+  isOAuthUser?: boolean;
+  oauthProvider?: string;
+  oauthId?: string;
+  googleProfilePicture?: string;
 }): Promise<{ 
   success: boolean; 
   data?: any; 
@@ -20,11 +25,16 @@ export async function registerUser(userData: {
   try {
     await connectToDatabase();
 
-    const { username, email, phone, password, referralId } = userData;
+    const { username, email, phone, password, referralId, isOAuthUser, oauthProvider, oauthId, googleProfilePicture } = userData;
 
     // Check for existing users
     const existingUser = await (Profile as any).findOne({ 
-      $or: [{ username }, { email }] 
+      $or: [
+        { username }, 
+        { email }, 
+        { oauth_id: oauthId },
+        { phone_number: phone }
+      ].filter(Boolean) // Remove null/undefined conditions
     });
 
     if (existingUser) {
@@ -33,6 +43,12 @@ export async function registerUser(userData: {
       }
       if (existingUser.email === email) {
         return { success: false, message: 'Email already registered' };
+      }
+      if (oauthId && existingUser.oauth_id === oauthId) {
+        return { success: false, message: 'OAuth account already registered' };
+      }
+      if (existingUser.phone_number === phone) {
+        return { success: false, message: 'Phone number already registered' };
       }
     }
 
@@ -51,7 +67,7 @@ export async function registerUser(userData: {
     }
 
     // Create user
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = isOAuthUser ? '' : await bcrypt.hash(password, 10);
     const newUserId = randomUUID();
     const newUserReferralId = generateReferralId();
 
@@ -63,10 +79,15 @@ export async function registerUser(userData: {
       password: hashedPassword,
       referral_id: newUserReferralId,
       approval_status: 'pending',
-      status: 'pending',
+      status: isOAuthUser ? 'inactive' : 'pending',
       is_approved: false,
       is_active: false,
-      is_verified: false,
+      is_verified: isOAuthUser ? true : false, // Auto-verify OAuth users
+      // NEW: Add OAuth fields
+      oauth_provider: oauthProvider || 'email',
+      oauth_id: oauthId || null,
+      oauth_verified: isOAuthUser || false,
+      google_profile_picture: googleProfilePicture || null,
     });
 
     // Handle referral creation
@@ -74,19 +95,11 @@ export async function registerUser(userData: {
       await createReferralStructure(referrerProfile._id, newUserId);
     }
 
-    // Generate verification token and send email
-    const verificationResult = await generateVerificationToken(newUserId);
-    if (!verificationResult.success) {
-      // If email fails, we still create the user but they need to request verification
-      return {
-        success: true,
-        data: {
-          user_id: newUser._id,
-          referral_id: newUserReferralId,
-          email_sent: false,
-        },
-        message: 'Registration successful! Please check your email for verification instructions.'
-      };
+    // Generate verification token and send email for non-OAuth users
+    let emailSent = false;
+    if (!isOAuthUser) {
+      const verificationResult = await generateVerificationToken(newUserId);
+      emailSent = verificationResult.success;
     }
 
     return {
@@ -94,9 +107,14 @@ export async function registerUser(userData: {
       data: {
         user_id: newUser._id,
         referral_id: newUserReferralId,
-        email_sent: true,
+        email_sent: emailSent,
+        is_oauth: isOAuthUser || false,
       },
-      message: 'Registration successful! Please check your email to verify your account.'
+      message: isOAuthUser 
+        ? 'Registration successful! Please complete your profile.' 
+        : emailSent 
+          ? 'Registration successful! Please check your email to verify your account.'
+          : 'Registration successful! Please check your email for verification instructions.'
     };
 
   } catch (error) {
@@ -257,13 +275,14 @@ export async function checkUserStatus(userId: string): Promise<{
       approval_status: user.approval_status,
       status: user.status,
       role: user.role,
+      oauth_provider: user.oauth_provider,
     };
 
     // Determine next step for user
     let nextStep = '';
     let redirectPath = '';
 
-    if (!user.is_verified) {
+    if (!user.is_verified && user.oauth_provider === 'email') {
       nextStep = 'email_verification';
       redirectPath = '/auth/confirm';
     } else if (!user.is_active) {
@@ -403,6 +422,71 @@ export async function getUserByEmail(email: string): Promise<{
   }
 }
 
+// Find user by OAuth ID
+export async function getUserByOAuthId(oauthId: string, provider: string): Promise<{ 
+  success: boolean; 
+  data?: any; 
+  message: string 
+}> {
+  try {
+    await connectToDatabase();
+
+    const user = await (Profile as any).findOne({ 
+      oauth_id: oauthId,
+      oauth_provider: provider 
+    });
+
+    if (!user) {
+      return { success: false, message: 'OAuth user not found' };
+    }
+
+    return {
+      success: true,
+      data: user,
+      message: 'OAuth user retrieved successfully'
+    };
+
+  } catch (error) {
+    console.error('Get OAuth user error:', error);
+    return { success: false, message: 'Failed to retrieve OAuth user' };
+  }
+}
+
+// Link OAuth account to existing user
+export async function linkOAuthAccount(userId: string, oauthData: {
+  provider: string;
+  oauthId: string;
+  profilePicture?: string;
+}): Promise<{ 
+  success: boolean; 
+  message: string 
+}> {
+  try {
+    await connectToDatabase();
+
+    const user = await (Profile as any).findByIdAndUpdate(
+      userId,
+      {
+        oauth_provider: oauthData.provider,
+        oauth_id: oauthData.oauthId,
+        oauth_verified: true,
+        google_profile_picture: oauthData.profilePicture || null,
+      },
+      { new: true }
+    );
+
+    if (!user) {
+      return { success: false, message: 'User not found' };
+    }
+
+    return { success: true, message: 'OAuth account linked successfully' };
+
+  } catch (error) {
+    console.error('Link OAuth account error:', error);
+    return { success: false, message: 'Failed to link OAuth account' };
+  }
+}
+
 // Validate user credentials
 export async function validateUserCredentials(email: string, password: string): Promise<{ 
   success: boolean; 
@@ -418,8 +502,16 @@ export async function validateUserCredentials(email: string, password: string): 
 
     const user = userResult.data;
 
-    // Check if user is verified
-    if (!user.is_verified) {
+    // Check if user is OAuth-only (no password)
+    if (user.oauth_provider !== 'email' && !user.password) {
+      return { 
+        success: false, 
+        message: 'Please sign in with your OAuth provider.' 
+      };
+    }
+
+    // Check if user is verified (only for email users)
+    if (user.oauth_provider === 'email' && !user.is_verified) {
       return { 
         success: false, 
         message: 'Please verify your email before logging in.' 

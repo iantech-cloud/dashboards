@@ -8,10 +8,13 @@ import {
 	Withdrawal,
 	MpesaTransaction
 } from '../lib/models';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+// --- NextAuth v5 (Auth.js) Update ---
+// Import the new auth helper function instead of getServerSession
+import { auth } from '@/auth'; 
+// The Session type structure should still be compatible, but is now usually imported from next-auth/core/types
+// For simplicity and common v5 usage, we keep the existing import path.
+import type { Session } from 'next-auth'; 
 import { revalidatePath } from 'next/cache';
-import type { Session } from 'next-auth';
 
 // M-Pesa Daraja API configuration
 const MPESA_CONFIG = {
@@ -70,29 +73,29 @@ function generateMpesaTimestamp(): string {
 // Helper function to transform MongoDB documents to plain objects
 function transformTransaction(transaction: any): any {
 	const plainTransaction = transaction.toObject ? transaction.toObject() : transaction;
-    
-    const serializeValue = (value: any): any => {
-        if (value && typeof value === 'object') {
-            if (value.constructor.name === 'ObjectId' || (value.buffer && value.constructor.name === 'ObjectID')) {
-                return value.toString();
-            }
-            if (Array.isArray(value)) {
-                return value.map(serializeValue);
-            }
-            if (Buffer.isBuffer(value)) {
-                return value.toString('hex');
-            }
-            const newObj: { [key: string]: any } = {};
-            for (const key in value) {
-                newObj[key] = serializeValue(value[key]);
-            }
-            return newObj;
-        }
-        if (value instanceof Date) {
-            return value.toISOString();
-        }
-        return value;
-    };
+    
+    const serializeValue = (value: any): any => {
+        if (value && typeof value === 'object') {
+            if (value.constructor.name === 'ObjectId' || (value.buffer && value.constructor.name === 'ObjectID')) {
+                return value.toString();
+            }
+            if (Array.isArray(value)) {
+                return value.map(serializeValue);
+            }
+            if (Buffer.isBuffer(value)) {
+                return value.toString('hex');
+            }
+            const newObj: { [key: string]: any } = {};
+            for (const key in value) {
+                newObj[key] = serializeValue(value[key]);
+            }
+            return newObj;
+        }
+        if (value instanceof Date) {
+            return value.toISOString();
+        }
+        return value;
+    };
 
 	return {
 		id: plainTransaction._id?.toString(),
@@ -104,7 +107,7 @@ function transformTransaction(transaction: any): any {
 		description: plainTransaction.description,
 		status: plainTransaction.status,
 		transaction_code: plainTransaction.transaction_code,
-		metadata: serializeValue(plainTransaction.metadata), 
+		metadata: serializeValue(plainTransaction.metadata), 
 		mpesa_transaction_id: plainTransaction.mpesa_transaction_id?.toString(),
 		reconciled: plainTransaction.reconciled,
 		created_at: plainTransaction.created_at?.toISOString(),
@@ -183,7 +186,8 @@ export async function getTransactions(limit: number = 50): Promise<{
 	message: string	
 }> {
 	try {
-		const session = await getServerSession(authOptions) as Session | null;
+		// --- NextAuth v5 (Auth.js) Update: Use the new 'auth()' helper ---
+		const session = await auth() as Session | null;
 		
 		if (!session?.user?.email) {
 			return { success: false, message: 'Unauthorized' };
@@ -197,13 +201,13 @@ export async function getTransactions(limit: number = 50): Promise<{
 		}
 
 		// Only get user's personal transactions (target_type: 'user' and user_id matches)
-		const transactions = await Transaction.find({ 
+		const transactions = await Transaction.find({ 
 			user_id: currentUser._id,
 			target_type: 'user'
 		})
 			.sort({ created_at: -1 })
 			.limit(limit)
-			.lean(); 
+			.lean(); 
 
 		const transformedTransactions = transactions.map(transformTransaction);
 
@@ -228,7 +232,8 @@ export async function processMpesaDeposit(depositData: {
 	message: string	
 }> {
 	try {
-		const session = await getServerSession(authOptions) as Session | null;
+		// --- NextAuth v5 (Auth.js) Update: Use the new 'auth()' helper ---
+		const session = await auth() as Session | null;
 		
 		if (!session?.user?.email) {
 			return { success: false, message: 'Unauthorized' };
@@ -357,14 +362,15 @@ export async function processWithdrawal(withdrawalData: {
 	message: string	
 }> {
 	try {
-		const session = await getServerSession(authOptions) as Session | null;
+		// --- NextAuth v5 (Auth.js) Update: Use the new 'auth()' helper ---
+		const session = await auth() as Session | null;
 		
 		if (!session?.user?.email) {
 			return { success: false, message: 'Unauthorized' };
 		}
 
 		await connectToDatabase();
-		const currentUser: any = await Profile.findOne({ email: session.user.email }).lean(); 
+		const currentUser: any = await Profile.findOne({ email: session.user.email }).lean(); 
 
 		if (!currentUser) {
 			return { success: false, message: 'User not found' };
@@ -443,89 +449,89 @@ export async function processWithdrawal(withdrawalData: {
 // ----------------------------------------------------------------------
 
 export async function handleMpesaCallback(callbackData: any): Promise<{ success: boolean; message: string }> {
-  try {
-    await connectToDatabase();
-    
-    const { Body: { stkCallback: callback } } = callbackData;
-    const { CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = callback;
+  try {
+    await connectToDatabase();
+    
+    const { Body: { stkCallback: callback } } = callbackData;
+    const { CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = callback;
 
-    const mpesaTransaction = await MpesaTransaction.findOne({ 
-      checkout_request_id: CheckoutRequestID 
-    });
+    const mpesaTransaction = await MpesaTransaction.findOne({ 
+      checkout_request_id: CheckoutRequestID 
+    });
 
-    if (!mpesaTransaction) {
-      console.error('M-Pesa transaction not found:', CheckoutRequestID);
-      return { success: false, message: 'Transaction not found' };
-    }
+    if (!mpesaTransaction) {
+      console.error('M-Pesa transaction not found:', CheckoutRequestID);
+      return { success: false, message: 'Transaction not found' };
+    }
 
-    const transaction = await Transaction.findOne({
-      mpesa_transaction_id: mpesaTransaction._id
-    });
+    const transaction = await Transaction.findOne({
+      mpesa_transaction_id: mpesaTransaction._id
+    });
 
-    if (!transaction) {
-      console.error('Transaction not found for M-Pesa transaction:', mpesaTransaction._id);
-      return { success: false, message: 'Transaction record not found' };
-    }
+    if (!transaction) {
+      console.error('Transaction not found for M-Pesa transaction:', mpesaTransaction._id);
+      return { success: false, message: 'Transaction record not found' };
+    }
 
-    if (ResultCode === 0) {
-      const metadata = CallbackMetadata?.Item || [];
-      const amountItem = metadata.find((item: any) => item.Name === 'Amount');
-      const receiptItem = metadata.find((item: any) => item.Name === 'MpesaReceiptNumber');
-      const phoneItem = metadata.find((item: any) => item.Name === 'PhoneNumber');
+    if (ResultCode === 0) {
+      const metadata = CallbackMetadata?.Item || [];
+      const amountItem = metadata.find((item: any) => item.Name === 'Amount');
+      const receiptItem = metadata.find((item: any) => item.Name === 'MpesaReceiptNumber');
+      const phoneItem = metadata.find((item: any) => item.Name === 'PhoneNumber');
 
-      await MpesaTransaction.findByIdAndUpdate(mpesaTransaction._id, {
-        status: 'completed',
-        result_code: ResultCode,
-        result_desc: ResultDesc,
-        mpesa_receipt_number: receiptItem?.Value,
-        phone_number: phoneItem?.Value,
-        callback_metadata: callbackData
-      });
+      await MpesaTransaction.findByIdAndUpdate(mpesaTransaction._id, {
+        status: 'completed',
+        result_code: ResultCode,
+        result_desc: ResultDesc,
+        mpesa_receipt_number: receiptItem?.Value,
+        phone_number: phoneItem?.Value,
+        callback_metadata: callbackData
+      });
 
-      await Transaction.findByIdAndUpdate(transaction._id, {
-        status: 'completed',
-        transaction_code: receiptItem?.Value,
-        metadata: {
-          ...transaction.metadata,
-          mpesaReceiptNumber: receiptItem?.Value,
-          phoneNumber: phoneItem?.Value,
-          amount: amountItem?.Value
-        }
-      });
+      await Transaction.findByIdAndUpdate(transaction._id, {
+        status: 'completed',
+        transaction_code: receiptItem?.Value,
+        metadata: {
+          ...transaction.metadata,
+          mpesaReceiptNumber: receiptItem?.Value,
+          phoneNumber: phoneItem?.Value,
+          amount: amountItem?.Value
+        }
+      });
 
-      await Profile.findByIdAndUpdate(transaction.user_id, {
-        $inc: { balance_cents: transaction.amount_cents }
-      });
+      await Profile.findByIdAndUpdate(transaction.user_id, {
+        $inc: { balance_cents: transaction.amount_cents }
+      });
 
-    } else {
-      const status = ResultCode === 1032 ? 'cancelled' : 
-                    ResultCode === 1037 ? 'timeout' : 'failed';
+    } else {
+      const status = ResultCode === 1032 ? 'cancelled' : 
+                    ResultCode === 1037 ? 'timeout' : 'failed';
 
-      await MpesaTransaction.findByIdAndUpdate(mpesaTransaction._id, {
-        status,
-        result_code: ResultCode,
-        result_desc: ResultDesc,
-        callback_metadata: callbackData
-      });
+      await MpesaTransaction.findByIdAndUpdate(mpesaTransaction._id, {
+        status,
+        result_code: ResultCode,
+        result_desc: ResultDesc,
+        callback_metadata: callbackData
+      });
 
-      await Transaction.findByIdAndUpdate(transaction._id, {
-        status
-      });
+      await Transaction.findByIdAndUpdate(transaction._id, {
+        status
+      });
 
-      if (status === 'failed' || status === 'cancelled' || status === 'timeout') {
-        await Profile.findByIdAndUpdate(transaction.user_id, {
-          $inc: { total_deposits_today_cents: -transaction.amount_cents }
-        });
-      }
-    }
+      if (status === 'failed' || status === 'cancelled' || status === 'timeout') {
+        await Profile.findByIdAndUpdate(transaction.user_id, {
+          $inc: { total_deposits_today_cents: -transaction.amount_cents }
+        });
+      }
+    }
 
-    revalidatePath('/dashboard/wallet');
-    return { success: true, message: 'Callback processed successfully' };
+    revalidatePath('/dashboard/wallet');
+    return { success: true, message: 'Callback processed successfully' };
 
-  } catch (error) {
-    console.error('M-Pesa callback error:', error);
-    return { success: false, message: 'Failed to process callback' };
-  }
+  } catch (error) {
+    console.error('M-Pesa callback error:', error);
+    return { success: false, message: 'Failed to process callback' };
+  }
 }
 
 // ----------------------------------------------------------------------
@@ -533,64 +539,71 @@ export async function handleMpesaCallback(callbackData: any): Promise<{ success:
 // ----------------------------------------------------------------------
 
 export async function getAdminTransactions(limit: number = 1000, filters: any = {}) {
-  try {
-    await connectToDatabase();
+  try {
+    // NOTE: For admin functions, you should add an authorization check here
+	// using the 'auth()' helper to ensure the user has admin privileges.
+	/* const session = await auth();
+	if (!session?.user?.isAdmin) {
+		return { success: false, message: 'Unauthorized as Admin' };
+	}
+	*/
+    await connectToDatabase();
 
-    let query: any = {};
-    
-    if (filters.type && filters.type !== 'all') {
-      query.type = filters.type;
-    }
-    
-    if (filters.status && filters.status !== 'all') {
-      query.status = filters.status;
-    }
-    
-    if (filters.dateFrom || filters.dateTo) {
-      query.created_at = {};
-      if (filters.dateFrom) {
-        query.created_at.$gte = new Date(filters.dateFrom);
-      }
-      if (filters.dateTo) {
-        query.created_at.$lte = new Date(filters.dateTo + 'T23:59:59.999Z');
-      }
-    }
+    let query: any = {};
+    
+    if (filters.type && filters.type !== 'all') {
+      query.type = filters.type;
+    }
+    
+    if (filters.status && filters.status !== 'all') {
+      query.status = filters.status;
+    }
+    
+    if (filters.dateFrom || filters.dateTo) {
+      query.created_at = {};
+      if (filters.dateFrom) {
+        query.created_at.$gte = new Date(filters.dateFrom);
+      }
+      if (filters.dateTo) {
+        query.created_at.$lte = new Date(filters.dateTo + 'T23:59:59.999Z');
+      }
+    }
 
-    const transactions = await Transaction.find(query)
-      .populate('user_id', 'username email')
-      .populate('mpesa_transaction_id', 'mpesa_receipt_number phone_number')
-      .sort({ created_at: -1 })
-      .limit(limit)
-      .lean();
+    const transactions = await Transaction.find(query)
+      .populate('user_id', 'username email')
+      .populate('mpesa_transaction_id', 'mpesa_receipt_number phone_number')
+      .sort({ created_at: -1 })
+      .limit(limit)
+      .lean();
 
-    const transformedTransactions = transactions.map((txn: any) => ({
-      id: txn._id.toString(),
-      user_id: txn.user_id?._id?.toString() || null,
-      user_email: txn.user_id?.email || 'System',
-      user_username: txn.user_id?.username || 'System',
-      amount: txn.amount_cents / 100,
-      type: txn.type,
-      status: txn.status,
-      description: txn.description,
-      date: txn.created_at,
-      transaction_code: txn.transaction_code,
-      mpesa_receipt_number: txn.mpesa_transaction_id?.mpesa_receipt_number,
-      phone_number: txn.mpesa_transaction_id?.phone_number,
-      metadata: txn.metadata,
-      
-      // CRITICAL: Include target_type and target_id
-      target_type: txn.target_type || 'user',
-      target_id: txn.target_id?.toString() || txn.user_id?._id?.toString() || null
-    }));
+    const transformedTransactions = transactions.map((txn: any) => ({
+      id: txn._id.toString(),
+      user_id: txn.user_id?._id?.toString() || null,
+      user_email: txn.user_id?.email || 'System',
+      user_username: txn.user_id?.username || 'System',
+      amount: txn.amount_cents / 100,
+      type: txn.type,
+      status: txn.status,
+      description: txn.description,
+      date: txn.created_at,
+      transaction_code: txn.transaction_code,
+      mpesa_receipt_number: txn.mpesa_transaction_id?.mpesa_receipt_number,
+      phone_number: txn.mpesa_transaction_id?.phone_number,
+      metadata: txn.metadata,
+      
+      // CRITICAL: Include target_type and target_id
+      target_type: txn.target_type || 'user',
+      target_id: txn.target_id?.toString() || txn.user_id?._id?.toString() || null
+    }));
 
-    return {
-      success: true,
-      data: { transactions: transformedTransactions },
-      message: 'Transactions fetched successfully'
-    };
+    return {
+      success: true,
+      data: { transactions: transformedTransactions },
+      message: 'Transactions fetched successfully'
+    };
 
-  } catch (error) {
-    console.error('Get admin transactions error:', error);
-    return { success: false, message: 'Failed to fetch transactions' };
-  }
+  } catch (error) {
+    console.error('Get admin transactions error:', error);
+    return { success: false, message: 'Failed to fetch transactions' };
+  }
 }

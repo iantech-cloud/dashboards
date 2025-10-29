@@ -1,8 +1,8 @@
-// app/dashboard/layout.tsx
+// app/dashboard/layout.tsx - DEBUGGING VERSION
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
-import { signOut, getSession } from 'next-auth/react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { signOut, useSession } from 'next-auth/react';
 import SideNav from '@/app/ui/dashboard/sidenav';
 import BottomNav from '@/app/ui/dashboard/BottomNav';
 import Alert from '@/app/ui/Alert';
@@ -13,10 +13,10 @@ import { getUserProfile } from '../actions/user';
 import { getReferrals } from '../actions/referrals';
 import { getTransactions } from '../actions/transactions';
 import Link from 'next/link';
-
+import SessionMonitor from '@/app/components/SessionMonitor';
+import SessionDebugger from '@/app/components/SessionDebugger';
 const MAX_RETRIES = 3;
 
-// Generic API fetch function for external APIs (keep this for external calls)
 async function apiFetch<T>(
   endpoint: string,
   method: 'GET' | 'POST',
@@ -111,75 +111,29 @@ interface User {
   email: string;
 }
 
-// Helper function to fetch dashboard data using server actions
-async function fetchDashboardData(userId: string) {
-  try {
-    // Fetch user profile using server action
-    const profileResult = await getUserProfile();
-    if (!profileResult.success || !profileResult.data) {
-      throw new Error(profileResult.message || 'Failed to fetch user profile');
-    }
-
-    const userData = profileResult.data;
-
-    // Fetch additional data using server actions
-    const [referralsResult, transactionsResult] = await Promise.all([
-      getReferrals(),
-      getTransactions()
-    ]);
-
-    // Transform data to match your existing DashboardData structure
-    return {
-      profile: {
-        username: userData.name,
-        phone_number: userData.phone,
-        referral_id: userData.referralCode,
-        email: userData.email,
-        is_verified: userData.isVerified,
-        is_active: userData.isActive,
-        is_approved: userData.isApproved,
-        status: userData.status,
-        ban_reason: userData.banReason,
-        banned_at: userData.bannedAt,
-        suspension_reason: userData.suspensionReason,
-        suspended_at: userData.suspendedAt,
-        level: userData.level,
-        rank: userData.rank,
-        total_earnings: userData.totalEarnings,
-        tasks_completed: userData.tasksCompleted,
-        available_spins: userData.availableSpins,
-      },
-      stats: {
-        totalEarnings: userData.totalEarnings,
-        availableBalance: userData.balance,
-        pendingWithdrawals: 0, // You might want to fetch this separately
-        referralCount: referralsResult.success ? referralsResult.data?.length || 0 : 0,
-        directReferralEarnings: 0, // Calculate from transactions
-        downlineCount: 0, // Calculate from referrals
-        downlineEarnings: 0, // Calculate from transactions
-        level: userData.level,
-        rank: userData.rank,
-        availableSpins: userData.availableSpins,
-      },
-      receipts: [], // You might want to create a getReceipts action
-      transactions: transactionsResult.success ? transactionsResult.data || [] : []
-    };
-  } catch (error) {
-    console.error('Error fetching dashboard data:', error);
-    throw error;
-  }
-}
-
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [authToken, setAuthToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingApp, setLoadingApp] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mpesaNotification, setMpesaNotification] = useState<any>(null);
+  const [hasAttemptedFetch, setHasAttemptedFetch] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+    
+  const { data: session, status, update } = useSession();
 
-  // Determine current section for navigation highlighting
+  // DEBUG: Log session changes
+  useEffect(() => {
+    console.log('🔐 DASHBOARD LAYOUT - Session changed:', {
+      status,
+      hasSession: !!session,
+      hasUser: !!session?.user,
+      userId: session?.user?.id,
+      userEmail: session?.user?.email,
+      fullSession: session
+    });
+  }, [session, status]);
+
   const getCurrentSection = () => {
     if (pathname?.includes('/dashboard/content')) return 'content';
     if (pathname?.includes('/dashboard/blog')) return 'blog';
@@ -191,26 +145,50 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return 'dashboard';
   };
 
-  // Use server actions instead of API calls for internal operations
+  const externalApiToken = useMemo(() => {
+    console.log('🔄 External API Token update:', { 
+      hasToken: !!(session as any)?.accessToken,
+      sessionKeys: session ? Object.keys(session) : 'no session'
+    });
+    return (session as any)?.accessToken || null; 
+  }, [session]);
+
   const authenticatedApiFetch = useCallback(
     <T,>(endpoint: string, method: 'GET' | 'POST', data?: any) => 
-      apiFetch<T>(endpoint, method, data, authToken || undefined),
-    [authToken]
+      apiFetch<T>(endpoint, method, data, externalApiToken || undefined),
+    [externalApiToken]
   );
 
+  // FIXED: Only fetch user data when session is fully populated
   const fetchUser = useCallback(async () => {
+    console.log('🔄 fetchUser called:', { 
+      status, 
+      hasUserId: !!session?.user?.id,
+      userId: session?.user?.id,
+      hasAttemptedFetch 
+    });
+
+    // CRITICAL FIX: Check both status and session.user
+    if (status !== 'authenticated' || !session?.user?.id) {
+      console.log('❌ fetchUser: Session not ready yet', { status, hasUserId: !!session?.user?.id });
+      return false;
+    }
+
+    // Prevent multiple fetch attempts
+    if (hasAttemptedFetch) {
+      console.log('⏸️ fetchUser: Already attempted fetch, skipping');
+      return false;
+    }
+
     setError(null);
-    setLoading(true);
+    setLoadingApp(true);
+    setHasAttemptedFetch(true);
 
     try {
-      const session = await getSession();
-      
-      if (!session?.user?.id) {
-        throw new Error('No active session found. Please log in again.');
-      }
+      console.log('🚀 fetchUser: Starting with session user:', session.user.id);
 
-      // Use server action to get user profile
       const profileResult = await getUserProfile();
+      console.log('📊 fetchUser: Profile result:', profileResult);
       
       if (!profileResult.success || !profileResult.data) {
         throw new Error(profileResult.message || 'Failed to fetch user data');
@@ -243,22 +221,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       };
 
       setUser(transformedUser);
-      setLoading(false);
+      setLoadingApp(false);
+      console.log('✅ fetchUser: Success! User set:', transformedUser);
       return true;
     } catch (err) {
-      console.error('Failed to fetch user data:', err);
+      console.error('❌ fetchUser: Failed -', err);
       setUser(null);
-      setAuthToken(null);
       setError(err instanceof Error ? err.message : 'Failed to fetch user data. Please try again.');
-      setLoading(false);
+      setLoadingApp(false);
+      setHasAttemptedFetch(false); // Reset to allow retry
       return false;
     }
-  }, []);
+  }, [status, session, hasAttemptedFetch]);
 
   const checkUserStatus = useCallback(async () => {
     if (!user) return;
 
-    console.log('User status:', user);
+    console.log('👤 User status check:', user);
 
     if (user.status === 'banned') {
       await signOut({ redirect: false });
@@ -277,9 +256,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         console.log('Redirecting to /auth/login (suspended)');
         router.push(`/auth/login?status=suspended&message=${encodeURIComponent(message)}`);
       } else {
-        // Use server action for unsuspend
         const unsuspendResult = await authenticatedApiFetch('/api/unsuspend', 'POST', { userId: user.id });
-        console.log('Unsuspend result:', unsuspendResult);
+        console.log('Unsuspend result (API call):', unsuspendResult);
         if (unsuspendResult.success) await fetchUser();
       }
       return;
@@ -308,7 +286,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const fetchMpesaChangeRequests = useCallback(async () => {
     if (!user) return;
     
-    // You might want to create a server action for this
     const result = await authenticatedApiFetch<any[]>('/api/mpesa-change-requests', 'GET');
     console.log('fetchMpesaChangeRequests result:', result);
     
@@ -328,54 +305,94 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [user, authenticatedApiFetch]);
 
+  // FIXED: Primary authentication gate - wait for session to be fully loaded
   useEffect(() => {
-    const checkSession = async () => {
-      setLoading(true);
-      try {
-        const session = await getSession();
-        console.log('Session check:', { session });
+    console.log('🎯 Auth useEffect:', { 
+      status, 
+      hasSession: !!session, 
+      hasUserId: !!session?.user?.id,
+      userId: session?.user?.id,
+      user: !!user,
+      hasAttemptedFetch
+    });
+    
+    if (status === 'loading') {
+      console.log('⏳ Session still loading...');
+      return;
+    }
+
+    if (status === 'unauthenticated') {
+      console.log('🚫 Unauthenticated - redirecting to login');
+      setLoadingApp(false);
+      router.push('/auth/login');
+      return;
+    }
+
+    // CRITICAL FIX: Wait for session.user.id to be populated with proper timing
+    if (status === 'authenticated') {
+      if (session?.user?.id) {
+        console.log('✅ Session ready with user.id:', session.user.id);
+        // Use setTimeout to ensure React has updated the state properly
+        const timer = setTimeout(() => {
+          if (!user && !hasAttemptedFetch) {
+            console.log('📥 Fetching user data now...');
+            fetchUser();
+          } else {
+            console.log('ℹ️  Skipping fetch - user exists or already attempted');
+          }
+        }, 100);
         
-        if (!session) {
-          console.log('No session, redirecting to /auth/login');
-          router.push('/auth/login');
-          return;
-        }
-
-        const success = await fetchUser();
-        if (!success) {
-          console.log('No user data, redirecting to /auth/login');
-          router.push('/auth/login');
-        }
-      } catch (error) {
-        console.error('Session error:', error);
-        setLoading(false);
-        router.push('/auth/login');
+        return () => clearTimeout(timer);
+      } else {
+        console.log('⚠️ Session authenticated but user.id not available yet - waiting...');
+        // Force update to trigger re-render
+        update();
       }
-    };
-    checkSession();
-  }, [fetchUser, router]);
+    }
+  }, [status, session, user, fetchUser, router, update, hasAttemptedFetch]);
 
+  // Run user status checks after user data is loaded
   useEffect(() => {
     if (user) {
+      console.log('👤 User data loaded, running status checks');
       checkUserStatus();
       fetchMpesaChangeRequests();
     }
   }, [user, checkUserStatus, fetchMpesaChangeRequests]);
 
   const handleLogout = useCallback(async () => {
-    // Use server action for logout if you create one, otherwise keep API call
-    await authenticatedApiFetch('/api/auth/logout', 'POST');
+    try {
+      await authenticatedApiFetch('/api/auth/logout', 'POST'); 
+    } catch(e) {
+      console.warn("Custom logout API call failed, proceeding with NextAuth signOut.", e);
+    }
+    
     setUser(null);
-    setAuthToken(null);
     setError(null);
-    setLoading(false);
+    setLoadingApp(false);
+    setHasAttemptedFetch(false);
     await signOut({ redirect: false });
     console.log('Logging out, redirecting to /auth/login');
     router.push('/auth/login');
   }, [authenticatedApiFetch, router]);
 
-  if (loading || !user) {
-    console.log('Layout: Skipping render, loading:', loading, 'user:', user);
+  // FIXED: Better loading state logic
+  const isOverallLoading = 
+    status === 'loading' || 
+    (status === 'authenticated' && !session?.user?.id) || 
+    (status === 'authenticated' && session?.user?.id && loadingApp && !user);
+
+  console.log('📊 Layout render state:', {
+    isOverallLoading,
+    status,
+    hasUserId: !!session?.user?.id,
+    loadingApp,
+    hasUser: !!user,
+    userId: session?.user?.id
+  });
+
+  if (isOverallLoading) {
+    console.log('⏳ Layout: Loading - status:', status, 'hasUserId:', !!session?.user?.id, 'loadingApp:', loadingApp, 'hasUser:', !!user);
     return (
       <div className="flex justify-center items-center h-full min-h-screen bg-gray-50">
         <Loader2 className="animate-spin text-indigo-500 w-8 h-8" />
@@ -384,120 +401,160 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  return (
-    <div className="flex flex-col lg:flex-row min-h-screen bg-gray-50">
-      <SideNav userName={user.name} onLogout={handleLogout} />
-      <main className="flex-1 p-4 md:p-8 pb-20 lg:pb-8">
-        {/* Mobile Header */}
-        <header className="lg:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow-md">
-          <h1 className="text-2xl font-bold text-gray-800">HustleHub</h1>
+  // Show error if authenticated with user.id but failed to fetch user data
+  if (status === 'authenticated' && session?.user?.id && !user && error) {
+    console.log('❌ Layout: Authenticated with user.id but no user data loaded - error:', error);
+    return (
+      <div className="flex justify-center items-center h-full min-h-screen bg-gray-50">
+        <div className="text-center">
+          <p className="text-red-500 mb-4">Failed to load user data: {error}</p>
           <button
             onClick={handleLogout}
-            className="flex items-center text-red-500 hover:text-red-700 transition-colors p-2 rounded-full bg-red-50 hover:bg-red-100"
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
           >
-            <LogOut size={20} className="mr-1" />
-            <span className="font-semibold text-sm">Logout</span>
+            Sign Out and Re-Login
           </button>
-        </header>
+        </div>
+      </div>
+    );
+  }
 
-        {/* Content Creation Quick Actions - Only show on relevant pages */}
-        {(getCurrentSection() === 'dashboard' || getCurrentSection() === 'content') && (
+  // CRITICAL FIX: Ensure user is loaded before rendering children
+  if (status === 'authenticated' && session?.user?.id && !user && !loadingApp) {
+    console.log('🔄 Layout: Should have user but none found - attempting refetch');
+    // This should trigger the fetchUser again
+    if (!hasAttemptedFetch) {
+      fetchUser();
+    }
+    return (
+      <div className="flex justify-center items-center h-full min-h-screen bg-gray-50">
+        <Loader2 className="animate-spin text-indigo-500 w-8 h-8" />
+        <p className="ml-2 text-gray-600">Finalizing user session...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    console.log('❌ Layout: No user - returning null');
+    return null;
+  }
+
+  console.log('✅ Layout: Rendering with user:', user.name);
+  return (
+    <>
+      <SessionMonitor />
+      <div className="flex flex-col lg:flex-row min-h-screen bg-gray-50">
+        <SideNav userName={user.name} onLogout={handleLogout} />
+        <main className="flex-1 p-4 md:p-8 pb-20 lg:pb-8">
+          <header className="lg:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow-md">
+            <h1 className="text-2xl font-bold text-gray-800">HustleHub</h1>
+            <button
+              onClick={handleLogout}
+              className="flex items-center text-red-500 hover:text-red-700 transition-colors p-2 rounded-full bg-red-50 hover:bg-red-100"
+            >
+              <LogOut size={20} className="mr-1" />
+              <span className="font-semibold text-sm">Logout</span>
+            </button>
+          </header>
+	
+	<SessionDebugger />
+          {/* ... rest of your JSX remains the same ... */}
+          {(getCurrentSection() === 'dashboard' || getCurrentSection() === 'content') && (
+            <div className="mb-6">
+              <div className="flex flex-wrap gap-3">
+                <Link
+                  href="/dashboard/content/create"
+                  className="inline-flex items-center px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Plus className="w-5 h-5 mr-2" />
+                  Create Content
+                </Link>
+                <Link
+                  href="/dashboard/content"
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <FileText className="w-5 h-5 mr-2" />
+                  My Submissions
+                </Link>
+                <Link
+                  href="/dashboard/blog"
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <BookOpen className="w-5 h-5 mr-2" />
+                  Read Blogs
+                </Link>
+              </div>
+            </div>
+          )}
+
           <div className="mb-6">
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/dashboard/content/create"
-                className="inline-flex items-center px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <Plus className="w-5 h-5 mr-2" />
-                Create Content
-              </Link>
-              <Link
-                href="/dashboard/content"
-                className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                <FileText className="w-5 h-5 mr-2" />
-                My Submissions
-              </Link>
-              <Link
-                href="/dashboard/blog"
-                className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                <BookOpen className="w-5 h-5 mr-2" />
-                Read Blogs
-              </Link>
-            </div>
+            {getCurrentSection() === 'content' && (
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Content Management</h1>
+                <p className="text-gray-600 mt-1">Create and manage your content submissions</p>
+              </div>
+            )}
+            {getCurrentSection() === 'blog' && (
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Blog Posts</h1>
+                <p className="text-gray-600 mt-1">Read and learn from our blog posts</p>
+              </div>
+            )}
+            {getCurrentSection() === 'wallet' && (
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Wallet & Payments</h1>
+                <p className="text-gray-600 mt-1">Manage your balance and transactions</p>
+              </div>
+            )}
+            {getCurrentSection() === 'surveys' && (
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Earn Surveys</h1>
+                <p className="text-gray-600 mt-1">Complete surveys and earn money</p>
+              </div>
+            )}
+            {getCurrentSection() === 'referrals' && (
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Referrals</h1>
+                <p className="text-gray-600 mt-1">Invite friends and earn rewards</p>
+              </div>
+            )}
+            {getCurrentSection() === 'help' && (
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Help & Support</h1>
+                <p className="text-gray-600 mt-1">Get help and support</p>
+              </div>
+            )}
+            {getCurrentSection() === 'settings' && (
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+                <p className="text-gray-600 mt-1">Manage your account settings</p>
+              </div>
+            )}
+            {getCurrentSection() === 'dashboard' && (
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+                <p className="text-gray-600 mt-1">Welcome back, {user.name}!</p>
+              </div>
+            )}
           </div>
-        )}
 
-        {/* Section Header */}
-        <div className="mb-6">
-          {getCurrentSection() === 'content' && (
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Content Management</h1>
-              <p className="text-gray-600 mt-1">Create and manage your content submissions</p>
-            </div>
-          )}
-          {getCurrentSection() === 'blog' && (
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Blog Posts</h1>
-              <p className="text-gray-600 mt-1">Read and learn from our blog posts</p>
-            </div>
-          )}
-          {getCurrentSection() === 'wallet' && (
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Wallet & Payments</h1>
-              <p className="text-gray-600 mt-1">Manage your balance and transactions</p>
-            </div>
-          )}
-          {getCurrentSection() === 'surveys' && (
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Earn Surveys</h1>
-              <p className="text-gray-600 mt-1">Complete surveys and earn money</p>
-            </div>
-          )}
-          {getCurrentSection() === 'referrals' && (
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Referrals</h1>
-              <p className="text-gray-600 mt-1">Invite friends and earn rewards</p>
-            </div>
-          )}
-          {getCurrentSection() === 'help' && (
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Help & Support</h1>
-              <p className="text-gray-600 mt-1">Get help and support</p>
-            </div>
-          )}
-          {getCurrentSection() === 'settings' && (
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-              <p className="text-gray-600 mt-1">Manage your account settings</p>
-            </div>
-          )}
-          {getCurrentSection() === 'dashboard' && (
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-              <p className="text-gray-600 mt-1">Welcome back, {user.name}!</p>
-            </div>
-          )}
-        </div>
-
-        <div className="max-w-6xl mx-auto">
-          {error && <Alert type="error" message={error} onClose={() => setError(null)} />}
-          {mpesaNotification && (
-            <Alert
-              type={mpesaNotification.status === 'approved' ? 'success' : 'error'}
-              message={`M-Pesa change request ${mpesaNotification.status}. ${mpesaNotification.admin_feedback || ''}`}
-              onClose={() => setMpesaNotification(null)}
-            />
-          )}
-          <DashboardProvider value={{ user, apiFetch: authenticatedApiFetch }}>
-            {children}
-          </DashboardProvider>
-        </div>
-      </main>
-      
-      {/* Bottom Navigation - Pass userName for mobile display */}
-      <BottomNav userName={user.name} />
-    </div>
+          <div className="max-w-6xl mx-auto">
+            {error && <Alert type="error" message={error} onClose={() => setError(null)} />}
+            {mpesaNotification && (
+              <Alert
+                type={mpesaNotification.status === 'approved' ? 'success' : 'error'}
+                message={`M-Pesa change request ${mpesaNotification.status}. ${mpesaNotification.admin_feedback || ''}`}
+                onClose={() => setMpesaNotification(null)}
+              />
+            )}
+            <DashboardProvider value={{ user, apiFetch: authenticatedApiFetch }}>
+              {children}
+            </DashboardProvider>
+          </div>
+        </main>
+        
+        <BottomNav userName={user.name} />
+      </div>
+    </>
   );
 }

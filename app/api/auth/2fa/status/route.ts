@@ -2,8 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/app/lib/mongoose';
 import { Profile } from '@/app/lib/models/Profile';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth';
 
 /**
  * GET - Check 2FA status for authenticated user
@@ -11,9 +10,10 @@ import { authOptions } from '@/auth';
 export async function GET(request: NextRequest) {
   try {
     // Get the authenticated user's session
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
-    if (!session || !session.user?.email) {
+    // In NextAuth v5, auth() returns null in Route Handlers if not authenticated
+    if (!session?.user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized. Please log in.' },
         { status: 401 }

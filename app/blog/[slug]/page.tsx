@@ -4,6 +4,7 @@ import { connectToDatabase, BlogPost } from '../../lib/models';
 import Link from 'next/link';
 import Header from '../../components/Header';
 import Footer from '../../components/Footer';
+import BlogContent from './BlogContent';
 
 interface BlogPostPageProps {
   params: Promise<{
@@ -18,7 +19,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
   
   // Find the blog post by slug and populate author info
   const post = await BlogPost.findOne({ slug, status: 'published' })
-    .populate('author', 'username name') // Updated to use username
+    .populate('author', 'username name')
     .lean();
 
   if (!post) {
@@ -34,6 +35,15 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
 
   // Get author display name (username first, fallback to name)
   const authorDisplayName = post.author?.username || post.author?.name || 'Unknown Author';
+
+  // Serialize the post data
+  const serializedPost = {
+    ...post,
+    _id: post._id.toString(),
+    created_at: post.created_at.toISOString(),
+    updated_at: post.updated_at?.toISOString(),
+    published_at: post.published_at?.toISOString(),
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
@@ -117,11 +127,8 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
                 </div>
               )}
 
-              {/* Content */}
-              <div 
-                className="prose prose-lg max-w-none"
-                dangerouslySetInnerHTML={{ __html: post.content }}
-              />
+              {/* Content - Use client component for MathJax rendering */}
+              <BlogContent content={post.content} />
             </div>
           </article>
 
@@ -166,7 +173,7 @@ export async function generateMetadata({ params }: BlogPostPageProps) {
       description: post.meta_description || post.excerpt,
       type: 'article',
       publishedTime: post.created_at,
-      authors: [post.author?.username || post.author?.name], // Updated
+      authors: [post.author?.username || post.author?.name],
       tags: post.tags,
     },
   };

@@ -2,8 +2,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+// [MIGRATION]: Replaced getServerSession and authOptions import
+// We now assume the unified 'auth' function is exported from '@/auth'
+import { auth } from '@/auth'; 
 import { connectToDatabase, UserContent, Profile, AdminAuditLog } from '../../lib/models';
 import { Types } from 'mongoose';
 
@@ -109,7 +110,8 @@ function isValidSession(session: unknown): session is SessionWithUser {
 // Helper to get current user
 async function getCurrentUser() {
   try {
-    const session = await getServerSession(authOptions);
+    // [MIGRATION]: Replaced await getServerSession(authOptions) with await auth()
+    const session = await auth(); 
     
     // FIX: Use type guard to properly check session structure
     if (!isValidSession(session)) {
@@ -797,7 +799,8 @@ export async function adminUpdateContentSubmission(
   message: string;
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    // [MIGRATION]: Replaced await getServerSession(authOptions) with await auth()
+    const session = await auth(); 
     
     // FIX: Use type guard for admin session checking
     if (!isValidSession(session)) {
@@ -900,7 +903,8 @@ export async function adminGetContentSubmissions(filters?: {
   totalCount?: number;
 }> {
   try {
-    const session = await getServerSession(authOptions);
+    // [MIGRATION]: Replaced await getServerSession(authOptions) with await auth()
+    const session = await auth(); 
     
     // FIX: Use type guard for admin session checking
     if (!isValidSession(session)) {
@@ -1217,3 +1221,4 @@ export async function deleteContentSubmission(id: string): Promise<{
     };
   }
 }
+

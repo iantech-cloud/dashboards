@@ -2297,5 +2297,7 @@ export {
   PayoutMethods
 } from './models/Soko';
 
+export { UserSession } from './models/UserSession';
+
 // This allows you to import Soko models like:
 // import { SokoCampaign, UserAffiliateLink } from '@/app/lib/models';

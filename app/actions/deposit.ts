@@ -1,10 +1,12 @@
 // app/actions/deposit.ts
 'use server';
 
-import { getServerSession } from 'next-auth';
+// V5 Migration: Use the unified `auth` function from your Auth.js setup
+import { auth } from '@/auth';
 import { revalidatePath } from 'next/cache';
 import { connectToDatabase, Profile, MpesaTransaction, Transaction } from '../lib/models';
-import { authOptions } from '@/auth';
+// Removed: import { getServerSession } from 'next-auth';
+// Removed: import { authOptions } from '@/auth';
 
 // M-Pesa configuration matching transactions.ts
 const MPESA_CONFIG = {
@@ -92,6 +94,8 @@ interface SessionWithUser {
     expires: string;
 }
 
+// V5 NOTE: The `auth()` function returns `Session | null`.
+// This type guard is still useful for ensuring the session object has the required fields (like email).
 function isValidSession(session: unknown): session is SessionWithUser {
     return (
         session !== null &&
@@ -112,7 +116,7 @@ async function getMpesaAccessToken(): Promise<string> {
     const auth = Buffer.from(`${MPESA_CONFIG.consumerKey}:${MPESA_CONFIG.consumerSecret}`).toString('base64');
     
     const response = await fetch(
-        MPESA_CONFIG.environment === 'sandbox'    
+        MPESA_CONFIG.environment === 'sandbox'     
             ? 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials'
             : 'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials',
         {
@@ -209,27 +213,27 @@ function mapMpesaResultCode(resultCode: string): number {
     
     // ONLY use codes that are DEFINITELY in your schema enum
     const validSchemaCodes = [
-        0,      // Success
-        1,      // Insufficient funds
-        2,      // Less than minimum allowed
-        3,      // More than maximum allowed
-        4,      // Would exceed daily limit
-        5,      // Would exceed minimum balance
-        6,      // Unsupported feature
-        7,      // Suspended
-        8,      // Inactive
-        10,     // Invalid short code
-        11,     // Invalid security credentials
-        12,     // Invalid initiator
-        13,     // Invalid sender
-        14,     // Invalid receiver
-        15,     // Invalid amount
-        17,     // Invalid transaction
-        20,     // Invalid arguments
-        26,     // Invalid reference
-        1032,   // Request cancelled by user
-        1037,   // Request timeout
-        2001,   // Invalid phone number
+        0,       // Success
+        1,       // Insufficient funds
+        2,       // Less than minimum allowed
+        3,       // More than maximum allowed
+        4,       // Would exceed daily limit
+        5,       // Would exceed minimum balance
+        6,       // Unsupported feature
+        7,       // Suspended
+        8,       // Inactive
+        10,      // Invalid short code
+        11,      // Invalid security credentials
+        12,      // Invalid initiator
+        13,      // Invalid sender
+        14,      // Invalid receiver
+        15,      // Invalid amount
+        17,      // Invalid transaction
+        20,      // Invalid arguments
+        26,      // Invalid reference
+        1032,    // Request cancelled by user
+        1037,    // Request timeout
+        2001,    // Invalid phone number
     ];
     
     if (validSchemaCodes.includes(code)) {
@@ -346,7 +350,8 @@ export async function processMpesaDeposit(depositData: {
     try {
         console.log('🎯 Starting M-Pesa deposit process:', depositData);
 
-        const session = await getServerSession(authOptions);
+        // V5 Migration: Use the `auth()` function to get the session
+        const session = await auth();
         
         if (!isValidSession(session)) {
             return { success: false, message: 'User not authenticated' };
@@ -508,7 +513,8 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
     try {
         console.log('🔍 Checking M-Pesa payment status:', checkoutRequestId);
 
-        const session = await getServerSession(authOptions);
+        // V5 Migration: Use the `auth()` function to get the session
+        const session = await auth();
         
         if (!isValidSession(session)) {
             return { success: false, message: 'User not authenticated' };
@@ -724,7 +730,8 @@ export async function syncTransactionStatus(transactionId: string): Promise<Paym
             // Update user balance if it's completed and balance wasn't updated
             if (mpesaTransaction.status === 'completed') {
                 const user = await (Profile as any).findById(mpesaTransaction.user_id);
-                if (user && user.balance_cents < mpesaTransaction.amount_cents) {
+                // Simple check to prevent double-crediting if balance is lower than transaction amount
+                if (user && user.balance_cents < mpesaTransaction.amount_cents) { 
                     await updateUserBalance(mpesaTransaction.user_id, mpesaTransaction.amount_cents);
                 }
             }
@@ -760,7 +767,8 @@ export async function syncTransactionStatus(transactionId: string): Promise<Paym
  */
 export async function getDepositHistory(limit: number = 20, page: number = 1): Promise<DepositHistoryResponse> {
     try {
-        const session = await getServerSession(authOptions);
+        // V5 Migration: Use the `auth()` function to get the session
+        const session = await auth();
         
         if (!isValidSession(session)) {
             return { success: false, message: 'User not authenticated' };
@@ -828,7 +836,8 @@ export async function getDepositHistory(limit: number = 20, page: number = 1): P
  */
 export async function getUserBalance(): Promise<BalanceResponse> {
     try {
-        const session = await getServerSession(authOptions);
+        // V5 Migration: Use the `auth()` function to get the session
+        const session = await auth();
         
         if (!isValidSession(session)) {
             return { success: false, message: 'User not authenticated' };
@@ -884,3 +893,4 @@ export async function validateDepositAmount(amount: number): Promise<ValidationR
         };
     }
 }
+

@@ -3,9 +3,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
-
+import { auth } from '@/auth';
 export async function apiFetch<T = any>(
   endpoint: string, 
   method: 'GET' | 'POST' = 'GET', 
@@ -13,7 +11,7 @@ export async function apiFetch<T = any>(
 ): Promise<{ success: boolean; data?: T; message: string }> {
   try {
     // Get session to verify authentication
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session) {
       return {

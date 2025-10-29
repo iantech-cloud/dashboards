@@ -61,8 +61,100 @@ function centsToKsh(cents: number): number {
  */
 function calculateReadTime(content: string): number {
   const wordsPerMinute = 200;
-  const wordCount = content.split(/\s+/).length;
+  const text = content.replace(/<[^>]*>/g, ' '); // Strip HTML tags
+  const wordCount = text.split(/\s+/).filter(word => word.length > 0).length;
   return Math.max(1, Math.ceil(wordCount / wordsPerMinute));
+}
+
+/**
+ * Generates an excerpt from HTML content
+ * @param htmlContent - HTML content to extract excerpt from
+ * @param maxLength - Maximum length of excerpt (default 160 characters)
+ * @returns Generated excerpt
+ */
+function generateExcerpt(htmlContent: string, maxLength: number = 160): string {
+  // Remove LaTeX/Math formulas first (both inline and display)
+  let text = htmlContent.replace(/\$\$[\s\S]*?\$\$/g, ' '); // Display math $...$
+  text = text.replace(/\$[^$\n]+?\$/g, ' '); // Inline math $...$
+  text = text.replace(/\\\[[\s\S]*?\\\]/g, ' '); // Display math \[...\]
+  text = text.replace(/\\\([\s\S]*?\\\)/g, ' '); // Inline math \(...\)
+  
+  // Remove math equation div/span wrappers
+  text = text.replace(/<[^>]*math-equation[^>]*>[\s\S]*?<\/[^>]+>/gi, ' ');
+  
+  // Remove HTML tags
+  text = text.replace(/<[^>]*>/g, ' ');
+  
+  // Decode HTML entities
+  text = text.replace(/&amp;/g, '&');
+  text = text.replace(/&lt;/g, '<');
+  text = text.replace(/&gt;/g, '>');
+  text = text.replace(/&quot;/g, '"');
+  text = text.replace(/&#39;/g, "'");
+  text = text.replace(/&nbsp;/g, ' ');
+  
+  // Remove any remaining special characters and extra whitespace
+  text = text.replace(/[\\{}[\]]/g, ' '); // Remove LaTeX special chars
+  text = text.replace(/\s+/g, ' ').trim(); // Normalize whitespace
+  
+  // If text is too short after cleaning, return empty to trigger fallback
+  if (text.length < 30) {
+    return '';
+  }
+  
+  // Truncate to maxLength
+  if (text.length <= maxLength) {
+    return text;
+  }
+  
+  // Find last complete word within maxLength
+  const truncated = text.substring(0, maxLength);
+  const lastSpace = truncated.lastIndexOf(' ');
+  return (lastSpace > 0 ? truncated.substring(0, lastSpace) : truncated) + '...';
+}
+
+/**
+ * Generates a meta description for SEO
+ * @param content - Blog post content
+ * @param excerpt - Optional excerpt
+ * @param title - Blog post title
+ * @returns Generated meta description (max 160 characters)
+ */
+function generateMetaDescription(content: string, excerpt: string, title: string): string {
+  // Priority 1: Use excerpt if provided and valid
+  if (excerpt && excerpt.trim().length > 10) {
+    let cleanExcerpt = excerpt.trim();
+    
+    // Clean LaTeX and HTML entities from excerpt
+    cleanExcerpt = cleanExcerpt.replace(/\$\$[\s\S]*?\$\$/g, ' ');
+    cleanExcerpt = cleanExcerpt.replace(/\$[^$\n]+?\$/g, ' ');
+    cleanExcerpt = cleanExcerpt.replace(/\\\[[\s\S]*?\\\]/g, ' ');
+    cleanExcerpt = cleanExcerpt.replace(/\\\([\s\S]*?\\\)/g, ' ');
+    cleanExcerpt = cleanExcerpt.replace(/<[^>]*>/g, ' ');
+    cleanExcerpt = cleanExcerpt.replace(/&amp;/g, '&');
+    cleanExcerpt = cleanExcerpt.replace(/&[a-z]+;/gi, ' ');
+    cleanExcerpt = cleanExcerpt.replace(/[\\{}[\]]/g, ' ');
+    cleanExcerpt = cleanExcerpt.replace(/\s+/g, ' ').trim();
+    
+    if (cleanExcerpt.length > 30) {
+      return cleanExcerpt.length > 160 
+        ? cleanExcerpt.substring(0, 157) + '...' 
+        : cleanExcerpt;
+    }
+  }
+  
+  // Priority 2: Generate from content
+  if (content && content.trim().length > 0) {
+    const contentExcerpt = generateExcerpt(content, 160);
+    if (contentExcerpt.length > 30) {
+      return contentExcerpt;
+    }
+  }
+  
+  // Priority 3: Fallback to title-based description
+  // Clean the title too in case it has LaTeX
+  let cleanTitle = title.replace(/\$[^$]+?\$/g, '').replace(/[\\{}[\]]/g, '').trim();
+  return `Read about ${cleanTitle} on Hustle Hub Africa. Discover insights, tips, and opportunities for digital earning.`;
 }
 
 /**
@@ -102,10 +194,10 @@ export async function createBlogPost(formData: FormData) {
 
     const title = formData.get('title') as string;
     const content = formData.get('content') as string;
-    const excerpt = formData.get('excerpt') as string;
+    let excerpt = formData.get('excerpt') as string;
     const status = formData.get('status') as 'draft' | 'published' | 'archived';
     const meta_title = formData.get('meta_title') as string;
-    const meta_description = formData.get('meta_description') as string;
+    let meta_description = formData.get('meta_description') as string;
     const featured_image = formData.get('featured_image') as string;
     const category = formData.get('category') as string;
     const tags = (formData.get('tags') as string)?.split(',').map(tag => tag.trim()).filter(tag => tag) || [];
@@ -132,6 +224,24 @@ export async function createBlogPost(formData: FormData) {
       return { success: false, message: 'Invalid source submission ID' };
     }
 
+    // Auto-generate excerpt if not provided
+    if (!excerpt || excerpt.trim().length === 0) {
+      excerpt = generateExcerpt(content, 160);
+      console.log('Auto-generated excerpt:', excerpt);
+    }
+
+    // Auto-generate meta description if not provided
+    if (!meta_description || meta_description.trim().length === 0) {
+      meta_description = generateMetaDescription(content, excerpt, title);
+      console.log('Auto-generated meta description:', meta_description);
+    } else {
+      // Validate and truncate if too long
+      if (meta_description.length > 160) {
+        meta_description = meta_description.substring(0, 157) + '...';
+        console.log('Truncated meta description to 160 characters');
+      }
+    }
+
     // Parse and validate payment amount
     const paymentAmountCents = parsePaymentAmount(payment_amount);
 
@@ -145,7 +255,7 @@ export async function createBlogPost(formData: FormData) {
       meta_title: meta_title || title,
       meta_description,
       featured_image,
-      category,
+      category: category || 'General',
       tags,
       read_time: calculateReadTime(content),
       published_at: status === 'published' ? new Date() : undefined
@@ -192,6 +302,8 @@ export async function createBlogPost(formData: FormData) {
       changes: { 
         title, 
         status,
+        has_auto_excerpt: !formData.get('excerpt'),
+        has_auto_meta_description: !formData.get('meta_description'),
         source_submission_id: source_submission_id || undefined,
         payment_amount: paymentAmountCents ? centsToKsh(paymentAmountCents) : undefined
       },
@@ -205,7 +317,13 @@ export async function createBlogPost(formData: FormData) {
     return { 
       success: true, 
       message: 'Blog post created successfully',
-      data: { id: blogPost._id.toString() }
+      data: { 
+        id: blogPost._id.toString(),
+        auto_generated: {
+          excerpt: !formData.get('excerpt'),
+          meta_description: !formData.get('meta_description')
+        }
+      }
     };
 
   } catch (error) {
@@ -238,10 +356,10 @@ export async function updateBlogPost(postId: string, formData: FormData) {
 
     const title = formData.get('title') as string;
     const content = formData.get('content') as string;
-    const excerpt = formData.get('excerpt') as string;
+    let excerpt = formData.get('excerpt') as string;
     const status = formData.get('status') as 'draft' | 'published' | 'archived';
     const meta_title = formData.get('meta_title') as string;
-    const meta_description = formData.get('meta_description') as string;
+    let meta_description = formData.get('meta_description') as string;
     const featured_image = formData.get('featured_image') as string;
     const category = formData.get('category') as string;
     const tags = (formData.get('tags') as string)?.split(',').map(tag => tag.trim()).filter(tag => tag) || [];
@@ -262,6 +380,24 @@ export async function updateBlogPost(postId: string, formData: FormData) {
       return { success: false, message: 'A blog post with this title already exists' };
     }
 
+    // Auto-generate excerpt if not provided
+    if (!excerpt || excerpt.trim().length === 0) {
+      excerpt = generateExcerpt(content, 160);
+      console.log('Auto-generated excerpt for update:', excerpt);
+    }
+
+    // Auto-generate meta description if not provided
+    if (!meta_description || meta_description.trim().length === 0) {
+      meta_description = generateMetaDescription(content, excerpt, title);
+      console.log('Auto-generated meta description for update:', meta_description);
+    } else {
+      // Validate and truncate if too long
+      if (meta_description.length > 160) {
+        meta_description = meta_description.substring(0, 157) + '...';
+        console.log('Truncated meta description to 160 characters');
+      }
+    }
+
     const updateData: any = {
       title,
       slug,
@@ -271,7 +407,7 @@ export async function updateBlogPost(postId: string, formData: FormData) {
       meta_title: meta_title || title,
       meta_description,
       featured_image,
-      category,
+      category: category || 'General',
       tags,
       read_time: calculateReadTime(content),
       updated_at: new Date()
@@ -303,6 +439,8 @@ export async function updateBlogPost(postId: string, formData: FormData) {
         status,
         category,
         read_time: updateData.read_time,
+        has_auto_excerpt: !formData.get('excerpt'),
+        has_auto_meta_description: !formData.get('meta_description'),
         tags_updated: tags.length !== existingPost.tags?.length
       },
       ip_address: 'server-action',
@@ -313,7 +451,16 @@ export async function updateBlogPost(postId: string, formData: FormData) {
     revalidatePath('/blog');
     revalidatePath(`/blog/${updatedPost.slug}`);
 
-    return { success: true, message: 'Blog post updated successfully' };
+    return { 
+      success: true, 
+      message: 'Blog post updated successfully',
+      data: {
+        auto_generated: {
+          excerpt: !formData.get('excerpt'),
+          meta_description: !formData.get('meta_description')
+        }
+      }
+    };
 
   } catch (error) {
     console.error('Update blog post error:', error);

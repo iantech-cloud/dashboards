@@ -1,8 +1,7 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/auth"
+import { auth } from "@/auth" // Changed from next-auth imports
 import {
   connectToDatabase,
   Profile,
@@ -177,6 +176,7 @@ interface TaskStatusResponse {
 // Session type guard
 interface SessionWithUser {
   user: {
+    id?: string
     email?: string | null
     name?: string | null
     image?: string | null
@@ -191,9 +191,9 @@ function isValidSession(session: unknown): session is SessionWithUser {
     "user" in session &&
     session.user !== null &&
     typeof session.user === "object" &&
-    "email" in session.user &&
-    typeof session.user.email === "string" &&
-    session.user.email.length > 0
+    "id" in session.user &&
+    typeof session.user.id === "string" &&
+    session.user.id.length > 0
   )
 }
 
@@ -350,13 +350,16 @@ export async function performSpin(): Promise<SpinResponse> {
   try {
     console.log("🎯 Starting performSpin...")
 
-    const session = await getServerSession(authOptions)
+    // NextAuth v5: Use auth() instead of getServerSession()
+    const session = await auth()
     if (!isValidSession(session)) {
       return { success: false, message: "Unauthorized" }
     }
 
     await connectToDatabase()
-    const user = (await (Profile as any).findOne({ email: session.user.email }).lean()) as UserProfileLean | null
+    
+    // NextAuth v5: Use session.user.id instead of session.user.email
+    const user = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
     if (!user) {
       return { success: false, message: "User not found" }
     }
@@ -454,7 +457,8 @@ export async function getAvailablePrizes(): Promise<{
   message: string
 }> {
   try {
-    const session = await getServerSession(authOptions)
+    // NextAuth v5: Use auth() instead of getServerSession()
+    const session = await auth()
     if (!isValidSession(session)) {
       return { success: false, message: "Unauthorized" }
     }
@@ -482,13 +486,16 @@ export async function getAvailablePrizes(): Promise<{
  */
 export async function getSpinSettings(): Promise<SpinSettingsResponse> {
   try {
-    const session = await getServerSession(authOptions)
+    // NextAuth v5: Use auth() instead of getServerSession()
+    const session = await auth()
     if (!isValidSession(session)) {
       return { success: false, message: "Unauthorized" }
     }
 
     await connectToDatabase()
-    const user = (await (Profile as any).findOne({ email: session.user.email }).lean()) as UserProfileLean | null
+    
+    // NextAuth v5: Use session.user.id instead of session.user.email
+    const user = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
     if (!user) {
       return { success: false, message: "User not found" }
     }
@@ -1376,14 +1383,17 @@ export async function updateSpinSettings(settings: {
   }
 }): Promise<AdminActionResponse> {
   try {
-    const session = await getServerSession(authOptions)
+    // NextAuth v5: Use auth() instead of getServerSession()
+    const session = await auth()
 
     if (!isValidSession(session)) {
       return { success: false, message: "Unauthorized" }
     }
 
     await connectToDatabase()
-    const adminUser = (await (Profile as any).findOne({ email: session.user.email }).lean()) as UserProfileLean | null
+    
+    // NextAuth v5: Use session.user.id instead of session.user.email
+    const adminUser = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
 
     if (adminUser?.role !== "admin") {
       return { success: false, message: "Admin access required" }
@@ -1469,14 +1479,17 @@ export async function getSpinLogs(
   },
 ): Promise<SpinLogsResponse> {
   try {
-    const session = await getServerSession(authOptions)
+    // NextAuth v5: Use auth() instead of getServerSession()
+    const session = await auth()
 
     if (!isValidSession(session)) {
       return { success: false, message: "Unauthorized" }
     }
 
     await connectToDatabase()
-    const adminUser = (await (Profile as any).findOne({ email: session.user.email }).lean()) as UserProfileLean | null
+    
+    // NextAuth v5: Use session.user.id instead of session.user.email
+    const adminUser = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
 
     if (adminUser?.role !== "admin") {
       return { success: false, message: "Admin access required" }
@@ -1565,14 +1578,17 @@ export async function getSpinLogs(
  */
 export async function addUserSpins(userId: string, spins: number, reason: string): Promise<AdminActionResponse> {
   try {
-    const session = await getServerSession(authOptions)
+    // NextAuth v5: Use auth() instead of getServerSession()
+    const session = await auth()
 
     if (!isValidSession(session)) {
       return { success: false, message: "Unauthorized" }
     }
 
     await connectToDatabase()
-    const adminUser = (await (Profile as any).findOne({ email: session.user.email }).lean()) as UserProfileLean | null
+    
+    // NextAuth v5: Use session.user.id instead of session.user.email
+    const adminUser = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
 
     if (adminUser?.role !== "admin") {
       return { success: false, message: "Admin access required" }
@@ -1620,19 +1636,23 @@ export async function addUserSpins(userId: string, spins: number, reason: string
  */
 export async function adminToggleSpinWheel(activate: boolean): Promise<AdminActionResponse> {
   try {
-    const session = await getServerSession(authOptions)
+    // NextAuth v5: Use auth() instead of getServerSession()
+    const session = await auth()
 
     if (!isValidSession(session)) {
       return { success: false, message: "Unauthorized" }
     }
 
     await connectToDatabase()
-    const adminUser = (await (Profile as any).findOne({ email: session.user.email }).lean()) as UserProfileLean | null
+    
+    // NextAuth v5: Use session.user.id instead of session.user.email
+    const adminUser = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
 
     if (adminUser?.role !== "admin") {
       return { success: false, message: "Admin access required" }
     }
 
+    // Note: You'll need to update the admin.ts file too
     const { toggleSpinWheel } = await import("./admin")
     const result = await toggleSpinWheel(activate)
 
@@ -1656,14 +1676,17 @@ export async function getSpinAnalytics(
   date?: Date,
 ): Promise<SpinAnalyticsResponse> {
   try {
-    const session = await getServerSession(authOptions)
+    // NextAuth v5: Use auth() instead of getServerSession()
+    const session = await auth()
 
     if (!isValidSession(session)) {
       return { success: false, message: "Unauthorized" }
     }
 
     await connectToDatabase()
-    const adminUser = (await (Profile as any).findOne({ email: session.user.email }).lean()) as UserProfileLean | null
+    
+    // NextAuth v5: Use session.user.id instead of session.user.email
+    const adminUser = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
 
     if (adminUser?.role !== "admin") {
       return { success: false, message: "Admin access required" }
@@ -1689,4 +1712,3 @@ export async function getSpinAnalytics(
     return { success: false, message: "Failed to fetch spin analytics" }
   }
 }
-

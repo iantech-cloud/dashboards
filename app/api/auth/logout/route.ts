@@ -1,17 +1,24 @@
-// app/api/auth/logout/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/auth';
+import { connectToDatabase } from '@/app/lib/mongoose';
+import { UserSession } from '@/app/lib/models/UserSession';
 
 export async function POST() {
   try {
     const session = await getServerSession(authOptions);
     
-    if (session) {
-      console.log('User signed out via logout endpoint:', session.user?.email);
+    if (session?.user?.id) {
+      console.log('User logging out:', session.user.email);
+      
+      // Deactivate all sessions for this user
+      await connectToDatabase();
+      await UserSession.updateMany(
+        { user_id: session.user.id, is_active: true },
+        { is_active: false }
+      );
     }
     
-    // Return a proper JSON response
     return NextResponse.json({ 
       success: true, 
       message: 'Logged out successfully' 

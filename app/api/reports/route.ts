@@ -1,12 +1,14 @@
-// app/api/reports/route.ts - User Personal Reports
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+// --- NextAuth v5/Auth.js change: Import the 'auth' utility directly ---
+import { auth } from '@/auth'; // Assuming '@/auth' exports the Auth.js instance
+// --- Removed: import { getServerSession } from 'next-auth';
+// --- Removed: import { authOptions } from '@/auth';
 import { connectToDatabase, Profile, Transaction, Withdrawal } from '@/app/lib/models';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    // --- NextAuth v5/Auth.js change: Use auth() to get the session ---
+    const session = await auth();
     
     if (!session?.user?.email) {
       return NextResponse.json(
@@ -267,3 +269,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+

@@ -1,9 +1,10 @@
-// app/api/mpesa-change-requests/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/app/lib/mongoose';
 import { Profile, MpesaChangeRequest, AdminAuditLog, VerificationToken } from '@/app/lib/models';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+// --- NextAuth v5/Auth.js change: Import the 'auth' utility directly ---
+import { auth } from '@/auth'; // Assuming '@/auth' exports the Auth.js instance
+// --- Removed: import { getServerSession } from 'next-auth';
+// --- Removed: import { authOptions } from '@/auth';
 import { sendVerificationCodeEmail } from '@/app/actions/email';
 import speakeasy from 'speakeasy';
 import { randomInt } from 'crypto';
@@ -48,7 +49,8 @@ function formatPhoneDisplay(phone: string): string {
  */
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    // --- NextAuth v5/Auth.js change: Use auth() to get the session ---
+    const session = await auth();
 
     if (!session || !session.user?.email) {
       return NextResponse.json(
@@ -100,7 +102,8 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    // --- NextAuth v5/Auth.js change: Use auth() to get the session ---
+    const session = await auth();
 
     if (!session || !session.user?.email) {
       return NextResponse.json(
@@ -263,14 +266,14 @@ export async function POST(request: NextRequest) {
           token: verificationCode,
         });
 
-        if (expiredToken) {
+        if (expiredToken && expiredToken.expires < new Date()) {
           return NextResponse.json(
             { error: 'Verification code expired. Please request a new one.' },
             { status: 400 }
           );
         }
 
-        // Increment attempts if token exists
+        // Increment attempts if token exists (and not expired)
         const existingToken = await VerificationToken.findOne({
           user_id: profile._id,
           purpose: 'mpesa_change',
@@ -309,6 +312,7 @@ export async function POST(request: NextRequest) {
         tokenData.newNumber !== standardizedNew ||
         tokenData.reason !== reason
       ) {
+        // This is a security check, if the data in the token doesn't match the request, something is wrong
         return NextResponse.json(
           { error: 'Request data does not match. Please start over.' },
           { status: 400 }
@@ -404,3 +408,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

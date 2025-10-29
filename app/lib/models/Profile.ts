@@ -27,6 +27,28 @@ const ProfileSchema = new mongoose.Schema({
     trim: true,
   },
 
+  // OAuth Integration
+  oauth_provider: {
+    type: String,
+    enum: ['email', 'google', 'magic-link'],
+    default: 'email',
+    index: true,
+  },
+  oauth_id: {
+    type: String,
+    sparse: true,
+    unique: true,
+    index: true,
+  },
+  oauth_verified: {
+    type: Boolean,
+    default: false,
+  },
+  google_profile_picture: {
+    type: String,
+    default: null,
+  },
+
   // Two-Factor Authentication (2FA)
   twoFAEnabled: {
     type: Boolean,
@@ -284,12 +306,16 @@ ProfileSchema.statics.has2FAEnabled = function(email: string) {
 // - username (line 17)
 // - phone_number (line 23)
 // - referral_id (line 155, with sparse: true)
+// - oauth_provider (line 31)
+// - oauth_id (line 37)
 
 // Only add indexes for fields that DON'T have unique: true
 ProfileSchema.index({ twoFAEnabled: 1 });
 ProfileSchema.index({ 'twoFABackupCodes.createdAt': 1 });
 ProfileSchema.index({ role: 1, status: 1 }); // Compound index for admin queries
 ProfileSchema.index({ created_at: -1 }); // For sorting by registration date
+ProfileSchema.index({ oauth_provider: 1 });
+ProfileSchema.index({ oauth_id: 1 });
 
 // Ensure virtual fields are serialized
 ProfileSchema.set('toJSON', {

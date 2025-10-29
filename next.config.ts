@@ -1,38 +1,49 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // Performance optimizations
-  experimental: {
-    optimizeCss: true, // CSS optimization
-    optimizePackageImports: ['lucide-react', 'react-icons'], // Tree shake these packages
-  },
+  // Server external packages - moved from experimental
+  serverExternalPackages: [
+    'mongoose',
+    'mongodb',
+    'bcryptjs',
+    'speakeasy',
+    'nodemailer',
+    '@auth/mongodb-adapter'
+  ],
 
-  // The 'mongoose' package needs to be explicitly listed as an external package
-  // to be correctly bundled and used within Next.js Server Components.
-  serverExternalPackages: ['mongoose'],
+  // Experimental features
+  experimental: {
+    optimizeCss: true,
+    optimizePackageImports: ['lucide-react', 'react-icons'],
+  },
 
   // Compiler optimizations
   compiler: {
-    removeConsole: process.env.NODE_ENV === 'production', // Remove console logs in production
+    removeConsole: process.env.NODE_ENV === 'production',
   },
 
   // Image optimizations
   images: {
-    formats: ['image/avif', 'image/webp'], // Modern formats for better compression
+    formats: ['image/avif', 'image/webp'],
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: '**', // Adjust this to your specific domains for security
+        hostname: '**',
       },
     ],
-    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840], // Optimized breakpoints
-    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384], // Smaller sizes for icons
-    minimumCacheTTL: 60, // 1 minute minimum cache
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
+    minimumCacheTTL: 60,
   },
 
-  // Disable TypeScript type checking during builds for faster builds
+  // TypeScript configuration
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
+  },
+
+  // ESLint configuration
+  eslint: {
+    ignoreDuringBuilds: false,
   },
 
   // HTTP headers for caching and performance
@@ -65,7 +76,6 @@ const nextConfig: NextConfig = {
           },
         ],
       },
-      // 404 Page Caching - Add this section
       {
         source: '/404',
         headers: [
@@ -81,19 +91,40 @@ const nextConfig: NextConfig = {
   // Compression
   compress: true,
 
-  // Optimize for production
-  poweredByHeader: false, // Remove X-Powered-By header
+  // Security headers
+  poweredByHeader: false,
 
-  // Webpack optimizations - SIMPLIFIED to fix the build error
-  webpack: (config, { isServer }) => {
-    // Optimize mongoose and other heavy packages
+  // Webpack configuration to handle MongoDB and Node.js modules
+  webpack: (config, { isServer, dev }) => {
+    // Client-side configuration - prevent Node.js modules from being bundled
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,
-        net: false,
-        tls: false,
         fs: false,
+        stream: false,
+        crypto: false,
+        tls: false,
+        net: false,
+        dns: false,
+        child_process: false,
+        http2: false,
+        perf_hooks: false,
       };
+    }
+
+    // Server-side configuration - externalize problematic dependencies
+    if (isServer) {
+      config.externals = [
+        ...(config.externals || []),
+        {
+          'kerberos': 'commonjs kerberos',
+          '@mongodb-js/zstd': 'commonjs @mongodb-js/zstd', 
+          'snappy': 'commonjs snappy',
+          'aws4': 'commonjs aws4',
+          'mongodb-client-encryption': 'commonjs mongodb-client-encryption',
+          '@aws-sdk/credential-providers': 'commonjs @aws-sdk/credential-providers',
+        }
+      ];
     }
 
     return config;
