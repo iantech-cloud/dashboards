@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { DollarSign, Phone, Loader2, CheckCircle, AlertCircle, Info } from 'lucide-react';
+import { DollarSign, Phone, Loader2, CheckCircle, AlertCircle, Info, X } from 'lucide-react';
 import { useDashboard } from '../../dashboard/DashboardContext';
 import { processMpesaDeposit, validateDepositAmount } from '@/app/actions/deposit';
 
@@ -21,6 +21,8 @@ export default function WalletPay({ onDepositSuccess, compact = false }: WalletP
   const [message, setMessage] = useState<string | null>(null);
   const [messageType, setMessageType] = useState<'success' | 'error' | 'info'>('info');
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [showMpesaModal, setShowMpesaModal] = useState(false);
 
   // Auto-populate phone number from user profile if available
   useEffect(() => {
@@ -104,7 +106,19 @@ export default function WalletPay({ onDepositSuccess, compact = false }: WalletP
     return false;
   }
 
-  const handleDeposit = async (e: React.FormEvent) => {
+  const handleOpenDepositModal = () => {
+    setShowDepositModal(true);
+    setMessage(null);
+    setValidationError(null);
+  };
+
+  const handleCloseDepositModal = () => {
+    setShowDepositModal(false);
+    setMessage(null);
+    setValidationError(null);
+  };
+
+  const handleContinue = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!user) {
@@ -161,9 +175,9 @@ export default function WalletPay({ onDepositSuccess, compact = false }: WalletP
       console.log('M-Pesa STK Push response:', result);
 
       if (result.success && result.data?.CheckoutRequestID) {
-        // Show success message
-        setMessage(result.message || 'M-Pesa payment initiated successfully!');
-        setMessageType('success');
+        // Close deposit modal and open M-Pesa waiting modal
+        setShowDepositModal(false);
+        setShowMpesaModal(true);
         
         // Clear form
         setAmount('');
@@ -207,6 +221,19 @@ export default function WalletPay({ onDepositSuccess, compact = false }: WalletP
 
   const quickAmounts = [100, 500, 1000, 2000, 5000];
 
+  // Main Deposit Button (for both compact and full versions)
+  const DepositButton = () => (
+    <button
+      onClick={handleOpenDepositModal}
+      className={`w-full py-3 px-6 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-md transition duration-200 flex items-center justify-center ${
+        compact ? 'py-2 px-4 text-sm rounded-lg' : ''
+      }`}
+    >
+      <DollarSign className="mr-2" size={compact ? 16 : 20} />
+      Deposit via M-Pesa
+    </button>
+  );
+
   if (compact) {
     return (
       <div className="bg-white p-4 rounded-lg shadow-md border border-gray-200">
@@ -214,75 +241,161 @@ export default function WalletPay({ onDepositSuccess, compact = false }: WalletP
           <DollarSign className="mr-2 text-green-500" size={18} />
           Quick Deposit
         </h3>
+        
+        <DepositButton />
 
-        <form onSubmit={handleDeposit} className="space-y-3">
-          {/* Amount Input */}
-          <div>
-            <label htmlFor="amount-compact" className="block text-sm font-medium text-gray-700 mb-1">
-              Amount (KES)
-            </label>
-            <div className="relative">
-              <DollarSign className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
-              <input
-                id="amount-compact"
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="Enter amount"
-                min="10"
-                max="70000"
-                step="1"
-                className="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                required
-                disabled={isLoading}
-              />
+        {/* Deposit Modal */}
+        {showDepositModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-lg w-full max-w-md">
+              <div className="flex items-center justify-between p-6 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-800">Deposit via M-Pesa</h3>
+                <button
+                  onClick={handleCloseDepositModal}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                  disabled={isLoading}
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <form onSubmit={handleContinue} className="p-6 space-y-4">
+                {/* Amount Input */}
+                <div>
+                  <label htmlFor="amount-modal" className="block text-sm font-medium text-gray-700 mb-2">
+                    Amount (KES) *
+                  </label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                    <input
+                      id="amount-modal"
+                      type="number"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      placeholder="Enter amount (min: 10, max: 70,000)"
+                      min="10"
+                      max="70000"
+                      step="1"
+                      className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
+                        validationError ? 'border-red-300' : 'border-gray-300'
+                      }`}
+                      required
+                      disabled={isLoading}
+                    />
+                  </div>
+                  {validationError && (
+                    <p className="mt-1 text-sm text-red-600 flex items-center">
+                      <AlertCircle className="mr-1" size={14} />
+                      {validationError}
+                    </p>
+                  )}
+                </div>
+
+                {/* Quick Amount Buttons */}
+                <div>
+                  <p className="text-sm text-gray-600 mb-2">Quick amounts:</p>
+                  <div className="grid grid-cols-5 gap-2">
+                    {quickAmounts.map((quickAmount) => (
+                      <button
+                        key={quickAmount}
+                        type="button"
+                        onClick={() => setAmount(quickAmount.toString())}
+                        className="px-2 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50 border border-transparent hover:border-gray-300"
+                        disabled={isLoading}
+                      >
+                        KES {quickAmount}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Phone Number Input */}
+                <div>
+                  <label htmlFor="phoneNumber-modal" className="block text-sm font-medium text-gray-700 mb-2">
+                    M-Pesa Phone Number *
+                  </label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                    <input
+                      id="phoneNumber-modal"
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      placeholder="07XXXXXXXX, 2547XXXXXXXX, or +2547XXXXXXXX"
+                      pattern="[0-9+\s]{10,13}"
+                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      required
+                      disabled={isLoading}
+                    />
+                  </div>
+                </div>
+
+                {/* Continue Button */}
+                <button
+                  type="submit"
+                  disabled={isLoading || !user || validationError !== null}
+                  className="w-full py-3 px-6 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-md transition duration-200 disabled:bg-green-300 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="animate-spin mr-2" size={20} />
+                      Initiating Payment...
+                    </>
+                  ) : (
+                    'Continue'
+                  )}
+                </button>
+              </form>
+
+              {/* Messages */}
+              {message && (
+                <div className={`mx-6 mb-6 p-3 rounded-lg text-center font-medium ${
+                  messageType === 'success' 
+                    ? 'bg-green-100 text-green-700 border border-green-300' 
+                    : messageType === 'error'
+                    ? 'bg-red-100 text-red-700 border border-red-300'
+                    : 'bg-blue-100 text-blue-700 border border-blue-300'
+                }`}>
+                  <div className="flex items-center justify-center">
+                    {messageType === 'success' && <CheckCircle className="mr-2" size={16} />}
+                    {messageType === 'error' && <AlertCircle className="mr-2" size={16} />}
+                    {message}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
+        )}
 
-          {/* Quick Amount Buttons */}
-          <div className="grid grid-cols-3 gap-1">
-            {quickAmounts.slice(0, 3).map((quickAmount) => (
-              <button
-                key={quickAmount}
-                type="button"
-                onClick={() => setAmount(quickAmount.toString())}
-                className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors disabled:opacity-50"
-                disabled={isLoading}
-              >
-                KES {quickAmount}
-              </button>
-            ))}
-          </div>
+        {/* M-Pesa Waiting Modal */}
+        {showMpesaModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-lg w-full max-w-md">
+              <div className="p-6 text-center">
+                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <DollarSign className="text-green-600" size={32} />
+                </div>
+                
+                <h3 className="text-xl font-semibold text-gray-800 mb-2">
+                  M-Pesa Payment Initiated
+                </h3>
+                
+                <p className="text-gray-600 mb-4">
+                  Check your phone for an STK push notification. Enter your M-Pesa PIN to complete the payment.
+                </p>
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isLoading || !user || !amount || !phoneNumber}
-            className="w-full py-2 px-4 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg shadow transition duration-200 disabled:bg-green-300 disabled:cursor-not-allowed flex items-center justify-center"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="animate-spin mr-1" size={16} />
-                Processing...
-              </>
-            ) : (
-              'Deposit'
-            )}
-          </button>
-        </form>
+                <div className="flex items-center justify-center mb-4">
+                  <Loader2 className="animate-spin text-green-600 mr-2" size={20} />
+                  <span className="text-green-600 font-medium">Waiting for payment confirmation...</span>
+                </div>
 
-        {/* Messages */}
-        {message && (
-          <div className={`mt-3 p-2 rounded text-center text-sm font-medium ${
-            messageType === 'success' 
-              ? 'bg-green-100 text-green-700 border border-green-300' 
-              : messageType === 'error'
-              ? 'bg-red-100 text-red-700 border border-red-300'
-              : 'bg-blue-100 text-blue-700 border border-blue-300'
-          }`}>
-            {messageType === 'success' && <CheckCircle className="inline mr-1" size={14} />}
-            {messageType === 'error' && <AlertCircle className="inline mr-1" size={14} />}
-            {message}
+                <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                  <p className="text-sm text-blue-700">
+                    You will be redirected to the payment status page shortly.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -296,116 +409,7 @@ export default function WalletPay({ onDepositSuccess, compact = false }: WalletP
         Deposit via M-Pesa
       </h3>
 
-      <form onSubmit={handleDeposit} className="space-y-4">
-        {/* Amount Input */}
-        <div>
-          <label htmlFor="amount" className="block text-sm font-medium text-gray-700 mb-2">
-            Amount (KES) *
-          </label>
-          <div className="relative">
-            <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-            <input
-              id="amount"
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="Enter amount (min: 10, max: 70,000)"
-              min="10"
-              max="70000"
-              step="1"
-              className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
-                validationError ? 'border-red-300' : 'border-gray-300'
-              }`}
-              required
-              disabled={isLoading}
-            />
-          </div>
-          {validationError && (
-            <p className="mt-1 text-sm text-red-600 flex items-center">
-              <AlertCircle className="mr-1" size={14} />
-              {validationError}
-            </p>
-          )}
-        </div>
-
-        {/* Quick Amount Buttons */}
-        <div>
-          <p className="text-sm text-gray-600 mb-2">Quick amounts:</p>
-          <div className="grid grid-cols-5 gap-2">
-            {quickAmounts.map((quickAmount) => (
-              <button
-                key={quickAmount}
-                type="button"
-                onClick={() => setAmount(quickAmount.toString())}
-                className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50 border border-transparent hover:border-gray-300"
-                disabled={isLoading}
-              >
-                KES {quickAmount}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Phone Number Input */}
-        <div>
-          <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 mb-2">
-            M-Pesa Phone Number *
-          </label>
-          <div className="relative">
-            <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-            <input
-              id="phoneNumber"
-              type="tel"
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              placeholder="07XXXXXXXX, 2547XXXXXXXX, or +2547XXXXXXXX"
-              pattern="[0-9+\s]{10,13}"
-              className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-              required
-              disabled={isLoading}
-            />
-          </div>
-          <div className="mt-1 flex items-start space-x-1">
-            <Info className="text-gray-400 mt-0.5 flex-shrink-0" size={14} />
-            <p className="text-xs text-gray-500">
-              Enter your M-Pesa registered phone number. Supported formats: 07XXXXXXXX, 2547XXXXXXXX, +2547XXXXXXXX
-            </p>
-          </div>
-        </div>
-
-        {/* Submit Button */}
-        <button
-          type="submit"
-          disabled={isLoading || !user || validationError !== null}
-          className="w-full py-3 px-6 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-md transition duration-200 disabled:bg-green-300 disabled:cursor-not-allowed flex items-center justify-center"
-        >
-          {isLoading ? (
-            <>
-              <Loader2 className="animate-spin mr-2" size={20} />
-              Initiating Payment...
-            </>
-          ) : (
-            'Deposit via M-Pesa'
-          )}
-        </button>
-      </form>
-
-      {/* Messages */}
-      {message && (
-        <div className={`mt-4 p-3 rounded-lg text-center font-medium ${
-          messageType === 'success' 
-            ? 'bg-green-100 text-green-700 border border-green-300' 
-            : messageType === 'error'
-            ? 'bg-red-100 text-red-700 border border-red-300'
-            : 'bg-blue-100 text-blue-700 border border-blue-300'
-        }`}>
-          <div className="flex items-center justify-center">
-            {messageType === 'success' && <CheckCircle className="mr-2" size={16} />}
-            {messageType === 'error' && <AlertCircle className="mr-2" size={16} />}
-            {message}
-          </div>
-        </div>
-      )}
+      <DepositButton />
 
       {/* Instructions */}
       <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
@@ -414,8 +418,9 @@ export default function WalletPay({ onDepositSuccess, compact = false }: WalletP
           How to deposit:
         </h4>
         <ol className="text-sm text-blue-700 list-decimal list-inside space-y-1">
-          <li>Enter amount and your M-Pesa phone number</li>
-          <li>Click "Deposit via M-Pesa"</li>
+          <li>Click "Deposit via M-Pesa" button</li>
+          <li>Enter amount and your M-Pesa phone number in the modal</li>
+          <li>Click "Continue" to initiate payment</li>
           <li>Check your phone for STK Push prompt</li>
           <li>Enter your M-Pesa PIN to complete</li>
           <li>Wait for confirmation</li>
@@ -433,6 +438,167 @@ export default function WalletPay({ onDepositSuccess, compact = false }: WalletP
           </div>
         </div>
       </div>
+
+      {/* Deposit Modal */}
+      {showDepositModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-md">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-800">Deposit via M-Pesa</h3>
+              <button
+                onClick={handleCloseDepositModal}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isLoading}
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <form onSubmit={handleContinue} className="p-6 space-y-4">
+              {/* Amount Input */}
+              <div>
+                <label htmlFor="amount-modal" className="block text-sm font-medium text-gray-700 mb-2">
+                  Amount (KES) *
+                </label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                  <input
+                    id="amount-modal"
+                    type="number"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="Enter amount (min: 10, max: 70,000)"
+                    min="10"
+                    max="70000"
+                    step="1"
+                    className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
+                      validationError ? 'border-red-300' : 'border-gray-300'
+                    }`}
+                    required
+                    disabled={isLoading}
+                  />
+                </div>
+                {validationError && (
+                  <p className="mt-1 text-sm text-red-600 flex items-center">
+                    <AlertCircle className="mr-1" size={14} />
+                    {validationError}
+                  </p>
+                )}
+              </div>
+
+              {/* Quick Amount Buttons */}
+              <div>
+                <p className="text-sm text-gray-600 mb-2">Quick amounts:</p>
+                <div className="grid grid-cols-5 gap-2">
+                  {quickAmounts.map((quickAmount) => (
+                    <button
+                      key={quickAmount}
+                      type="button"
+                      onClick={() => setAmount(quickAmount.toString())}
+                      className="px-2 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50 border border-transparent hover:border-gray-300"
+                      disabled={isLoading}
+                    >
+                      KES {quickAmount}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Phone Number Input */}
+              <div>
+                <label htmlFor="phoneNumber-modal" className="block text-sm font-medium text-gray-700 mb-2">
+                  M-Pesa Phone Number *
+                </label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                  <input
+                    id="phoneNumber-modal"
+                    type="tel"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="07XXXXXXXX, 2547XXXXXXXX, or +2547XXXXXXXX"
+                    pattern="[0-9+\s]{10,13}"
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    required
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="mt-1 flex items-start space-x-1">
+                  <Info className="text-gray-400 mt-0.5 flex-shrink-0" size={14} />
+                  <p className="text-xs text-gray-500">
+                    Enter your M-Pesa registered phone number. Supported formats: 07XXXXXXXX, 2547XXXXXXXX, +2547XXXXXXXX
+                  </p>
+                </div>
+              </div>
+
+              {/* Continue Button */}
+              <button
+                type="submit"
+                disabled={isLoading || !user || validationError !== null}
+                className="w-full py-3 px-6 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-md transition duration-200 disabled:bg-green-300 disabled:cursor-not-allowed flex items-center justify-center"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="animate-spin mr-2" size={20} />
+                    Initiating Payment...
+                  </>
+                ) : (
+                  'Continue'
+                )}
+              </button>
+            </form>
+
+            {/* Messages */}
+            {message && (
+              <div className={`mx-6 mb-6 p-3 rounded-lg text-center font-medium ${
+                messageType === 'success' 
+                  ? 'bg-green-100 text-green-700 border border-green-300' 
+                  : messageType === 'error'
+                  ? 'bg-red-100 text-red-700 border border-red-300'
+                  : 'bg-blue-100 text-blue-700 border border-blue-300'
+              }`}>
+                <div className="flex items-center justify-center">
+                  {messageType === 'success' && <CheckCircle className="mr-2" size={16} />}
+                  {messageType === 'error' && <AlertCircle className="mr-2" size={16} />}
+                  {message}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* M-Pesa Waiting Modal */}
+      {showMpesaModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-md">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <DollarSign className="text-green-600" size={32} />
+              </div>
+              
+              <h3 className="text-xl font-semibold text-gray-800 mb-2">
+                M-Pesa Payment Initiated
+              </h3>
+              
+              <p className="text-gray-600 mb-4">
+                Check your phone for an STK push notification. Enter your M-Pesa PIN to complete the payment.
+              </p>
+
+              <div className="flex items-center justify-center mb-4">
+                <Loader2 className="animate-spin text-green-600 mr-2" size={20} />
+                <span className="text-green-600 font-medium">Waiting for payment confirmation...</span>
+              </div>
+
+              <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                <p className="text-sm text-blue-700">
+                  You will be redirected to the payment status page shortly.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sandbox Testing Note */}
       {process.env.NODE_ENV === 'development' && (

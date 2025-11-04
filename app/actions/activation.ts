@@ -1,8 +1,7 @@
-// app/actions/activation.ts - FULLY FIXED VERSION
+// app/actions/activation.ts - UPDATED FOR NEXTAUTH V5
 'use server';
 
-import { getServerSession } from 'next-auth';
-import type { Session } from 'next-auth';
+import { auth } from '@/auth'; // NextAuth v5 auth import
 import { revalidatePath } from 'next/cache';
 import { connectToDatabase } from '@/app/lib/mongoose';
 import { 
@@ -510,7 +509,8 @@ export async function checkActivationStatus(): Promise<ApiResponse<ActivationSta
   try {
     await connectToDatabase();
     
-    const session = await getServerSession() as Session | null;
+    // NextAuth v5: Use auth() instead of getServerSession()
+    const session = await auth();
     if (!session?.user?.email) {
       return { success: false, message: 'User not authenticated' };
     }
@@ -616,7 +616,8 @@ export async function initiateActivationPayment(phoneNumber: string): Promise<Ap
   try {
     await connectToDatabase();
 
-    const session = await getServerSession() as Session | null;
+    // NextAuth v5: Use auth() instead of getServerSession()
+    const session = await auth();
     if (!session?.user?.email) {
       return { success: false, message: 'User not authenticated' };
     }
@@ -780,7 +781,8 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
   try {
     await connectToDatabase();
 
-    const session = await getServerSession() as Session | null;
+    // NextAuth v5: Use auth() instead of getServerSession()
+    const session = await auth();
     if (!session?.user?.email) {
       return { success: false, message: 'User not authenticated' };
     }
@@ -888,7 +890,8 @@ export async function completeActivationAfterPayment(activationPaymentId: string
   try {
     await connectToDatabase();
 
-    const session = await getServerSession() as Session | null;
+    // NextAuth v5: Use auth() instead of getServerSession()
+    const session = await auth();
     if (!session?.user?.email) {
       return { success: false, message: 'User not authenticated' };
     }

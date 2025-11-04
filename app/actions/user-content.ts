@@ -2,9 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { getServerSession } from 'next-auth';
-import type { Session } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth';
 import { connectToDatabase, UserContent, Profile, Transaction, BlogPost, AdminAuditLog } from '../lib/models';
 
 // =============================================================================
@@ -119,7 +117,7 @@ const MIN_CONTENT_AMOUNT = 0;
 
 async function getCurrentUser(): Promise<CurrentUser> {
     try {
-        const session = await getServerSession(authOptions) as Session | null;
+        const session = await auth();
         
         if (!session?.user?.email) {
             throw new Error('User not authenticated');

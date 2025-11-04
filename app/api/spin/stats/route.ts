@@ -1,7 +1,6 @@
 // app/api/spin/stats/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth';
 import { getUserSpinStats } from '@/app/actions/spin';
 import { connectToDatabase, Profile } from '@/app/lib/models';
 
@@ -9,7 +8,7 @@ export async function GET(request: NextRequest) {
   try {
     console.log('📊 Starting spin stats API call...');
     
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.email) {
       console.log('❌ Unauthorized - no session');
       return NextResponse.json(

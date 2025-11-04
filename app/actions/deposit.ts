@@ -5,8 +5,6 @@
 import { auth } from '@/auth';
 import { revalidatePath } from 'next/cache';
 import { connectToDatabase, Profile, MpesaTransaction, Transaction } from '../lib/models';
-// Removed: import { getServerSession } from 'next-auth';
-// Removed: import { authOptions } from '@/auth';
 
 // M-Pesa configuration matching transactions.ts
 const MPESA_CONFIG = {
@@ -94,8 +92,6 @@ interface SessionWithUser {
     expires: string;
 }
 
-// V5 NOTE: The `auth()` function returns `Session | null`.
-// This type guard is still useful for ensuring the session object has the required fields (like email).
 function isValidSession(session: unknown): session is SessionWithUser {
     return (
         session !== null &&
@@ -141,7 +137,6 @@ async function getMpesaAccessToken(): Promise<string> {
 function generateMpesaTimestamp(): string {
     const now = new Date();
     
-    // Format: YYYYMMDDHHmmss (M-Pesa required format)
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const day = String(now.getDate()).padStart(2, '0');
@@ -172,7 +167,6 @@ async function validateDeposit(
         return { valid: false, message: 'Amount must be between KES 10 and KES 70,000' };
     }
 
-    // Format phone number to 254 format if needed
     let formattedPhone = phoneNumber;
     if (phoneNumber.startsWith('0') && phoneNumber.length === 10) {
         formattedPhone = `254${phoneNumber.substring(1)}`;
@@ -190,7 +184,6 @@ async function validateDeposit(
         return { valid: false, message: 'User not found' };
     }
 
-    // Check for pending M-Pesa transactions
     const pendingMpesaTransaction = await (MpesaTransaction as any).findOne({
         user_id: userId,
         status: { $in: ['initiated', 'pending'] },
@@ -206,80 +199,54 @@ async function validateDeposit(
 
 /**
  * Map M-Pesa result codes to VALID database enum values
- * ONLY uses codes that exist in your MpesaTransaction schema
  */
 function mapMpesaResultCode(resultCode: string): number {
     const code = parseInt(resultCode);
     
-    // ONLY use codes that are DEFINITELY in your schema enum
     const validSchemaCodes = [
-        0,       // Success
-        1,       // Insufficient funds
-        2,       // Less than minimum allowed
-        3,       // More than maximum allowed
-        4,       // Would exceed daily limit
-        5,       // Would exceed minimum balance
-        6,       // Unsupported feature
-        7,       // Suspended
-        8,       // Inactive
-        10,      // Invalid short code
-        11,      // Invalid security credentials
-        12,      // Invalid initiator
-        13,      // Invalid sender
-        14,      // Invalid receiver
-        15,      // Invalid amount
-        17,      // Invalid transaction
-        20,      // Invalid arguments
-        26,      // Invalid reference
-        1032,    // Request cancelled by user
-        1037,    // Request timeout
-        2001,    // Invalid phone number
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 17, 20, 26, 1032, 1037, 2001
     ];
     
     if (validSchemaCodes.includes(code)) {
         return code;
     }
     
-    // For ALL unknown codes, use safe defaults that exist in your schema
     if (code === 0 || (code > 0 && code < 1000)) {
-        return 11; // Internal error for unknown success-like codes
+        return 11;
     }
     
     if (code >= 1000 && code <= 1999) {
-        return 1032; // User cancellation/timeout type errors
+        return 1032;
     }
     
     if (code >= 2000 && code <= 2999) {
-        return 2001; // Configuration errors
+        return 2001;
     }
     
-    // Default to internal error for ALL other unknown codes
     return 11;
 }
 
 /**
  * Map M-Pesa API status codes to VALID database status enum values
- * ONLY uses status values that exist in your MpesaTransaction schema
  */
 function mapMpesaStatus(resultCode: string): string {
     const statusMap: { [key: string]: string } = {
-        '0': 'completed',      // Success
-        '1': 'failed',         // Insufficient funds
-        '1032': 'cancelled',   // Request cancelled by user
-        '1037': 'timeout',     // Request timeout
-        '2001': 'failed',      // Invalid phone number
-        // Map "in progress" codes to 'initiated' instead
-        '1026': 'initiated',   // Transaction in progress
-        '1031': 'initiated',   // Request already in progress
-        '4999': 'initiated',   // Transaction in progress
+        '0': 'completed',
+        '1': 'failed',
+        '1032': 'cancelled',
+        '1037': 'timeout',
+        '2001': 'failed',
+        '1026': 'initiated',
+        '1031': 'initiated',
+        '4999': 'initiated',
     };
 
-    // Default to 'failed' for ALL unknown codes
     return statusMap[resultCode] || 'failed';
 }
 
 /**
  * Update Transaction record to match M-Pesa transaction status
+ * 🔧 FIXED: Now properly sets target_type and target_id
  */
 async function syncTransactionWithMpesaStatus(
     mpesaTransactionId: any, 
@@ -298,13 +265,11 @@ async function syncTransactionWithMpesaStatus(
             }
         };
 
-        // Add receipt number for completed transactions
         if (status === 'completed' && mpesaReceiptNumber) {
             updateData.metadata.mpesa_receipt_number = mpesaReceiptNumber;
             updateData.metadata.completed_at = new Date().toISOString();
         }
 
-        // Add failed/cancelled timestamp
         if (['failed', 'cancelled', 'timeout'].includes(status)) {
             updateData.metadata.failed_at = new Date().toISOString();
         }
@@ -342,6 +307,7 @@ async function updateUserBalance(userId: string, amountCents: number): Promise<v
 
 /**
  * Process M-Pesa deposit with STK Push
+ * 🔧 FIXED: Now includes target_type and target_id in transaction creation
  */
 export async function processMpesaDeposit(depositData: {
     amount: number;
@@ -350,7 +316,6 @@ export async function processMpesaDeposit(depositData: {
     try {
         console.log('🎯 Starting M-Pesa deposit process:', depositData);
 
-        // V5 Migration: Use the `auth()` function to get the session
         const session = await auth();
         
         if (!isValidSession(session)) {
@@ -364,7 +329,6 @@ export async function processMpesaDeposit(depositData: {
             return { success: false, message: 'User profile not found' };
         }
 
-        // Validate deposit parameters
         const validationResult = await validateDeposit(currentUser._id.toString(), depositData.amount, depositData.phoneNumber);
         if (!validationResult.valid) {
             return { success: false, message: validationResult.message };
@@ -372,18 +336,14 @@ export async function processMpesaDeposit(depositData: {
 
         const formattedPhone = validationResult.data?.formattedPhone || depositData.phoneNumber;
 
-        // Get M-Pesa access token
-        console.log('🔑 Getting M-Pesa access token...');
+        console.log('🔐 Getting M-Pesa access token...');
         const accessToken = await getMpesaAccessToken();
         
-        // Generate timestamp and password
         const timestamp = generateMpesaTimestamp();
         const password = generateMpesaPassword(timestamp);
         
-        // Convert amount to cents for internal records
         const amountCents = Math.round(depositData.amount * 100);
 
-        // STK Push request payload
         const stkPushPayload = {
             BusinessShortCode: MPESA_CONFIG.shortCode,
             Password: password,
@@ -400,10 +360,9 @@ export async function processMpesaDeposit(depositData: {
 
         console.log('📦 STK Push Payload:', {
             ...stkPushPayload,
-            Password: '***' // Don't log full password
+            Password: '***'
         });
 
-        // Initiate STK Push
         console.log('🚀 Initiating STK Push...');
         const stkResponse = await fetch(
             MPESA_CONFIG.environment === 'sandbox'
@@ -429,7 +388,6 @@ export async function processMpesaDeposit(depositData: {
         console.log('📨 STK Push response:', stkData);
 
         if (stkData.ResponseCode === '0') {
-            // Create M-Pesa transaction record
             const mpesaTransaction = await (MpesaTransaction as any).create({
                 user_id: currentUser._id,
                 amount_cents: amountCents,
@@ -440,7 +398,7 @@ export async function processMpesaDeposit(depositData: {
                 merchant_request_id: stkData.MerchantRequestID,
                 status: 'initiated',
                 stk_push_response: stkData,
-                result_code: 1032, // Default to initiated status
+                result_code: 1032,
                 result_desc: 'STK Push initiated successfully',
                 metadata: {
                     user_username: currentUser.username,
@@ -450,7 +408,7 @@ export async function processMpesaDeposit(depositData: {
                 }
             });
 
-            // Create pending transaction record linked to M-Pesa transaction
+            // 🔧 FIXED: Now includes target_type and target_id
             const transaction = await (Transaction as any).create({
                 user_id: currentUser._id,
                 amount_cents: amountCents,
@@ -458,6 +416,11 @@ export async function processMpesaDeposit(depositData: {
                 description: `M-Pesa deposit from ${formattedPhone}`,
                 status: 'pending',
                 mpesa_transaction_id: mpesaTransaction._id,
+                
+                // ✅ ADD THESE REQUIRED FIELDS
+                target_type: 'user',
+                target_id: currentUser._id.toString(),
+                
                 metadata: {
                     phoneNumber: formattedPhone,
                     provider: 'mpesa',
@@ -507,13 +470,12 @@ export async function processMpesaDeposit(depositData: {
 }
 
 /**
- * Check M-Pesa payment status - COMPLETELY FIXED VERSION
+ * Check M-Pesa payment status
  */
 export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promise<PaymentStatusResponse> {
     try {
         console.log('🔍 Checking M-Pesa payment status:', checkoutRequestId);
 
-        // V5 Migration: Use the `auth()` function to get the session
         const session = await auth();
         
         if (!isValidSession(session)) {
@@ -522,7 +484,6 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
 
         await connectToDatabase();
 
-        // First check database for existing status
         const mpesaTransaction = await (MpesaTransaction as any).findOne({
             checkout_request_id: checkoutRequestId
         });
@@ -531,7 +492,6 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
             return { success: false, message: 'Transaction not found' };
         }
 
-        // If already completed or failed, return current status
         if (['completed', 'failed', 'cancelled', 'timeout'].includes(mpesaTransaction.status)) {
             return {
                 success: true,
@@ -549,7 +509,6 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
             };
         }
 
-        // Query M-Pesa API for current status
         console.log('📡 Querying M-Pesa API for status...');
         const accessToken = await getMpesaAccessToken();
         const timestamp = generateMpesaTimestamp();
@@ -561,11 +520,6 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
             Timestamp: timestamp,
             CheckoutRequestID: checkoutRequestId
         };
-
-        console.log('📦 M-Pesa Query Payload:', {
-            ...queryPayload,
-            Password: '***'
-        });
 
         const queryResponse = await fetch(
             MPESA_CONFIG.environment === 'sandbox'
@@ -584,7 +538,6 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
         if (!queryResponse.ok) {
             const errorText = await queryResponse.text();
             console.error('❌ M-Pesa query API error:', errorText);
-            // Return database status if API query fails
             return {
                 success: true,
                 data: {
@@ -600,43 +553,26 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
         const queryData: MpesaQueryResponse = await queryResponse.json();
         console.log('📨 M-Pesa query response:', queryData);
 
-        // Use ONLY VALID enum values for your schema
         const safeResultCode = mapMpesaResultCode(queryData.ResultCode);
         const safeStatus = mapMpesaStatus(queryData.ResultCode);
 
-        console.log('🔄 Safe Status Mapping:', {
-            originalCode: queryData.ResultCode,
-            safeResultCode: safeResultCode,
-            safeStatus: safeStatus,
-            resultDesc: queryData.ResultDesc
-        });
-
-        // Update M-Pesa transaction with ONLY VALID values
         mpesaTransaction.status = safeStatus;
         mpesaTransaction.result_code = safeResultCode;
         mpesaTransaction.result_desc = queryData.ResultDesc || 'No description provided';
 
-        // Set appropriate dates based on final status
         if (safeStatus === 'completed') {
             mpesaTransaction.mpesa_receipt_number = queryData.MpesaReceiptNumber;
             mpesaTransaction.completed_at = new Date();
         } else if (['failed', 'cancelled', 'timeout'].includes(safeStatus)) {
             mpesaTransaction.failed_at = new Date();
         }
-        // For 'initiated' status, don't set completion dates
 
         try {
             await mpesaTransaction.save();
             console.log('💾 Successfully updated M-Pesa transaction with safe status:', safeStatus);
         } catch (saveError) {
-            console.error('❌ CRITICAL: Failed to save M-Pesa transaction with safe values:', saveError);
-            console.error('❌ Transaction data that failed:', {
-                status: safeStatus,
-                result_code: safeResultCode,
-                result_desc: mpesaTransaction.result_desc
-            });
+            console.error('❌ CRITICAL: Failed to save M-Pesa transaction:', saveError);
             
-            // Return the safe status without saving to database
             return {
                 success: true,
                 data: {
@@ -651,7 +587,6 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
             };
         }
 
-        // CRITICAL FIX: Update Transaction record for ALL final statuses, not just 'completed'
         if (['completed', 'failed', 'cancelled', 'timeout'].includes(safeStatus)) {
             try {
                 await syncTransactionWithMpesaStatus(
@@ -662,13 +597,11 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
                     queryData.MpesaReceiptNumber
                 );
 
-                // Only update user balance for completed transactions
                 if (safeStatus === 'completed') {
                     await updateUserBalance(mpesaTransaction.user_id, mpesaTransaction.amount_cents);
                 }
             } catch (updateError) {
                 console.error('❌ Failed to update transaction or user balance:', updateError);
-                // Continue even if update fails - the main transaction status is what matters
             }
         }
 
@@ -697,7 +630,7 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
 }
 
 /**
- * Sync transaction status with M-Pesa transaction status for existing records
+ * Sync transaction status with M-Pesa transaction status
  */
 export async function syncTransactionStatus(transactionId: string): Promise<PaymentStatusResponse> {
     try {
@@ -715,7 +648,6 @@ export async function syncTransactionStatus(transactionId: string): Promise<Paym
             return { success: false, message: 'M-Pesa transaction not found' };
         }
 
-        // If statuses don't match and M-Pesa has a final status, update the transaction
         if (transaction.status !== mpesaTransaction.status && 
             ['completed', 'failed', 'cancelled', 'timeout'].includes(mpesaTransaction.status)) {
             
@@ -727,10 +659,8 @@ export async function syncTransactionStatus(transactionId: string): Promise<Paym
                 mpesaTransaction.mpesa_receipt_number
             );
 
-            // Update user balance if it's completed and balance wasn't updated
             if (mpesaTransaction.status === 'completed') {
                 const user = await (Profile as any).findById(mpesaTransaction.user_id);
-                // Simple check to prevent double-crediting if balance is lower than transaction amount
                 if (user && user.balance_cents < mpesaTransaction.amount_cents) { 
                     await updateUserBalance(mpesaTransaction.user_id, mpesaTransaction.amount_cents);
                 }
@@ -739,7 +669,6 @@ export async function syncTransactionStatus(transactionId: string): Promise<Paym
             console.log(`✅ Successfully synced transaction ${transactionId} from ${transaction.status} to ${mpesaTransaction.status}`);
         }
 
-        // Get updated transaction
         const updatedTransaction = await (Transaction as any).findById(transactionId);
 
         return {
@@ -767,7 +696,6 @@ export async function syncTransactionStatus(transactionId: string): Promise<Paym
  */
 export async function getDepositHistory(limit: number = 20, page: number = 1): Promise<DepositHistoryResponse> {
     try {
-        // V5 Migration: Use the `auth()` function to get the session
         const session = await auth();
         
         if (!isValidSession(session)) {
@@ -783,7 +711,6 @@ export async function getDepositHistory(limit: number = 20, page: number = 1): P
 
         const skip = (page - 1) * limit;
 
-        // Get deposit transactions
         const deposits = await (Transaction as any).find({
             user_id: currentUser._id,
             type: 'DEPOSIT'
@@ -798,7 +725,6 @@ export async function getDepositHistory(limit: number = 20, page: number = 1): P
             type: 'DEPOSIT'
         });
 
-        // Transform data for frontend
         const transformedDeposits: DepositHistoryItem[] = deposits.map((deposit: any) => ({
             id: deposit._id?.toString(),
             type: deposit.type,
@@ -836,7 +762,6 @@ export async function getDepositHistory(limit: number = 20, page: number = 1): P
  */
 export async function getUserBalance(): Promise<BalanceResponse> {
     try {
-        // V5 Migration: Use the `auth()` function to get the session
         const session = await auth();
         
         if (!isValidSession(session)) {
@@ -893,4 +818,3 @@ export async function validateDepositAmount(amount: number): Promise<ValidationR
         };
     }
 }
-

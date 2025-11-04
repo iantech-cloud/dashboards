@@ -1,4 +1,4 @@
-// app/dashboard/page.tsx
+// app/dashboard/page.tsx - FULLY MODERNIZED
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -21,7 +21,11 @@ import {
   CheckSquare,
   X,
   ArrowRight,
-  BarChart3 // Added for reports
+  BarChart3,
+  Sparkles,
+  Trophy,
+  Target,
+  Zap
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -29,11 +33,12 @@ import Card from '@/app/ui/dashboard/Card';
 import TransactionHistory from '@/app/ui/dashboard/TransactionHistory';
 import WalletPay from '@/app/ui/dashboard/WalletPay';
 import SpinWheel from '@/app/ui/dashboard/spin-wheel';
-import UserReports from '@/app/ui/dashboard/userReports'; // Added import
+import UserReports from '@/app/ui/dashboard/userReports';
 import { fetchDashboardData } from '@/app/lib/data';
 import { useDashboard } from './DashboardContext';
 import { getUserContentStats, getRecentSubmissions } from '@/app/actions/dashboard/content';
 import { getUserSpinStats } from '@/app/actions/spin';
+import TransactionTrendsChart from '@/app/ui/dashboard/chart';
 
 // =============================================================================
 // TYPE DEFINITIONS
@@ -140,7 +145,6 @@ interface SpinStats {
 // =============================================================================
 
 export default function DashboardPage() {
-  // Context and state
   const { user, spinMutation } = useDashboard();
   const [spinMessage, setSpinMessage] = useState<string | null>(null);
   const [referralMessage, setReferralMessage] = useState<string | null>(null);
@@ -153,12 +157,10 @@ export default function DashboardPage() {
   const [spinStatsLoading, setSpinStatsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Spin wheel state
   const [showSpinWheel, setShowSpinWheel] = useState(false);
   const [spinResult, setSpinResult] = useState<any>(null);
   const [refreshingStats, setRefreshingStats] = useState(false);
 
-  // Load dashboard data effect
   useEffect(() => {
     if (!user) return;
 
@@ -179,7 +181,6 @@ export default function DashboardPage() {
     loadDashboardData();
   }, [user]);
 
-  // Load content stats and recent submissions
   useEffect(() => {
     if (!user) return;
 
@@ -212,7 +213,6 @@ export default function DashboardPage() {
     loadContentData();
   }, [user]);
 
-  // Load spin statistics
   useEffect(() => {
     if (!user) return;
 
@@ -228,7 +228,6 @@ export default function DashboardPage() {
           setSpinStats(result.data);
         } else {
           console.error('❌ Failed to load spin stats:', result.message);
-          // Set default spin stats if API fails
           setSpinStats({
             totalSpins: 0,
             totalWins: 0,
@@ -242,7 +241,6 @@ export default function DashboardPage() {
         }
       } catch (err) {
         console.error('❌ Error loading spin stats:', err);
-        // Set default spin stats on error
         setSpinStats({
           totalSpins: 0,
           totalWins: 0,
@@ -261,14 +259,12 @@ export default function DashboardPage() {
     loadSpinStats();
   }, [user, dashboardData?.stats.availableSpins]);
 
-  // Spin handler - shows the spin wheel modal
   const handleSpinClick = () => {
     setShowSpinWheel(true);
     setSpinMessage('');
     setSpinResult(null);
   };
 
-  // Handle spin completion from the wheel
   const handleSpinComplete = async (result: any) => {
     console.log('🎯 Spin completed with result:', result);
     setSpinResult(result);
@@ -279,13 +275,11 @@ export default function DashboardPage() {
       setSpinMessage(result.message || 'Spin completed. Better luck next time!');
     }
 
-    // Force refresh both dashboard data AND spin stats immediately
     if (user) {
       try {
         setRefreshingStats(true);
         console.log('🔄 Force refreshing dashboard data and spin stats after spin...');
         
-        // Refresh both in parallel
         const [updatedDashboardData, updatedSpinStats] = await Promise.allSettled([
           fetchDashboardData(user.id),
           getUserSpinStats(user.id)
@@ -308,13 +302,11 @@ export default function DashboardPage() {
       }
     }
 
-    // Close the wheel after showing result
     setTimeout(() => {
       setShowSpinWheel(false);
     }, 3000);
   };
 
-  // Copy referral code handler
   const handleCopyReferralCode = async (referralId: string) => {
     try {
       await navigator.clipboard.writeText(referralId);
@@ -326,18 +318,16 @@ export default function DashboardPage() {
     }
   };
 
-  // Get status badge color
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'approved': return 'bg-green-100 text-green-800';
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'rejected': return 'bg-red-100 text-red-800';
-      case 'revision_requested': return 'bg-orange-100 text-orange-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'approved': return 'bg-green-100 text-green-800 border border-green-200';
+      case 'pending': return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+      case 'rejected': return 'bg-red-100 text-red-800 border border-red-200';
+      case 'revision_requested': return 'bg-orange-100 text-orange-800 border border-orange-200';
+      default: return 'bg-gray-100 text-gray-800 border border-gray-200';
     }
   };
 
-  // Get status icon
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'approved': return <CheckSquare className="w-4 h-4" />;
@@ -348,12 +338,10 @@ export default function DashboardPage() {
     }
   };
 
-  // Format payment amount - FIXED: Remove division by 100 since amounts are already in KSH
   const formatPayment = (amount: number) => {
     return `KES ${amount.toFixed(2)}`;
   };
 
-  // Debug effect to monitor stats changes
   useEffect(() => {
     if (dashboardData?.stats) {
       console.log('📊 Current Dashboard Stats:', {
@@ -370,36 +358,51 @@ export default function DashboardPage() {
     }
   }, [dashboardData, spinStats]);
 
-  // Loading states
   if (!user) {
     return (
-      <div className="flex justify-center items-center min-h-screen bg-gray-50">
-        <Loader2 className="animate-spin text-indigo-600 w-10 h-10" />
-        <p className="ml-3 text-lg text-gray-600">Loading user data...</p>
+      <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-cyan-50/30">
+        <div className="text-center">
+          <div className="relative inline-flex">
+            <Loader2 className="animate-spin text-blue-600 w-10 h-10" />
+            <div className="absolute inset-0 animate-ping">
+              <Loader2 className="text-cyan-400 w-10 h-10 opacity-20" />
+            </div>
+          </div>
+          <p className="mt-3 text-lg font-medium text-slate-700">Loading user data...</p>
+        </div>
       </div>
     );
   }
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-screen bg-gray-50">
-        <Loader2 className="animate-spin text-indigo-600 w-10 h-10" />
-        <p className="ml-3 text-lg text-gray-600">Loading dashboard data...</p>
+      <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-cyan-50/30">
+        <div className="text-center">
+          <div className="relative inline-flex">
+            <Loader2 className="animate-spin text-blue-600 w-10 h-10" />
+            <div className="absolute inset-0 animate-ping">
+              <Loader2 className="text-cyan-400 w-10 h-10 opacity-20" />
+            </div>
+          </div>
+          <p className="mt-3 text-lg font-medium text-slate-700">Loading dashboard data...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex justify-center items-center min-h-screen bg-gray-50">
-        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg max-w-md">
-          <div className="flex items-center">
-            <AlertTriangle className="w-6 h-6 mr-2" />
-            <p className="font-medium">{error}</p>
+      <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-red-50 via-orange-50/30 to-red-50/30">
+        <div className="bg-white/80 backdrop-blur-xl border-2 border-red-200 text-red-700 p-6 rounded-2xl max-w-md shadow-xl">
+          <div className="flex items-center mb-4">
+            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mr-3">
+              <AlertTriangle className="w-6 h-6 text-red-600" />
+            </div>
+            <p className="font-semibold text-lg">{error}</p>
           </div>
           <button
             onClick={() => window.location.reload()}
-            className="mt-3 text-sm text-red-600 hover:underline"
+            className="w-full mt-4 py-2 px-4 bg-gradient-to-r from-red-600 to-red-500 text-white font-semibold rounded-xl hover:from-red-700 hover:to-red-600 shadow-lg shadow-red-500/30 transition-all duration-250"
           >
             Retry
           </button>
@@ -410,10 +413,8 @@ export default function DashboardPage() {
 
   const { profile, stats, receipts, transactions } = dashboardData || {};
 
-  // Use spinStats for spin-related data, fallback to dashboard stats
   const displayStats = {
     ...stats,
-    // OVERRIDE spin-related stats with data from spinStats API
     totalSpins: spinStats?.totalSpins ?? stats?.totalSpins ?? 0,
     totalWins: spinStats?.totalWins ?? stats?.totalWins ?? 0,
     winRate: spinStats?.winRate ?? stats?.winRate ?? 0,
@@ -423,61 +424,87 @@ export default function DashboardPage() {
     totalSpinsUsed: spinStats?.totalSpinsUsed ?? stats?.totalSpinsUsed ?? 0,
   };
 
-  // Prepare chart data
-  const chartData = transactions?.reduce((acc, curr) => {
-    const date = curr.date.split('T')[0];
-    if (!acc[date]) acc[date] = 0;
-    acc[date] += curr.amount;
-    return acc;
-  }, {} as Record<string, number>) || {};
-
-  const chartLabels = Object.keys(chartData).sort();
-  const chartValues = chartLabels.map((date) => chartData[date]);
-
-  // Calculate transaction summaries
-  const spinWinTotal = transactions?.filter(t => t.type === 'SPIN_WIN')
-    .reduce((sum, t) => sum + t.amount, 0) || 0;
-  const referralTotal = transactions?.filter(t => t.type === 'REFERRAL')
-    .reduce((sum, t) => sum + t.amount, 0) || 0;
-  const surveyTotal = transactions?.filter(t => t.type === 'SURVEY')
-    .reduce((sum, t) => sum + t.amount, 0) || 0;
-  const totalEarnings = transactions?.reduce((sum, t) => sum + t.amount, 0) || 0;
-
   return (
-    <div className="max-w-7xl mx-auto p-4 sm:p-6 md:p-8 bg-gray-50 min-h-screen">
-      {/* Header */}
-      <h2 className="text-3xl font-extrabold text-gray-900 mb-6 border-b-2 border-indigo-200 pb-3">
-        Welcome, {profile?.username || 'User'}!
-      </h2>
+    <div className="max-w-7xl mx-auto p-4 sm:p-6 md:p-8 min-h-screen relative">
+      {/* Animated background elements */}
+      <div className="absolute top-0 right-0 w-72 h-72 bg-gradient-to-bl from-blue-400/10 to-transparent rounded-full blur-3xl animate-pulse pointer-events-none"></div>
+      <div className="absolute bottom-0 left-0 w-72 h-72 bg-gradient-to-tr from-cyan-400/10 to-transparent rounded-full blur-3xl animate-pulse delay-1000 pointer-events-none"></div>
 
-      {/* Profile Overview Card */}
-      {profile && (
-        <div className={`p-6 rounded-xl shadow-lg mb-8 border-l-4 ${
-          profile.is_approved ? 'bg-green-50 border-green-500' : 'bg-yellow-50 border-yellow-500'
-        }`}>
-          <div className="flex justify-between items-start flex-wrap gap-4">
+      {/* Welcome Header with Glassmorphism */}
+      <div className="relative mb-8 bg-white/70 backdrop-blur-xl rounded-3xl p-6 shadow-lg border border-white/50 overflow-hidden group">
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-600/5 via-cyan-600/5 to-blue-600/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+        <div className="relative z-10 flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/30 group-hover:shadow-blue-500/50 transition-all duration-300 group-hover:scale-110">
+              <Sparkles className="w-8 h-8 text-white" />
+            </div>
             <div>
-              <h3 className="text-xl font-bold text-gray-800 mb-2">Account Overview</h3>
-              <div className="space-y-1 text-sm text-gray-600">
-                <p><span className="font-semibold">Status:</span>{' '}
-                  <span className={profile.is_approved ? 'text-green-600 font-medium' : 'text-yellow-600 font-medium'}>
-                    {profile.is_approved ? 'Approved' : 'Pending Approval'}
-                  </span>
-                </p>
-                <p><span className="font-semibold">Username:</span> {profile.username}</p>
-                <p><span className="font-semibold">Phone:</span> {profile.phone_number}</p>
-                <p><span className="font-semibold">Email:</span> {profile.email}</p>
-                <p><span className="font-semibold">Level:</span> {profile.level} ({profile.rank})</p>
+              <h2 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                Welcome back, {profile?.username || 'User'}!
+              </h2>
+              <p className="text-slate-600 mt-1">Here's what's happening with your account today</p>
+            </div>
+          </div>
+          <div className="hidden md:flex items-center space-x-2">
+            <Trophy className="w-6 h-6 text-yellow-500" />
+            <span className="text-lg font-bold text-slate-700">Level {profile?.level}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Profile Overview Card with Glassmorphism */}
+      {profile && (
+        <div className={`relative mb-8 bg-white/70 backdrop-blur-xl rounded-3xl p-6 shadow-lg border-l-4 overflow-hidden ${
+          profile.is_approved ? 'border-green-500' : 'border-yellow-500'
+        }`}>
+          <div className="absolute inset-0 bg-gradient-to-r from-white/50 to-transparent"></div>
+          <div className="relative z-10 flex justify-between items-start flex-wrap gap-4">
+            <div className="flex-1">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className={`px-4 py-2 rounded-xl font-semibold text-sm shadow-md ${
+                  profile.is_approved 
+                    ? 'bg-gradient-to-r from-green-500 to-green-400 text-white' 
+                    : 'bg-gradient-to-r from-yellow-500 to-yellow-400 text-white'
+                }`}>
+                  {profile.is_approved ? '✓ Approved' : '⏳ Pending Approval'}
+                </div>
+                <div className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-100 to-cyan-100 text-blue-700 font-semibold text-sm border border-blue-200">
+                  {profile.rank}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                  <span className="text-slate-600">Username:</span>
+                  <span className="font-semibold text-slate-900">{profile.username}</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 rounded-full bg-cyan-500"></div>
+                  <span className="text-slate-600">Phone:</span>
+                  <span className="font-semibold text-slate-900">{profile.phone_number}</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 rounded-full bg-purple-500"></div>
+                  <span className="text-slate-600">Email:</span>
+                  <span className="font-semibold text-slate-900">{profile.email}</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                  <span className="text-slate-600">Level:</span>
+                  <span className="font-semibold text-slate-900">{profile.level} ({profile.rank})</span>
+                </div>
               </div>
             </div>
             
             {profile.referral_id && (
-              <div className="text-right flex-shrink-0">
-                <p className="text-sm font-semibold text-gray-600 mb-2">Referral Code</p>
-                <p className="text-lg font-bold text-indigo-600 mb-2">{profile.referral_id}</p>
+              <div className="bg-gradient-to-br from-blue-50 to-cyan-50 backdrop-blur-sm p-4 rounded-2xl border border-blue-200 shadow-md">
+                <p className="text-xs font-semibold text-blue-700 mb-2 uppercase tracking-wide">Referral Code</p>
+                <p className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-3 font-mono">
+                  {profile.referral_id}
+                </p>
                 <button
                   onClick={() => handleCopyReferralCode(profile.referral_id!)}
-                  className="text-sm bg-indigo-100 text-indigo-700 px-3 py-1 rounded-lg hover:bg-indigo-200 transition"
+                  className="w-full py-2 px-4 bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-semibold rounded-xl hover:from-blue-700 hover:to-cyan-600 shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 transition-all duration-250 transform hover:scale-105"
                 >
                   Copy Code
                 </button>
@@ -487,7 +514,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Stats Grid */}
+      {/* Stats Grid with Modern Cards */}
       {displayStats ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
           <Card title="Current Balance" value={`KES ${displayStats.availableBalance.toFixed(2)}`} icon={DollarSign} color="bg-indigo-600" />
@@ -496,134 +523,81 @@ export default function DashboardPage() {
           <Card title="Pending Withdrawals" value={`KES ${displayStats.pendingWithdrawals.toFixed(2)}`} icon={DollarSign} color="bg-yellow-500" />
           <Card title="Downline Earnings" value={`KES ${displayStats.downlineEarnings.toFixed(2)}`} icon={Users} color="bg-purple-500" />
           <Card title="Tasks Completed" value={profile?.tasks_completed?.toString() || '0'} icon={CheckCircle} color="bg-teal-500" />
-          
-          {/* Spin Statistics Cards - USING CORRECT SPIN STATS API DATA */}
-          <Card 
-            title="Available Spins" 
-            value={displayStats.availableSpins.toString()} 
-            icon={RotateCw} 
-            color="bg-red-500" 
-          />
-          <Card 
-            title="Spin Earnings" 
-            value={`KES ${(displayStats.spinEarnings || 0).toFixed(2)}`} 
-            icon={Gift} 
-            color="bg-pink-500" 
-          />
-          <Card 
-            title="Survey Earnings" 
-            value={`KES ${(displayStats.surveyEarnings || 0).toFixed(2)}`} 
-            icon={ClipboardCheck} 
-            color="bg-orange-500" 
-          />
-          <Card 
-            title="Level/Rank" 
-            value={`Level ${displayStats.level} (${displayStats.rank})`} 
-            icon={CheckCircle} 
-            color="bg-cyan-500" 
-          />
-          
-          {/* Enhanced Spin Statistics Cards - USING CORRECT SPIN STATS API DATA */}
-          <Card 
-            title="Total Spins" 
-            value={displayStats.totalSpins?.toString() || '0'} 
-            icon={RotateCw} 
-            color="bg-purple-500" 
-            loading={spinStatsLoading}
-          />
-          <Card 
-            title="Total Wins" 
-            value={displayStats.totalWins?.toString() || '0'} 
-            icon={Gift} 
-            color="bg-green-500" 
-            loading={spinStatsLoading}
-          />
-          <Card 
-            title="Win Rate" 
-            value={`${displayStats.winRate?.toFixed(1) || '0.0'}%`} 
-            icon={TrendingUp} 
-            color="bg-blue-500" 
-            loading={spinStatsLoading}
-          />
-          <Card 
-            title="Current Streak" 
-            value={displayStats.currentStreak?.toString() || '0'} 
-            icon={CheckCircle} 
-            color="bg-orange-500" 
-            loading={spinStatsLoading}
-          />
-          <Card 
-            title="Best Streak" 
-            value={displayStats.bestStreak?.toString() || '0'} 
-            icon={TrendingUp} 
-            color="bg-yellow-500" 
-            loading={spinStatsLoading}
-          />
-          <Card 
-            title="Spins Used" 
-            value={displayStats.totalSpinsUsed?.toString() || '0'} 
-            icon={RotateCw} 
-            color="bg-gray-500" 
-            loading={spinStatsLoading}
-          />
+          <Card title="Available Spins" value={displayStats.availableSpins.toString()} icon={RotateCw} color="bg-red-500" />
+          <Card title="Spin Earnings" value={`KES ${(displayStats.spinEarnings || 0).toFixed(2)}`} icon={Gift} color="bg-pink-500" />
+          <Card title="Survey Earnings" value={`KES ${(displayStats.surveyEarnings || 0).toFixed(2)}`} icon={ClipboardCheck} color="bg-orange-500" />
+          <Card title="Level/Rank" value={`Level ${displayStats.level} (${displayStats.rank})`} icon={CheckCircle} color="bg-cyan-500" />
+          <Card title="Total Spins" value={displayStats.totalSpins?.toString() || '0'} icon={RotateCw} color="bg-purple-500" loading={spinStatsLoading} />
+          <Card title="Total Wins" value={displayStats.totalWins?.toString() || '0'} icon={Gift} color="bg-green-500" loading={spinStatsLoading} />
+          <Card title="Win Rate" value={`${displayStats.winRate?.toFixed(1) || '0.0'}%`} icon={TrendingUp} color="bg-blue-500" loading={spinStatsLoading} />
+          <Card title="Current Streak" value={displayStats.currentStreak?.toString() || '0'} icon={CheckCircle} color="bg-orange-500" loading={spinStatsLoading} />
+          <Card title="Best Streak" value={displayStats.bestStreak?.toString() || '0'} icon={TrendingUp} color="bg-yellow-500" loading={spinStatsLoading} />
+          <Card title="Spins Used" value={displayStats.totalSpinsUsed?.toString() || '0'} icon={RotateCw} color="bg-gray-500" loading={spinStatsLoading} />
         </div>
       ) : (
-        <p className="text-center text-gray-500 mb-8">No statistics available.</p>
+        <p className="text-center text-slate-500 mb-8 py-8 bg-white/70 backdrop-blur-xl rounded-2xl">No statistics available.</p>
       )}
 
-      {/* Quick Actions Grid */}
+      {/* Quick Actions Grid with Enhanced Styling */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {/* Spin-to-Win - Updated to use Spin Wheel Modal */}
-        <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 hover:shadow-xl transition-shadow duration-300">
-          <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-            <Gift className="mr-2 text-red-500" />
-            Spin-to-Win
-          </h3>
-          
-          <p className="text-gray-600 mb-4">
-            Available Spins: <span className="font-bold text-red-600">
-              {displayStats?.availableSpins || profile?.available_spins || 0}
-            </span>
-          </p>
-          
-          <p className="text-sm text-gray-500 mb-4">
-            Cost per spin: <span className="font-semibold">5 spins</span>
-          </p>
-          
-          <button
-            onClick={handleSpinClick}
-            disabled={refreshingStats || spinStatsLoading}
-            className="w-full py-3 px-6 bg-gradient-to-r from-red-500 to-red-600 text-white font-bold rounded-xl shadow-md hover:from-red-600 hover:to-red-700 transition-all duration-300 flex items-center justify-center transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {refreshingStats ? (
-              <>
-                <Loader2 className="animate-spin mr-2" size={20} />
-                Refreshing...
-              </>
-            ) : (
-              <>
-                <Gift className="mr-2" size={20} />
-                Open Spin Wheel
-                <ArrowRight className="ml-2" size={16} />
-              </>
-            )}
-          </button>
-          
-          {spinMessage && (
-            <div className={`mt-4 p-3 rounded-lg text-center font-medium animate-pulse ${
-              spinMessage.includes('Congratulations') || spinMessage.includes('🎉')
-                ? 'bg-green-100 text-green-700 border border-green-300'
-                : spinMessage.includes('Not enough')
-                ? 'bg-red-100 text-red-700 border border-red-300'
-                : 'bg-blue-100 text-blue-700 border border-blue-300'
-            }`}>
-              {spinMessage}
+        {/* Spin-to-Win Card */}
+        <div className="group relative bg-white/70 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-white/50 hover:shadow-2xl transition-all duration-300 overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+          <div className="relative z-10">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-600 to-red-500 flex items-center justify-center shadow-lg shadow-red-500/30 group-hover:shadow-red-500/50 transition-all duration-300 group-hover:rotate-12">
+                <Gift className="w-6 h-6 text-white" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900">Spin-to-Win</h3>
             </div>
-          )}
+            
+            <div className="bg-gradient-to-r from-red-50 to-pink-50 p-4 rounded-xl mb-4 border border-red-200">
+              <p className="text-sm text-slate-600 mb-1">Available Spins</p>
+              <p className="text-3xl font-bold bg-gradient-to-r from-red-600 to-pink-600 bg-clip-text text-transparent">
+                {displayStats?.availableSpins || profile?.available_spins || 0}
+              </p>
+            </div>
+            
+            <p className="text-xs text-slate-500 mb-4 flex items-center">
+              <Zap className="w-4 h-4 mr-1 text-yellow-500" />
+              Cost per spin: <span className="font-semibold ml-1">5 spins</span>
+            </p>
+            
+            <button
+              onClick={handleSpinClick}
+              disabled={refreshingStats || spinStatsLoading}
+              className="w-full py-3 px-6 bg-gradient-to-r from-red-600 to-red-500 text-white font-bold rounded-xl shadow-lg shadow-red-500/30 hover:shadow-xl hover:shadow-red-500/40 transition-all duration-250 flex items-center justify-center transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {refreshingStats ? (
+                <>
+                  <Loader2 className="animate-spin mr-2" size={20} />
+                  Refreshing...
+                </>
+              ) : (
+                <>
+                  <Gift className="mr-2" size={20} />
+                  Open Spin Wheel
+                  <ArrowRight className="ml-2" size={16} />
+                </>
+              )}
+            </button>
+            
+            {spinMessage && (
+              <div className={`mt-4 p-3 rounded-xl text-center font-medium text-sm backdrop-blur-sm ${
+                spinMessage.includes('Congratulations') || spinMessage.includes('🎉')
+                  ? 'bg-green-100/80 text-green-700 border border-green-300'
+                  : spinMessage.includes('Not enough')
+                  ? 'bg-red-100/80 text-red-700 border border-red-300'
+                  : 'bg-blue-100/80 text-blue-700 border border-blue-300'
+              }`}>
+                {spinMessage}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Wallet Pay */}
-        <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+        {/* Wallet Pay Card */}
+        <div className="bg-white/70 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-white/50 hover:shadow-2xl transition-all duration-300">
           <WalletPay 
             onDepositSuccess={() => {
               if (user) {
@@ -633,63 +607,69 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* Referral Section */}
-        <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-          <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-            <Share2 className="mr-2 text-blue-500" />
-            Refer & Earn
-          </h3>
-          <p className="text-gray-600 mb-4">Share your referral code to earn bonuses</p>
-          <div className="space-y-3">
-            {profile?.referral_id && (
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg text-center border border-blue-200">
-                <p className="text-sm text-gray-600 mb-2">Your Referral Code:</p>
-                <p className="text-xl font-bold text-indigo-600 mb-3 font-mono">{profile.referral_id}</p>
-                <button
-                  onClick={() => handleCopyReferralCode(profile.referral_id!)}
-                  className="w-full py-2 px-4 bg-indigo-500 text-white font-semibold rounded-lg hover:bg-indigo-600 transition transform hover:scale-105"
-                >
-                  Copy Referral Code
-                </button>
+        {/* Referral Card */}
+        <div className="group relative bg-white/70 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-white/50 hover:shadow-2xl transition-all duration-300 overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+          <div className="relative z-10">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/30 group-hover:shadow-blue-500/50 transition-all duration-300">
+                <Share2 className="w-6 h-6 text-white" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900">Refer & Earn</h3>
+            </div>
+            <p className="text-slate-600 mb-4 text-sm">Share your referral code to earn bonuses</p>
+            <div className="space-y-3">
+              {profile?.referral_id && (
+                <div className="bg-gradient-to-br from-blue-50 to-cyan-50 p-4 rounded-2xl text-center border border-blue-200">
+                  <p className="text-xs text-blue-700 mb-2 uppercase tracking-wide font-semibold">Your Referral Code</p>
+                  <p className="text-xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-3 font-mono">
+                    {profile.referral_id}
+                  </p>
+                  <button
+                    onClick={() => handleCopyReferralCode(profile.referral_id!)}
+                    className="w-full py-2 px-4 bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-cyan-600 shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 transition-all duration-250 transform hover:scale-105"
+                  >
+                    Copy Referral Code
+                  </button>
+                </div>
+              )}
+            </div>
+            {referralMessage && (
+              <div className={`mt-4 p-3 rounded-xl text-center font-medium text-sm backdrop-blur-sm ${
+                referralMessage.includes('copied')
+                  ? 'bg-green-100/80 text-green-700 border border-green-300'
+                  : 'bg-blue-100/80 text-blue-700 border border-blue-300'
+              }`}>
+                {referralMessage}
               </div>
             )}
           </div>
-          {referralMessage && (
-            <div className={`mt-4 p-3 rounded-lg text-center font-medium ${
-              referralMessage.includes('copied')
-                ? 'bg-green-100 text-green-700 border border-green-300'
-                : 'bg-blue-100 text-blue-700 border border-blue-300'
-            }`}>
-              {referralMessage}
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Financial Reports Section - ADDED */}
+      {/* Financial Reports Section */}
       <div className="mb-8">
         <UserReports className="mt-6" />
       </div>
 
-      {/* Spin Wheel Modal */}
+      {/* Spin Wheel Modal with Enhanced Design */}
       {showSpinWheel && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto animate-scaleIn">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
+          <div className="bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border-2 border-white/50">
             <div className="p-6">
-              {/* Header */}
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-gray-800 bg-gradient-to-r from-red-500 to-red-600 bg-clip-text text-transparent">
+                <h2 className="text-3xl font-bold bg-gradient-to-r from-red-600 to-pink-600 bg-clip-text text-transparent flex items-center">
+                  <Sparkles className="mr-2 text-red-500" />
                   Spin to Win!
                 </h2>
                 <button
                   onClick={() => setShowSpinWheel(false)}
-                  className="text-gray-500 hover:text-gray-700 transition duration-200 transform hover:scale-110"
+                  className="text-slate-500 hover:text-slate-700 transition-all duration-200 transform hover:scale-110 hover:rotate-90 w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center"
                 >
                   <X size={24} />
                 </button>
               </div>
 
-              {/* Spin Wheel Component */}
               <SpinWheel 
                 userId={user.id}
                 onSpinComplete={handleSpinComplete}
@@ -700,56 +680,49 @@ export default function DashboardPage() {
       )}
 
       {/* Transaction Trends */}
-      <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 mb-8">
-        <h3 className="text-xl font-semibold text-gray-800 mb-4">Transaction Trends</h3>
-        {chartLabels.length > 0 ? (
-          <div className="text-center text-gray-600 py-8">
-            <p>Chart data available for {chartLabels.length} transactions</p>
-            <p className="text-sm mt-2">Chart visualization coming soon</p>
-            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-              <div className="bg-green-100 p-3 rounded-lg border border-green-200">
-                <div className="font-semibold text-green-800">SPIN WINS</div>
-                <div className="text-green-600 font-bold">KES {spinWinTotal.toFixed(2)}</div>
-              </div>
-              <div className="bg-blue-100 p-3 rounded-lg border border-blue-200">
-                <div className="font-semibold text-blue-800">REFERRALS</div>
-                <div className="text-blue-600 font-bold">KES {referralTotal.toFixed(2)}</div>
-              </div>
-              <div className="bg-orange-100 p-3 rounded-lg border border-orange-200">
-                <div className="font-semibold text-orange-800">SURVEYS</div>
-                <div className="text-orange-600 font-bold">KES {surveyTotal.toFixed(2)}</div>
-              </div>
-              <div className="bg-purple-100 p-3 rounded-lg border border-purple-200">
-                <div className="font-semibold text-purple-800">TOTAL</div>
-                <div className="text-purple-600 font-bold">KES {totalEarnings.toFixed(2)}</div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <p className="text-center text-gray-500 py-8">No transaction data available for chart.</p>
-        )}
+      <div className="mb-8">
+        <TransactionTrendsChart timeRange="30days" />
       </div>
 
-      {/* Approved Withdrawals */}
-      <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 mb-8">
-        <h3 className="text-xl font-semibold text-gray-800 mb-4">Approved Withdrawals</h3>
+      {/* Approved Withdrawals with Modern Design */}
+      <div className="bg-white/70 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-white/50 mb-8">
+        <div className="flex items-center space-x-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-600 to-green-500 flex items-center justify-center shadow-lg shadow-green-500/30">
+            <CheckCircle className="w-5 h-5 text-white" />
+          </div>
+          <h3 className="text-2xl font-bold text-slate-900">Approved Withdrawals</h3>
+        </div>
         {receipts && receipts.length === 0 ? (
-          <p className="text-center text-gray-500 py-8">No approved withdrawals found.</p>
+          <div className="text-center py-12">
+            <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
+              <DollarSign className="w-8 h-8 text-slate-400" />
+            </div>
+            <p className="text-slate-500">No approved withdrawals found.</p>
+          </div>
         ) : (
-          <ul className="divide-y divide-gray-200">
+          <ul className="divide-y divide-slate-200">
             {receipts?.map((receipt) => (
-              <li key={receipt.id} className="flex justify-between items-center py-4 px-2 hover:bg-gray-50 transition rounded-lg">
-                <div>
-                  <p className="font-semibold text-gray-800">Transaction ID: {receipt.transactionCode}</p>
-                  <p className="text-sm text-gray-500">
-                    {new Date(receipt.date).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
+              <li key={receipt.id} className="flex justify-between items-center py-4 px-4 hover:bg-white/50 transition-all duration-250 rounded-xl group">
+                <div className="flex items-center space-x-4">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center group-hover:scale-110 transition-transform duration-250">
+                    <CheckCircle className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-900">Transaction ID: {receipt.transactionCode}</p>
+                    <p className="text-sm text-slate-500">
+                      {new Date(receipt.date).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-bold bg-gradient-to-r from-green-600 to-green-500 bg-clip-text text-transparent">
+                    KES {receipt.amount.toFixed(2)}
                   </p>
                 </div>
-                <p className="font-bold text-indigo-600 text-lg">KES {receipt.amount.toFixed(2)}</p>
               </li>
             ))}
           </ul>
@@ -757,36 +730,42 @@ export default function DashboardPage() {
       </div>
 
       {/* Transaction History */}
-      <TransactionHistory 
-        transactions={transactions as any || []} 
-        title="Recent Activity" 
-        limit={10} 
-      />
+      <div className="mb-8">
+        <TransactionHistory 
+          transactions={transactions as any || []} 
+          title="Recent Activity" 
+          limit={10} 
+        />
+      </div>
 
-      {/* Content Creation Section */}
+      {/* Content Creation Section with Modern Design */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
-        {/* Content Stats Card */}
-        <div className="lg:col-span-4 bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-xl font-bold text-gray-800">Content Creation Dashboard</h3>
-            <div className="flex gap-3">
+        <div className="lg:col-span-4 bg-white/70 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-white/50">
+          <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 to-purple-500 flex items-center justify-center shadow-lg shadow-purple-500/30">
+                <FileText className="w-5 h-5 text-white" />
+              </div>
+              <h3 className="text-2xl font-bold text-slate-900">Content Creation Dashboard</h3>
+            </div>
+            <div className="flex gap-3 flex-wrap">
               <Link
                 href="/dashboard/content/create"
-                className="inline-flex items-center px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors transform hover:scale-105"
+                className="inline-flex items-center px-5 py-2.5 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 transition-all duration-250 transform hover:scale-105"
               >
                 <Plus className="w-5 h-5 mr-2" />
                 Create Content
               </Link>
               <Link
                 href="/dashboard/content"
-                className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                className="inline-flex items-center px-5 py-2.5 border-2 border-slate-200 bg-white/70 backdrop-blur-sm text-slate-700 font-semibold rounded-xl hover:bg-white hover:border-blue-300 hover:text-blue-600 transition-all duration-250 shadow-sm hover:shadow-md"
               >
                 <FileText className="w-5 h-5 mr-2" />
                 View All
               </Link>
               <Link
                 href="/dashboard/blog"
-                className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                className="inline-flex items-center px-5 py-2.5 border-2 border-slate-200 bg-white/70 backdrop-blur-sm text-slate-700 font-semibold rounded-xl hover:bg-white hover:border-cyan-300 hover:text-cyan-600 transition-all duration-250 shadow-sm hover:shadow-md"
               >
                 <BookOpen className="w-5 h-5 mr-2" />
                 Read Blogs
@@ -795,92 +774,112 @@ export default function DashboardPage() {
           </div>
 
           {contentLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="animate-spin text-indigo-600 w-6 h-6" />
-              <p className="ml-2 text-gray-600">Loading content stats...</p>
+            <div className="flex justify-center py-12">
+              <div className="relative inline-flex">
+                <Loader2 className="animate-spin text-blue-600 w-8 h-8" />
+                <div className="absolute inset-0 animate-ping">
+                  <Loader2 className="text-cyan-400 w-8 h-8 opacity-20" />
+                </div>
+              </div>
+              <p className="ml-3 text-slate-600 font-medium">Loading content stats...</p>
             </div>
           ) : contentStats ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <div className="text-2xl font-bold text-blue-600">{contentStats.totalSubmissions}</div>
-                <div className="text-sm text-blue-800 font-medium">Total Submissions</div>
+              <div className="text-center p-6 bg-gradient-to-br from-blue-50 to-blue-100/50 backdrop-blur-sm rounded-2xl border border-blue-200 shadow-sm hover:shadow-md transition-all duration-250">
+                <div className="text-3xl font-bold text-blue-600 mb-2">{contentStats.totalSubmissions}</div>
+                <div className="text-sm text-blue-800 font-semibold">Total Submissions</div>
               </div>
-              <div className="text-center p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                <div className="text-2xl font-bold text-yellow-600">{contentStats.pending}</div>
-                <div className="text-sm text-yellow-800 font-medium">Pending Review</div>
+              <div className="text-center p-6 bg-gradient-to-br from-yellow-50 to-yellow-100/50 backdrop-blur-sm rounded-2xl border border-yellow-200 shadow-sm hover:shadow-md transition-all duration-250">
+                <div className="text-3xl font-bold text-yellow-600 mb-2">{contentStats.pending}</div>
+                <div className="text-sm text-yellow-800 font-semibold">Pending Review</div>
               </div>
-              <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
-                <div className="text-2xl font-bold text-green-600">{contentStats.approved}</div>
-                <div className="text-sm text-green-800 font-medium">Approved</div>
+              <div className="text-center p-6 bg-gradient-to-br from-green-50 to-green-100/50 backdrop-blur-sm rounded-2xl border border-green-200 shadow-sm hover:shadow-md transition-all duration-250">
+                <div className="text-3xl font-bold text-green-600 mb-2">{contentStats.approved}</div>
+                <div className="text-sm text-green-800 font-semibold">Approved</div>
               </div>
-              <div className="text-center p-4 bg-purple-50 rounded-lg border border-purple-200">
-                {/* FIXED: Remove division by 100 since totalEarned is already in KSH */}
-                <div className="text-2xl font-bold text-purple-600">
+              <div className="text-center p-6 bg-gradient-to-br from-purple-50 to-purple-100/50 backdrop-blur-sm rounded-2xl border border-purple-200 shadow-sm hover:shadow-md transition-all duration-250">
+                <div className="text-3xl font-bold text-purple-600 mb-2">
                   KES {contentStats.totalEarned.toFixed(2)}
                 </div>
-                <div className="text-sm text-purple-800 font-medium">Total Earned</div>
+                <div className="text-sm text-purple-800 font-semibold">Total Earned</div>
               </div>
             </div>
           ) : (
-            <p className="text-center text-gray-500 py-4">No content statistics available.</p>
+            <p className="text-center text-slate-500 py-8">No content statistics available.</p>
           )}
         </div>
       </div>
 
-      {/* Recent Submissions */}
-      <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xl font-bold text-gray-800">Recent Submissions</h3>
+      {/* Recent Submissions with Modern Design */}
+      <div className="bg-white/70 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-white/50">
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+              <FileText className="w-5 h-5 text-white" />
+            </div>
+            <h3 className="text-2xl font-bold text-slate-900">Recent Submissions</h3>
+          </div>
           <Link
             href="/dashboard/content"
-            className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+            className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center group"
           >
-            View All →
+            View All 
+            <ArrowRight className="ml-1 w-4 h-4 group-hover:translate-x-1 transition-transform duration-250" />
           </Link>
         </div>
 
         {contentLoading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="animate-spin text-indigo-600 w-6 h-6" />
-            <p className="ml-2 text-gray-600">Loading submissions...</p>
+          <div className="flex justify-center py-12">
+            <div className="relative inline-flex">
+              <Loader2 className="animate-spin text-blue-600 w-6 h-6" />
+              <div className="absolute inset-0 animate-ping">
+                <Loader2 className="text-cyan-400 w-6 h-6 opacity-20" />
+              </div>
+            </div>
+            <p className="ml-2 text-slate-600">Loading submissions...</p>
           </div>
         ) : recentSubmissions.length > 0 ? (
           <div className="space-y-3">
             {recentSubmissions.map((submission) => (
               <div
                 key={submission._id}
-                className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors hover:shadow-sm"
+                className="flex items-center justify-between p-5 border-2 border-slate-200 bg-white/50 backdrop-blur-sm rounded-2xl hover:bg-white hover:border-blue-300 hover:shadow-md transition-all duration-250 group"
               >
                 <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <h4 className="font-medium text-gray-900 line-clamp-1">{submission.title}</h4>
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(submission.status)}`}>
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
+                    <h4 className="font-semibold text-slate-900 line-clamp-1 group-hover:text-blue-600 transition-colors duration-250">
+                      {submission.title}
+                    </h4>
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(submission.status)}`}>
                       {getStatusIcon(submission.status)}
-                      <span className="ml-1 capitalize">{submission.status.replace('_', ' ')}</span>
+                      <span className="ml-1.5 capitalize">{submission.status.replace('_', ' ')}</span>
                     </span>
                   </div>
-                  <div className="flex items-center gap-4 text-sm text-gray-600">
-                    <span className="capitalize">{submission.content_type.replace('_', ' ')}</span>
-                    <span>•</span>
+                  <div className="flex items-center gap-4 text-sm text-slate-600 flex-wrap">
+                    <span className="capitalize font-medium">{submission.content_type.replace('_', ' ')}</span>
+                    <span className="text-slate-400">•</span>
                     <span>{submission.task_category}</span>
-                    <span>•</span>
-                    {/* FIXED: Use the corrected formatPayment function */}
-                    <span className="font-semibold text-green-600">{formatPayment(submission.payment_amount)}</span>
+                    <span className="text-slate-400">•</span>
+                    <span className="font-bold bg-gradient-to-r from-green-600 to-green-500 bg-clip-text text-transparent">
+                      {formatPayment(submission.payment_amount)}
+                    </span>
                   </div>
                 </div>
-                <div className="text-right text-sm text-gray-500">
+                <div className="text-right text-sm text-slate-500 ml-4">
                   {new Date(submission.submission_date).toLocaleDateString()}
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <div className="text-center py-8">
-            <FileText className="mx-auto h-12 w-12 text-gray-400 mb-3" />
-            <p className="text-gray-500 mb-4">No submissions yet</p>
+          <div className="text-center py-12">
+            <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
+              <FileText className="w-8 h-8 text-slate-400" />
+            </div>
+            <p className="text-slate-500 mb-4 font-medium">No submissions yet</p>
             <Link
               href="/dashboard/content/create"
-              className="inline-flex items-center px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
+              className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 transition-all duration-250 transform hover:scale-105"
             >
               <Plus className="w-5 h-5 mr-2" />
               Create Your First Submission

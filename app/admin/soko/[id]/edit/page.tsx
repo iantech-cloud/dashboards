@@ -12,7 +12,7 @@ interface Campaign {
   name: string;
   description: string;
   short_description: string;
-  campaign_type: 'cj_affiliate' | 'amazon' | 'promotional' | 'custom';
+  campaign_type: 'cj_affiliate' | 'amazon' | 'promotional' | 'custom' | 'alibaba';
   affiliate_network: string;
   base_affiliate_link: string;
   featured_image: string;
@@ -22,6 +22,7 @@ interface Campaign {
   commission_fixed_amount: number;
   product_category: string;
   product_price: number;
+  product_count: number;
   currency: string;
   status: 'draft' | 'active' | 'paused' | 'expired' | 'archived';
   start_date: string;
@@ -74,6 +75,7 @@ export default function EditCampaignPage() {
           end_date: result.data.end_date ? new Date(result.data.end_date).toISOString().split('T')[0] : '',
           allowed_user_tiers: result.data.allowed_user_tiers || [],
           tags: result.data.tags || [],
+          product_count: result.data.product_count || 0,
           cj_advertiser_id: result.data.cj_advertiser_id || '',
           cj_publisher_id: result.data.cj_publisher_id || '',
           cj_site_id: result.data.cj_site_id || '',
@@ -143,6 +145,7 @@ export default function EditCampaignPage() {
     { value: '', label: 'Select Network' },
     { value: 'CJ Affiliate', label: 'CJ Affiliate' },
     { value: 'Amazon Associates', label: 'Amazon Associates' },
+    { value: 'Alibaba', label: 'Alibaba' },
     { value: 'ShareASale', label: 'ShareASale' },
     { value: 'Impact', label: 'Impact' },
     { value: 'Rakuten Advertising', label: 'Rakuten Advertising' },
@@ -285,6 +288,7 @@ export default function EditCampaignPage() {
                 <option value="promotional">Promotional</option>
                 <option value="cj_affiliate">CJ Affiliate</option>
                 <option value="amazon">Amazon Associates</option>
+                <option value="alibaba">Alibaba Products</option>
                 <option value="custom">Custom</option>
               </select>
             </div>
@@ -383,9 +387,49 @@ export default function EditCampaignPage() {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="https://example.com/affiliate-link"
               />
+              {formData.campaign_type === 'alibaba' && formData.product_count > 0 && (
+                <p className="mt-2 text-sm text-purple-600 font-medium">
+                  📦 This campaign has {formData.product_count} products uploaded
+                </p>
+              )}
             </div>
           </div>
         </div>
+
+        {/* Alibaba Campaign Notice */}
+        {formData.campaign_type === 'alibaba' && (
+          <div className="bg-purple-50 border-l-4 border-purple-500 rounded-xl p-6">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-purple-900 mb-2">Alibaba Products Campaign</h3>
+                {formData.product_count > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-sm text-purple-800">
+                      ✅ This campaign currently has <strong>{formData.product_count} products</strong> uploaded and ready for affiliate marketing.
+                    </p>
+                    <p className="text-sm text-purple-700">
+                      You can upload more products or manage existing ones from the Admin Dashboard → Products tab.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-sm text-purple-800">
+                      ⚠️ This campaign doesn't have any products yet. After saving, upload products via CSV:
+                    </p>
+                    <p className="text-xs text-purple-700 font-medium">
+                      Admin Dashboard → Upload CSV → Select this campaign → Upload product data
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* CJ Affiliate Specific Fields */}
         {formData.affiliate_network === 'CJ Affiliate' && (
@@ -499,7 +543,7 @@ export default function EditCampaignPage() {
                 </label>
                 <input
                   type="text"
-                  name="cj_advertiser_id" // Reusing field for Amazon
+                  name="cj_advertiser_id"
                   value={formData.cj_advertiser_id}
                   onChange={handleChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent"

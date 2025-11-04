@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Email verification error:', error);
     
-    // Handle specific MongoDB errors
+    // Handle specific MongoDB errorMessage
     if (error instanceof Error) {
       if (error.name === 'MongoNetworkError') {
         return NextResponse.json(

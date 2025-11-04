@@ -1,10 +1,11 @@
-// app/dashboard/settings/page.tsx - UPDATED VERSION
+// app/dashboard/settings/page.tsx - UPDATED VERSION WITH ANTI-PHISHING
 'use client';
 
 import { useState, useEffect } from 'react';
 import Alert from '@/app/ui/Alert';
 import { useDashboard } from '../DashboardContext';
 import TwoFactorAuth from './TwoFactorAuth';
+import AntiPhishingCode from './AntiPhishingCode';
 
 interface MpesaChangeRequest {
   id: string;
@@ -279,9 +280,43 @@ export default function SettingsPage() {
       
       {message && <Alert type={messageType} message={message} onClose={() => setMessage(null)} />}
       
+      {/* Security Settings Section Header */}
+      <div className="mb-6">
+        <h3 className="text-2xl font-bold text-gray-800 mb-2 flex items-center">
+          <svg className="w-6 h-6 mr-2 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+          </svg>
+          Security Settings
+        </h3>
+        <p className="text-gray-600 text-sm">
+          Protect your account with advanced security features
+        </p>
+      </div>
+
       {/* Two-Factor Authentication Section */}
       <div className="mb-8">
         <TwoFactorAuth userEmail={user.email} />
+      </div>
+
+      {/* Anti-Phishing Code Section */}
+      <div className="mb-8">
+        <AntiPhishingCode 
+          userEmail={user.email} 
+          has2FA={user.twoFAEnabled || false}
+        />
+      </div>
+
+      {/* Account Settings Section Header */}
+      <div className="mb-6 mt-12">
+        <h3 className="text-2xl font-bold text-gray-800 mb-2 flex items-center">
+          <svg className="w-6 h-6 mr-2 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+          </svg>
+          Account Settings
+        </h3>
+        <p className="text-gray-600 text-sm">
+          Manage your profile and contact information
+        </p>
       </div>
 
       {/* Profile Update Section */}

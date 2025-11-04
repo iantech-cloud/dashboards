@@ -2,14 +2,13 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth';
 import { connectToDatabase, Profile, Transaction, Referral, AdminAuditLog } from '../lib/models';
 import { Types } from 'mongoose';
 
 // Helper to check admin access
 async function checkAdminAccess() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   
   if (!session?.user?.email) {
     throw new Error('User not authenticated');
@@ -340,6 +339,8 @@ export async function activateUserAccount(userId: string): Promise<{
       // Create debit transaction for user
       activationTransaction = new Transaction({
         user_id: userId,
+        target_type: 'user',
+  	target_id: userId, 
         amount_cents: -ACTIVATION_FEE_CENTS,
         type: 'ACTIVATION_FEE',
         description: 'Account activation fee deduction',
@@ -357,6 +358,8 @@ export async function activateUserAccount(userId: string): Promise<{
       // Create record for admin-activated without deduction
       activationTransaction = new Transaction({
         user_id: userId,
+        target_type: 'user', 
+	target_id: userId,
         amount_cents: 0,
         type: 'BONUS',
         description: 'Account activated by admin (activation fee waived)',
@@ -403,6 +406,8 @@ export async function activateUserAccount(userId: string): Promise<{
     // Create company revenue transaction
     const companyTransaction = new Transaction({
       user_id: companyUser._id,
+      target_type: 'company',        // ADD THIS
+      target_id: companyUser._id,    // ADD THIS
       amount_cents: COMPANY_REVENUE_CENTS,
       type: 'COMPANY_REVENUE',
       description: `Activation fee revenue share from ${user.username}`,
@@ -441,6 +446,8 @@ export async function activateUserAccount(userId: string): Promise<{
         // Create credit transaction for referrer
         const referralTransaction = new Transaction({
           user_id: referrer._id,
+          target_type: 'user',           // ADD THIS
+ 	  target_id: referrer._id,       // ADD THIS
           amount_cents: REFERRAL_BONUS_CENTS,
           type: 'REFERRAL',
           description: `Referral bonus from ${user.username}'s account activation`,
@@ -471,6 +478,8 @@ export async function activateUserAccount(userId: string): Promise<{
       // Create additional company revenue transaction for referral portion
       const additionalCompanyTransaction = new Transaction({
         user_id: companyUser._id,
+        target_type: 'company',        // ADD THIS
+  	target_id: companyUser._id,    // ADD THIS
         amount_cents: REFERRAL_BONUS_CENTS,
         type: 'COMPANY_REVENUE',
         description: `Activation fee (unclaimed referral portion) from ${user.username}`,

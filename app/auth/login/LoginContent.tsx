@@ -37,11 +37,16 @@ const Alert: React.FC<AlertProps> = ({ type, message, onClose }) => {
 // Google Sign In Button Component
 const GoogleSignInButton: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
+  const searchParams = useSearchParams();
+  
+  // FIX: Get the dynamic callback URL from search params, default to '/dashboard'
+  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     try {
-      await signIn('google', { callbackUrl: '/dashboard' });
+      // FIX: Use the dynamically determined callbackUrl
+      await signIn('google', { callbackUrl: callbackUrl });
     } catch (error) {
       console.error('Google sign in error:', error);
     } finally {
@@ -75,6 +80,10 @@ const MagicLinkForm: React.FC = () => {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const searchParams = useSearchParams();
+
+  // FIX: Get the dynamic callback URL from search params, default to '/dashboard'
+  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
 
   const handleMagicLink = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,7 +94,8 @@ const MagicLinkForm: React.FC = () => {
       const result = await signIn('email', {
         email,
         redirect: false,
-        callbackUrl: '/dashboard'
+        // FIX: Use the dynamically determined callbackUrl
+        callbackUrl: callbackUrl 
       });
 
       if (result?.error) {
@@ -180,7 +190,7 @@ const handleNextAuthError = (errorParam: string | null): { message: string } => 
   }
 };
 
-// Forgot Password Modal Component
+// Forgot Password Modal Component (No changes needed here for login redirect logic)
 interface ForgotPasswordModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -376,8 +386,8 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
                   disabled={loading || !email || !newPassword || newPassword.length < 8}
                   className={`flex-1 flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white transition-all duration-200 
                     ${loading || !email || !newPassword || newPassword.length < 8
-                        ? 'bg-indigo-400 cursor-not-allowed' 
-                        : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transform hover:scale-[1.01]'
+                      ? 'bg-indigo-400 cursor-not-allowed' 
+                      : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transform hover:scale-[1.01]'
                     }`}
                 >
                   {loading ? (
@@ -441,8 +451,8 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
                   disabled={loading || verificationCode.length !== 6}
                   className={`flex-1 flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white transition-all duration-200 
                     ${loading || verificationCode.length !== 6
-                        ? 'bg-indigo-400 cursor-not-allowed' 
-                        : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transform hover:scale-[1.01]'
+                      ? 'bg-indigo-400 cursor-not-allowed' 
+                      : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transform hover:scale-[1.01]'
                     }`}
                 >
                   {loading ? (
@@ -500,6 +510,8 @@ export default function LoginContent() {
   const searchParams = useSearchParams();
 
   const isTimeout = searchParams.get('timeout') === 'true';
+  // NEW: Get the callback URL from the URL search parameters, default to '/dashboard'
+  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard'; 
 
   // Handle URL parameters and errors
   useEffect(() => {
@@ -537,6 +549,8 @@ export default function LoginContent() {
         password,
         token2FA: requires2FA ? token2FA : undefined,
         redirect: false, // Keep this false
+        // Optionally pass the callbackUrl here if you want it returned in the result.url
+        // callbackUrl: callbackUrl, 
       });
 
       console.log('SignIn result:', result);
@@ -559,14 +573,13 @@ export default function LoginContent() {
       } 
       
       if (result?.ok) {
-        console.log('Login successful! Redirecting...');
+        console.log('Login successful! Redirecting to:', callbackUrl);
         setMessage('Login successful! Redirecting...');
         setMessageType('success');
         
-        // FIX: Use router.push instead of waiting for session update
-        // The middleware will handle checking user status and redirecting appropriately
-        router.push('/dashboard');
-        router.refresh(); // Force a refresh to trigger middleware
+        // FIX: Use the calculated callbackUrl for redirect
+        router.push(callbackUrl);
+        // router.refresh() is generally not needed here since push to a new route will handle re-fetching
       } else {
         console.warn('Unexpected login response:', result);
         setMessage('An unexpected login response occurred.');
@@ -608,13 +621,13 @@ export default function LoginContent() {
       }
 
       if (result?.ok) {
-        console.log('2FA verification successful! Redirecting...');
+        console.log('2FA verification successful! Redirecting to:', callbackUrl);
         setMessage('2FA verification successful! Redirecting...');
         setMessageType('success');
         
-        // FIX: Use router.push for immediate redirect
-        router.push('/dashboard');
-        router.refresh();
+        // FIX: Use the calculated callbackUrl for redirect
+        router.push(callbackUrl);
+        // router.refresh();
       }
     } catch (error) {
       console.error('2FA verification error:', error);

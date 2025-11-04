@@ -1,7 +1,7 @@
 // app/admin/soko/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Plus,
   Edit,
@@ -22,7 +22,11 @@ import {
   Loader2,
   Calendar,
   Package,
-  Award
+  Award,
+  Upload,
+  FileText,
+  X,
+  RefreshCw
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -32,7 +36,10 @@ import {
   getPendingConversions,
   deleteCampaign,
   toggleCampaignStatus,
-  exportSokoReport
+  exportSokoReport,
+  uploadAndProcessCSV,
+  getImportLogs,
+  getAlibabaProducts
 } from '@/app/actions/admin/soko';
 
 // ============================================================================
@@ -42,6 +49,7 @@ import {
 interface AdminStats {
   totalCampaigns: number;
   activeCampaigns: number;
+  totalProducts: number;
   totalAffiliates: number;
   totalClicks: number;
   totalConversions: number;
@@ -64,6 +72,7 @@ interface Campaign {
   total_conversions: number;
   conversion_rate: number;
   current_participants: number;
+  product_count: number;
   created_at: string;
   is_featured: boolean;
 }
@@ -89,6 +98,20 @@ interface PendingConversion {
   conversion_date: string;
 }
 
+interface ImportLog {
+  _id: string;
+  batch_id: string;
+  filename: string;
+  campaign_name: string;
+  total_rows: number;
+  processed_rows: number;
+  successful_imports: number;
+  failed_imports: number;
+  status: string;
+  created_at: string;
+  completed_at: string;
+}
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -98,11 +121,19 @@ export default function AdminSokoPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [pendingPayouts, setPendingPayouts] = useState<PendingPayout[]>([]);
   const [pendingConversions, setPendingConversions] = useState<PendingConversion[]>([]);
+  const [importLogs, setImportLogs] = useState<ImportLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'payouts' | 'conversions' | 'analytics'>('campaigns');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'products' | 'payouts' | 'conversions' | 'analytics'>('campaigns');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [isExporting, setIsExporting] = useState(false);
+  
+  // CSV Upload States
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [selectedCampaign, setSelectedCampaign] = useState<string>('');
+  const [uploadingCSV, setUploadingCSV] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadAllData();
@@ -111,11 +142,12 @@ export default function AdminSokoPage() {
   const loadAllData = async () => {
     try {
       setLoading(true);
-      const [statsRes, campaignsRes, payoutsRes, conversionsRes] = await Promise.allSettled([
+      const [statsRes, campaignsRes, payoutsRes, conversionsRes, logsRes] = await Promise.allSettled([
         getSokoAdminStats(),
         getAllCampaigns(),
         getPendingPayouts(),
-        getPendingConversions()
+        getPendingConversions(),
+        getImportLogs(20)
       ]);
 
       if (statsRes.status === 'fulfilled' && statsRes.value.success) {
@@ -129,6 +161,9 @@ export default function AdminSokoPage() {
       }
       if (conversionsRes.status === 'fulfilled' && conversionsRes.value.success) {
         setPendingConversions(conversionsRes.value.data);
+      }
+      if (logsRes.status === 'fulfilled' && logsRes.value.success) {
+        setImportLogs(logsRes.value.data);
       }
     } catch (error) {
       console.error('Error loading admin data:', error);
@@ -161,7 +196,7 @@ export default function AdminSokoPage() {
     }
   };
 
-  const handleExport = async (reportType: 'campaigns' | 'conversions' | 'payouts') => {
+  const handleExport = async (reportType: 'campaigns' | 'conversions' | 'payouts' | 'products') => {
     try {
       setIsExporting(true);
       const result = await exportSokoReport(reportType);
@@ -180,6 +215,66 @@ export default function AdminSokoPage() {
       console.error('Error exporting report:', error);
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleCSVUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!selectedCampaign) {
+      alert('Please select a campaign first');
+      return;
+    }
+
+    if (!file.name.endsWith('.csv')) {
+      alert('Please upload a CSV file');
+      return;
+    }
+
+    try {
+      setUploadingCSV(true);
+      setUploadProgress('Reading file...');
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const csvContent = e.target?.result as string;
+        
+        setUploadProgress('Uploading and processing...');
+        
+        const result = await uploadAndProcessCSV({
+          csvContent,
+          filename: file.name,
+          campaignId: selectedCampaign,
+          batchSize: 50
+        });
+
+        if (result.success) {
+          setUploadProgress(`Success! ${result.data.successful} products imported, ${result.data.failed} failed.`);
+          setTimeout(() => {
+            setShowUploadModal(false);
+            setUploadProgress('');
+            setSelectedCampaign('');
+            loadAllData();
+          }, 3000);
+        } else {
+          setUploadProgress(`Error: ${result.message}`);
+        }
+      };
+
+      reader.onerror = () => {
+        setUploadProgress('Error reading file');
+      };
+
+      reader.readAsText(file);
+    } catch (error) {
+      console.error('Error uploading CSV:', error);
+      setUploadProgress('Error uploading file');
+    } finally {
+      setUploadingCSV(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -204,11 +299,18 @@ export default function AdminSokoPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Soko Management</h1>
-          <p className="text-gray-600 mt-1">Manage affiliate campaigns and track performance</p>
+          <p className="text-gray-600 mt-1">Manage affiliate campaigns, products and track performance</p>
         </div>
         <div className="flex gap-3">
           <button
-            onClick={() => handleExport(activeTab === 'campaigns' ? 'campaigns' : activeTab === 'conversions' ? 'conversions' : 'payouts')}
+            onClick={() => setShowUploadModal(true)}
+            className="px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition flex items-center gap-2"
+          >
+            <Upload className="w-5 h-5" />
+            Upload CSV
+          </button>
+          <button
+            onClick={() => handleExport(activeTab === 'campaigns' ? 'campaigns' : activeTab === 'products' ? 'products' : activeTab === 'conversions' ? 'conversions' : 'payouts')}
             disabled={isExporting}
             className="px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition flex items-center gap-2 disabled:opacity-50"
           >
@@ -278,15 +380,15 @@ export default function AdminSokoPage() {
           <div className="bg-white rounded-xl p-6 shadow-lg border-l-4 border-purple-500">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <p className="text-sm text-gray-600 font-medium">Total Clicks</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.totalClicks.toLocaleString()}</p>
+                <p className="text-sm text-gray-600 font-medium">Total Products</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.totalProducts.toLocaleString()}</p>
               </div>
               <div className="p-3 bg-purple-100 rounded-lg">
-                <MousePointerClick className="w-6 h-6 text-purple-600" />
+                <Package className="w-6 h-6 text-purple-600" />
               </div>
             </div>
             <div className="flex items-center text-sm">
-              <span className="text-gray-600">{stats.totalConversions} conversions</span>
+              <span className="text-gray-600">{stats.totalClicks.toLocaleString()} total clicks</span>
             </div>
           </div>
         </div>
@@ -295,7 +397,7 @@ export default function AdminSokoPage() {
       {/* Navigation Tabs */}
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
         <div className="flex border-b border-gray-200 overflow-x-auto">
-          {(['campaigns', 'payouts', 'conversions', 'analytics'] as const).map((tab) => (
+          {(['campaigns', 'products', 'payouts', 'conversions', 'analytics'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -304,6 +406,7 @@ export default function AdminSokoPage() {
               }`}
             >
               {tab === 'campaigns' && <><ShoppingCart className="w-5 h-5" />Campaigns ({campaigns.length})</>}
+              {tab === 'products' && <><Package className="w-5 h-5" />Products ({stats?.totalProducts || 0})</>}
               {tab === 'payouts' && <><DollarSign className="w-5 h-5" />Pending Payouts ({pendingPayouts.length})</>}
               {tab === 'conversions' && <><TrendingUp className="w-5 h-5" />Pending Conversions ({pendingConversions.length})</>}
               {tab === 'analytics' && <><BarChart3 className="w-5 h-5" />Analytics</>}
@@ -363,6 +466,11 @@ export default function AdminSokoPage() {
                               )}
                             </div>
                             <div className="text-sm text-gray-500">{campaign.slug}</div>
+                            {campaign.product_count > 0 && (
+                              <div className="text-xs text-purple-600 font-medium mt-1">
+                                {campaign.product_count} products
+                              </div>
+                            )}
                           </div>
                         </td>
                         <td className="px-6 py-4">
@@ -401,8 +509,8 @@ export default function AdminSokoPage() {
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
                             <Link href={`/admin/soko/${campaign._id}/edit`} className="p-2 text-blue-600 hover:bg-blue-50 rounded transition" title="Edit">
-  <Edit className="w-4 h-4" />
-</Link>
+                              <Edit className="w-4 h-4" />
+                            </Link>
                             <button
                               onClick={() => handleToggleStatus(campaign._id, campaign.status)}
                               className={`p-2 rounded transition ${campaign.status === 'active' ? 'text-yellow-600 hover:bg-yellow-50' : 'text-green-600 hover:bg-green-50'}`}
@@ -423,6 +531,95 @@ export default function AdminSokoPage() {
                   <div className="text-center py-12">
                     <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                     <p className="text-gray-600">No campaigns found</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* PRODUCTS TAB */}
+          {activeTab === 'products' && (
+            <div className="space-y-6">
+              <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl p-8">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-2xl font-bold text-gray-900 mb-2">Alibaba Products</h3>
+                    <p className="text-gray-600">Manage imported products from CSV uploads</p>
+                    <div className="mt-4 flex gap-4 text-sm">
+                      <div className="flex items-center gap-2">
+                        <Package className="w-5 h-5 text-purple-600" />
+                        <span className="font-semibold text-purple-900">{stats?.totalProducts || 0}</span>
+                        <span className="text-gray-600">Total Products</span>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowUploadModal(true)}
+                    className="px-6 py-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition flex items-center gap-2"
+                  >
+                    <Upload className="w-5 h-5" />
+                    Upload CSV
+                  </button>
+                </div>
+              </div>
+
+              {/* Recent Import Logs */}
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-gray-900">Recent CSV Imports</h3>
+                  <button
+                    onClick={loadAllData}
+                    className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                </div>
+                
+                {importLogs.length > 0 ? (
+                  <div className="space-y-3">
+                    {importLogs.map(log => (
+                      <div key={log._id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
+                        <div className="flex items-center gap-4">
+                          <div className={`p-2 rounded-lg ${
+                            log.status === 'completed' ? 'bg-green-100' :
+                            log.status === 'processing' ? 'bg-blue-100' :
+                            log.status === 'failed' ? 'bg-red-100' : 'bg-gray-100'
+                          }`}>
+                            <FileText className={`w-5 h-5 ${
+                              log.status === 'completed' ? 'text-green-600' :
+                              log.status === 'processing' ? 'text-blue-600' :
+                              log.status === 'failed' ? 'text-red-600' : 'text-gray-600'
+                            }`} />
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-900">{log.filename}</div>
+                            <div className="text-sm text-gray-500">
+                              Campaign: {log.campaign_name} • {new Date(log.created_at).toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-bold text-gray-900">
+                            {log.successful_imports} / {log.total_rows} imported
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {log.failed_imports > 0 && `${log.failed_imports} failed`}
+                          </div>
+                          <span className={`inline-block mt-1 px-2 py-1 text-xs font-medium rounded-full ${
+                            log.status === 'completed' ? 'bg-green-100 text-green-700' :
+                            log.status === 'processing' ? 'bg-blue-100 text-blue-700' :
+                            log.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
+                          }`}>
+                            {log.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <FileText className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                    <p>No import logs yet</p>
                   </div>
                 )}
               </div>
@@ -595,6 +792,13 @@ export default function AdminSokoPage() {
                     <span className="font-bold">Create Campaign</span>
                   </Link>
                   <button
+                    onClick={() => setShowUploadModal(true)}
+                    className="p-6 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl hover:shadow-lg transition-all flex items-center justify-center gap-3"
+                  >
+                    <Upload className="w-6 h-6" />
+                    <span className="font-bold">Upload Products</span>
+                  </button>
+                  <button
                     onClick={() => handleExport('campaigns')}
                     disabled={isExporting}
                     className="p-6 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:shadow-lg transition-all flex items-center justify-center gap-3 disabled:opacity-50"
@@ -602,19 +806,112 @@ export default function AdminSokoPage() {
                     {isExporting ? <Loader2 className="w-6 h-6 animate-spin" /> : <Download className="w-6 h-6" />}
                     <span className="font-bold">Export Report</span>
                   </button>
-                  <Link
-                    href="/admin/soko/analytics"
-                    className="p-6 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl hover:shadow-lg transition-all flex items-center justify-center gap-3"
-                  >
-                    <BarChart3 className="w-6 h-6" />
-                    <span className="font-bold">View Analytics</span>
-                  </Link>
                 </div>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* CSV Upload Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Upload Alibaba Products CSV</h2>
+              <button
+                onClick={() => {
+                  setShowUploadModal(false);
+                  setUploadProgress('');
+                  setSelectedCampaign('');
+                }}
+                className="text-gray-500 hover:text-gray-700 p-2 hover:bg-gray-100 rounded-lg transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Campaign *
+                </label>
+                <select
+                  value={selectedCampaign}
+                  onChange={(e) => setSelectedCampaign(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                >
+                  <option value="">Choose a campaign...</option>
+                  {campaigns
+                    .filter(c => c.status === 'active' || c.status === 'draft')
+                    .map(campaign => (
+                      <option key={campaign._id} value={campaign._id}>
+                        {campaign.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Upload CSV File *
+                </label>
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 transition">
+                  <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 mb-2">
+                    Click to upload or drag and drop
+                  </p>
+                  <p className="text-sm text-gray-500 mb-4">
+                    CSV file with product data
+                  </p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={handleCSVUpload}
+                    disabled={uploadingCSV || !selectedCampaign}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingCSV || !selectedCampaign}
+                    className="px-6 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {uploadingCSV ? 'Uploading...' : 'Select File'}
+                  </button>
+                </div>
+              </div>
+
+              {uploadProgress && (
+                <div className={`p-4 rounded-lg ${
+                  uploadProgress.includes('Success') ? 'bg-green-50 text-green-800' :
+                  uploadProgress.includes('Error') ? 'bg-red-50 text-red-800' :
+                  'bg-blue-50 text-blue-800'
+                }`}>
+                  <p className="text-sm font-medium">{uploadProgress}</p>
+                </div>
+              )}
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="font-medium text-blue-900 mb-2">Required CSV Columns:</h3>
+                <div className="text-sm text-blue-800 space-y-1">
+                  <p>• <strong>id</strong> - Product ID</p>
+                  <p>• <strong>title</strong> - Product title</p>
+                  <p>• <strong>description</strong> - Product description</p>
+                  <p>• <strong>price</strong> or <strong>price_usd</strong> - Price in USD</p>
+                  <p>• <strong>image_url</strong> - Product image URL</p>
+                  <p>• <strong>deep_link</strong> - Product URL</p>
+                  <p>• <strong>category_name</strong> - Category</p>
+                  <p className="text-xs mt-2 text-blue-600">
+                    * Column names are case-insensitive
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

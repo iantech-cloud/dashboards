@@ -1,10 +1,11 @@
-// app/blog/[slug]/page.tsx
+// app/blog/[slug]/page.tsx - MODERNIZED
 import { notFound } from 'next/navigation';
 import { connectToDatabase, BlogPost } from '../../lib/models';
 import Link from 'next/link';
 import Header from '../../components/Header';
 import Footer from '../../components/Footer';
 import BlogContent from './BlogContent';
+import { ArrowLeft, Calendar, Clock, User, Tag, Share2, Bookmark, TrendingUp } from 'lucide-react';
 
 interface BlogPostPageProps {
   params: Promise<{
@@ -46,74 +47,107 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-white">
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50/20 to-cyan-50/20 relative overflow-hidden">
+      {/* Animated background elements */}
+      <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-blue-400/10 to-transparent rounded-full blur-3xl animate-pulse pointer-events-none"></div>
+      <div className="absolute bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-cyan-400/10 to-transparent rounded-full blur-3xl animate-pulse delay-1000 pointer-events-none"></div>
+
       <Header />
       
-      <main className="flex-grow bg-gray-50 py-8">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+      <main className="flex-grow py-8 relative z-10">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Back to Blogs Link */}
-          <div className="mb-8">
+          <div className="mb-8 animate-slideUp">
             <Link 
               href="/blog" 
-              className="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium"
+              className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-semibold transition-all duration-200 group bg-white/70 backdrop-blur-sm px-4 py-2 rounded-xl border border-blue-200 hover:border-blue-300 hover:shadow-md"
             >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
+              <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform duration-200" />
               Back to All Posts
             </Link>
           </div>
 
-          {/* Blog Post Header */}
-          <article className="bg-white rounded-lg shadow-lg overflow-hidden">
+          {/* Blog Post Article */}
+          <article className="bg-white/70 backdrop-blur-xl rounded-3xl shadow-2xl overflow-hidden border border-white/50 animate-scaleIn">
             {/* Featured Image */}
             {post.featured_image && (
-              <div className="w-full h-64 md:h-96 bg-gray-200">
+              <div className="relative w-full h-64 md:h-[500px] bg-gradient-to-br from-slate-200 to-slate-300 overflow-hidden">
                 <img
                   src={post.featured_image}
                   alt={post.title}
                   className="w-full h-full object-cover"
                 />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"></div>
+                
+                {/* Floating stats badge */}
+                <div className="absolute bottom-6 right-6 flex gap-3">
+                  <div className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-full shadow-lg border border-white/50 flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm font-semibold text-slate-700">{post.views || 0} views</span>
+                  </div>
+                  <div className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-full shadow-lg border border-white/50 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-cyan-600" />
+                    <span className="text-sm font-semibold text-slate-700">{post.read_time} min</span>
+                  </div>
+                </div>
               </div>
             )}
 
             {/* Post Content */}
-            <div className="p-6 md:p-8">
+            <div className="p-6 md:p-10 lg:p-12">
               {/* Title */}
-              <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+              <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-6 leading-tight">
                 {post.title}
               </h1>
 
-              {/* Meta Information */}
-              <div className="flex flex-wrap items-center gap-4 text-gray-600 mb-6">
-                <div className="flex items-center">
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  <span>By {authorDisplayName}</span>
+              {/* Author Card */}
+              <div className="flex items-center justify-between flex-wrap gap-4 mb-8 p-4 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-2xl border border-blue-200">
+                <div className="flex items-center gap-4">
+                  {/* Author Avatar */}
+                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-blue-500/30">
+                    <User className="w-7 h-7 text-white" />
+                  </div>
+                  
+                  {/* Author Info */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-lg font-bold text-slate-900">{authorDisplayName}</span>
+                      <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">Author</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-sm text-slate-600">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="w-4 h-4 text-blue-500" />
+                        <span>{formattedDate}</span>
+                      </div>
+                      <span className="w-1 h-1 rounded-full bg-slate-400"></span>
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-4 h-4 text-cyan-500" />
+                        <span>{post.read_time} min read</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center">
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <span>{formattedDate}</span>
-                </div>
-                <div className="flex items-center">
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span>{post.read_time} min read</span>
+
+                {/* Action Buttons */}
+                <div className="flex gap-2">
+                  <button className="p-2.5 bg-white hover:bg-blue-50 rounded-xl border border-slate-200 hover:border-blue-300 transition-all duration-200 group">
+                    <Share2 className="w-5 h-5 text-slate-600 group-hover:text-blue-600 transition-colors duration-200" />
+                  </button>
+                  <button className="p-2.5 bg-white hover:bg-cyan-50 rounded-xl border border-slate-200 hover:border-cyan-300 transition-all duration-200 group">
+                    <Bookmark className="w-5 h-5 text-slate-600 group-hover:text-cyan-600 transition-colors duration-200" />
+                  </button>
                 </div>
               </div>
 
               {/* Tags */}
               {post.tags && post.tags.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-6">
+                <div className="flex flex-wrap gap-2 mb-8">
                   {post.tags.map((tag: string, index: number) => (
                     <span
                       key={index}
-                      className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 border border-blue-200 hover:border-blue-300 transition-all duration-200 hover:shadow-md cursor-pointer"
                     >
+                      <Tag className="w-4 h-4" />
                       {tag}
                     </span>
                   ))}
@@ -122,27 +156,66 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
 
               {/* Excerpt */}
               {post.excerpt && (
-                <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
-                  <p className="text-lg text-gray-700 italic">{post.excerpt}</p>
+                <div className="relative bg-gradient-to-r from-blue-50 via-cyan-50 to-blue-50 border-l-4 border-blue-500 p-6 mb-8 rounded-r-2xl shadow-md overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-100/50 to-transparent rounded-full"></div>
+                  <p className="text-lg text-slate-700 italic leading-relaxed relative z-10 font-medium">
+                    "{post.excerpt}"
+                  </p>
                 </div>
               )}
 
+              {/* Divider */}
+              <div className="h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent mb-8"></div>
+
               {/* Content - Use client component for MathJax rendering */}
-              <BlogContent content={post.content} />
+              <div className="prose prose-lg max-w-none">
+                <BlogContent content={post.content} />
+              </div>
+
+              {/* Post Footer */}
+              <div className="mt-12 pt-8 border-t-2 border-slate-200">
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center shadow-lg">
+                      <User className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-slate-600 mb-1">Written by</p>
+                      <p className="font-bold text-slate-900">{authorDisplayName}</p>
+                    </div>
+                  </div>
+
+                  {/* Share Buttons */}
+                  <div className="flex gap-2">
+                    <button className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 flex items-center gap-2">
+                      <Share2 className="w-4 h-4" />
+                      Share
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </article>
 
-          {/* Related Posts or Navigation */}
-          <div className="mt-8 flex justify-between">
+          {/* Navigation */}
+          <div className="mt-12 flex justify-center">
             <Link 
               href="/blog" 
-              className="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium"
+              className="inline-flex items-center gap-3 px-8 py-4 bg-white/70 backdrop-blur-xl text-blue-600 hover:text-blue-800 font-bold rounded-2xl border-2 border-blue-200 hover:border-blue-300 transition-all duration-200 shadow-lg hover:shadow-xl group"
             >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              Back to All Posts
+              <ArrowLeft className="w-6 h-6 group-hover:-translate-x-2 transition-transform duration-200" />
+              Explore More Articles
             </Link>
+          </div>
+
+          {/* Related Posts Section (Placeholder) */}
+          <div className="mt-16 bg-white/70 backdrop-blur-xl rounded-3xl shadow-lg border border-white/50 p-8">
+            <h2 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-6">
+              You might also like
+            </h2>
+            <div className="text-center text-slate-500 py-8">
+              Related posts coming soon...
+            </div>
           </div>
         </div>
       </main>
@@ -175,6 +248,13 @@ export async function generateMetadata({ params }: BlogPostPageProps) {
       publishedTime: post.created_at,
       authors: [post.author?.username || post.author?.name],
       tags: post.tags,
+      images: post.featured_image ? [post.featured_image] : [],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: post.meta_title || post.title,
+      description: post.meta_description || post.excerpt,
+      images: post.featured_image ? [post.featured_image] : [],
     },
   };
 }

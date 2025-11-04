@@ -137,6 +137,28 @@ export default function SpinWheel({ userId, onSpinComplete }: SpinWheelProps) {
                   taskStatus?.allCompleted && 
                   userStats?.availableSpins >= 5;
 
+  // Helper function to create proper wheel segments
+  const createWheelSegment = (index: number, total: number) => {
+    const anglePerSegment = 360 / total;
+    const startAngle = index * anglePerSegment;
+    const endAngle = (index + 1) * anglePerSegment;
+    
+    // Convert to radians for calculation
+    const startRad = (startAngle - 90) * Math.PI / 180;
+    const endRad = (endAngle - 90) * Math.PI / 180;
+    
+    // Calculate points for the segment (as percentage from center)
+    const x1 = 50 + 50 * Math.cos(startRad);
+    const y1 = 50 + 50 * Math.sin(startRad);
+    const x2 = 50 + 50 * Math.cos(endRad);
+    const y2 = 50 + 50 * Math.sin(endRad);
+    
+    return {
+      clipPath: `polygon(50% 50%, ${x1}% ${y1}%, ${x2}% ${y2}%)`,
+      rotation: startAngle + anglePerSegment / 2
+    };
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
@@ -238,39 +260,69 @@ export default function SpinWheel({ userId, onSpinComplete }: SpinWheelProps) {
 
             {/* Wheel */}
             <div 
-              className="relative w-full aspect-square rounded-full shadow-2xl overflow-hidden border-8 border-yellow-400"
+              className="relative w-full aspect-square rounded-full shadow-2xl border-8 border-yellow-400"
               style={{
                 transform: `rotate(${rotation}deg)`,
                 transition: spinning ? 'transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99)' : 'none'
               }}
             >
-              {prizes.map((prize, index) => {
-                const angle = (360 / prizes.length) * index;
-                const config = PRIZE_CONFIG.find(p => p.type === prize.type);
-                
-                return (
-                  <div
-                    key={prize._id}
-                    className="absolute w-full h-full"
-                    style={{
-                      transform: `rotate(${angle}deg)`,
-                      clipPath: `polygon(50% 50%, 50% 0%, ${50 + 50 * Math.cos((360 / prizes.length) * Math.PI / 180)}% ${50 - 50 * Math.sin((360 / prizes.length) * Math.PI / 180)}%)`
-                    }}
-                  >
-                    <div 
-                      className="w-full h-full flex items-start justify-center pt-8"
-                      style={{ backgroundColor: config?.color || '#ccc' }}
-                    >
-                      <div className="text-center">
-                        <div className="text-4xl mb-1">{config?.icon}</div>
-                        <div className="text-xs font-semibold text-white px-2">
-                          {prize.display_name}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
+                {prizes.map((prize, index) => {
+                  const anglePerSegment = 360 / prizes.length;
+                  const startAngle = index * anglePerSegment - 90;
+                  const endAngle = (index + 1) * anglePerSegment - 90;
+                  
+                  const startRad = startAngle * Math.PI / 180;
+                  const endRad = endAngle * Math.PI / 180;
+                  
+                  const x1 = 50 + 48 * Math.cos(startRad);
+                  const y1 = 50 + 48 * Math.sin(startRad);
+                  const x2 = 50 + 48 * Math.cos(endRad);
+                  const y2 = 50 + 48 * Math.sin(endRad);
+                  
+                  const config = PRIZE_CONFIG.find(p => p.type === prize.type);
+                  const midAngle = (startAngle + endAngle) / 2;
+                  const textX = 50 + 30 * Math.cos(midAngle * Math.PI / 180);
+                  const textY = 50 + 30 * Math.sin(midAngle * Math.PI / 180);
+                  
+                  return (
+                    <g key={prize._id}>
+                      <path
+                        d={`M 50 50 L ${x1} ${y1} A 48 48 0 0 1 ${x2} ${y2} Z`}
+                        fill={config?.color || '#ccc'}
+                        stroke="white"
+                        strokeWidth="0.5"
+                      />
+                      <text
+                        x={textX}
+                        y={textY - 3}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fontSize="8"
+                        fill="white"
+                        fontWeight="bold"
+                        transform={`rotate(${midAngle + 90}, ${textX}, ${textY})`}
+                      >
+                        {config?.icon}
+                      </text>
+                      <text
+                        x={textX}
+                        y={textY + 4}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fontSize="2.5"
+                        fill="white"
+                        fontWeight="600"
+                        transform={`rotate(${midAngle + 90}, ${textX}, ${textY})`}
+                      >
+                        {prize.display_name.length > 15 
+                          ? prize.display_name.substring(0, 13) + '...'
+                          : prize.display_name}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
 
               {/* Center Circle */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 bg-yellow-400 rounded-full flex items-center justify-center shadow-lg z-10 border-4 border-white">

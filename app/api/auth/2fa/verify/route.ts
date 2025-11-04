@@ -1,10 +1,11 @@
-// app/api/auth/2fa/verify/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import speakeasy from 'speakeasy';
 import { connectToDatabase } from '@/app/lib/mongoose';
 import { Profile } from '@/app/lib/models/Profile';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+// --- NextAuth v5/Auth.js change: Import the 'auth' utility directly ---
+import { auth } from '@/auth'; // Assuming '@/auth' exports the Auth.js instance
+// --- Removed: import { getServerSession } from 'next-auth';
+// --- Removed: import { authOptions } from '@/auth';
 
 /**
  * POST - Verify 2FA token during initial setup (when enabling 2FA)
@@ -13,7 +14,8 @@ import { authOptions } from '@/auth';
 export async function POST(request: NextRequest) {
   try {
     // Get the authenticated user's session
-    const session = await getServerSession(authOptions);
+    // --- NextAuth v5/Auth.js change: Use auth() to get the session ---
+    const session = await auth();
 
     if (!session || !session.user?.email) {
       return NextResponse.json(
@@ -249,7 +251,8 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     // Get the authenticated user's session
-    const session = await getServerSession(authOptions);
+    // --- NextAuth v5/Auth.js change: Use auth() to get the session ---
+    const session = await auth();
 
     if (!session || !session.user?.email) {
       return NextResponse.json(
@@ -298,3 +301,4 @@ export async function DELETE(request: NextRequest) {
     );
   }
 }
+

@@ -1,9 +1,7 @@
-// app/actions/mpesa.ts
 'use server';
 
 import { connectToDatabase, MpesaChangeRequest, Profile } from '../lib/models';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth'; // V5: Import the auth function directly
 
 // Type definitions
 interface MpesaChangeRequestData {
@@ -49,7 +47,8 @@ function isValidSession(session: unknown): session is SessionWithUser {
 
 export async function getMpesaChangeRequests(): Promise<MpesaChangeRequestsResponse> {
   try {
-    const session = await getServerSession(authOptions);
+    // V5 Change: Use auth()
+    const session = await auth();
     
     if (!isValidSession(session)) {
       return { success: false, message: 'Unauthorized' };
@@ -84,7 +83,8 @@ export async function getMpesaChangeRequests(): Promise<MpesaChangeRequestsRespo
 
 export async function createMpesaChangeRequest(requestData: MpesaChangeRequestData): Promise<MpesaChangeRequestResponse> {
   try {
-    const session = await getServerSession(authOptions);
+    // V5 Change: Use auth()
+    const session = await auth();
     
     if (!isValidSession(session)) {
       return { success: false, message: 'Unauthorized' };
@@ -188,7 +188,8 @@ export async function createMpesaChangeRequest(requestData: MpesaChangeRequestDa
 // Additional function to get M-Pesa change request by ID
 export async function getMpesaChangeRequestById(requestId: string): Promise<MpesaChangeRequestResponse> {
   try {
-    const session = await getServerSession(authOptions);
+    // V5 Change: Use auth()
+    const session = await auth();
     
     if (!isValidSession(session)) {
       return { success: false, message: 'Unauthorized' };
@@ -228,7 +229,8 @@ export async function getMpesaChangeRequestById(requestId: string): Promise<Mpes
 // Function to cancel pending M-Pesa change request
 export async function cancelMpesaChangeRequest(requestId: string): Promise<MpesaChangeRequestResponse> {
   try {
-    const session = await getServerSession(authOptions);
+    // V5 Change: Use auth()
+    const session = await auth();
     
     if (!isValidSession(session)) {
       return { success: false, message: 'Unauthorized' };
@@ -280,3 +282,4 @@ export async function cancelMpesaChangeRequest(requestId: string): Promise<Mpesa
     };
   }
 }
+

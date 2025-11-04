@@ -1,4 +1,3 @@
-// auth.ts - NextAuth v5 Complete Implementation with MongoDB Adapter - FIXED VERSION
 import NextAuth, { type DefaultSession, type NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
@@ -12,7 +11,6 @@ import { hashSessionToken, generateSessionToken, getSessionExpiryTime, isSession
 import { randomUUID } from 'crypto';
 import clientPromise from '@/app/lib/mongodb';
 
-// Validate environment variables
 if (!process.env.NEXTAUTH_SECRET) {
   throw new Error('NEXTAUTH_SECRET environment variable is required');
 }
@@ -21,7 +19,10 @@ if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
   console.warn('Warning: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not configured');
 }
 
-// Helper functions
+if (!process.env.RESEND_API_KEY) {
+  console.warn('Warning: RESEND_API_KEY not configured - Magic link emails will not be sent');
+}
+
 function generateReferralId(): string {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
 }
@@ -38,30 +39,187 @@ function getDashboardRoute(role: string): string {
   }
 }
 
+/**
+ * Send magic link email using Resend API
+ */
+async function sendMagicLinkEmail(email: string, url: string): Promise<{ success: boolean; error?: string }> {
+  if (!process.env.RESEND_API_KEY) {
+    console.error('RESEND_API_KEY not configured');
+    
+    // In development, log the link
+    if (process.env.NODE_ENV === 'development') {
+      console.log('====== MAGIC LINK EMAIL (Development Mode) ======');
+      console.log(`To: ${email}`);
+      console.log(`Magic Link: ${url}`);
+      console.log('================================================');
+      return { success: true };
+    }
+    
+    return { success: false, error: 'Email service not configured' };
+  }
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      },
+      body: JSON.stringify({
+        from: process.env.EMAIL_FROM || 'HustleHub Africa <noreply@hustlehub.africa>',
+        to: email,
+        subject: 'Sign in to HustleHub Africa',
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+              <h1 style="color: white; margin: 0; font-size: 28px;">HustleHub Africa</h1>
+            </div>
+            
+            <div style="background-color: #ffffff; padding: 40px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 10px 10px;">
+              <h2 style="color: #4F46E5; margin-top: 0;">Welcome Back!</h2>
+              
+              <p style="font-size: 16px; color: #555;">
+                Click the button below to sign in to your HustleHub Africa account. This link will expire in 24 hours for security reasons.
+              </p>
+              
+              <div style="text-align: center; margin: 35px 0;">
+                <a href="${url}" 
+                   style="display: inline-block; 
+                          padding: 16px 32px; 
+                          background-color: #4F46E5; 
+                          color: white; 
+                          text-decoration: none; 
+                          border-radius: 8px; 
+                          font-weight: bold; 
+                          font-size: 16px;
+                          box-shadow: 0 4px 6px rgba(79, 70, 229, 0.3);">
+                  Sign In to HustleHub
+                </a>
+              </div>
+              
+              <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin-top: 30px;">
+                <p style="margin: 0 0 10px 0; font-size: 14px; color: #666;">
+                  <strong>🔒 Security Note:</strong>
+                </p>
+                <ul style="font-size: 14px; color: #666; margin: 0; padding-left: 20px;">
+                  <li>This link can only be used once</li>
+                  <li>It will expire in 24 hours</li>
+                  <li>Only use this link if you requested it</li>
+                </ul>
+              </div>
+              
+              <p style="font-size: 14px; color: #777; margin-top: 30px; border-top: 1px solid #e0e0e0; padding-top: 20px;">
+                If you didn't request this email, you can safely ignore it. Someone might have entered your email address by mistake.
+              </p>
+              
+              <p style="font-size: 12px; color: #999; margin-top: 20px;">
+                If the button doesn't work, copy and paste this link into your browser:<br>
+                <a href="${url}" style="color: #4F46E5; word-break: break-all;">${url}</a>
+              </p>
+            </div>
+            
+            <div style="text-align: center; margin-top: 20px; color: #999; font-size: 12px;">
+              <p>© ${new Date().getFullYear()} HustleHub Africa. All rights reserved.</p>
+            </div>
+          </body>
+          </html>
+        `,
+        text: `Sign in to HustleHub Africa\n\nClick the link below to sign in:\n${url}\n\nThis link will expire in 24 hours.\n\nIf you didn't request this email, you can safely ignore it.\n\n© ${new Date().getFullYear()} HustleHub Africa`,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('Resend API error:', errorData);
+      return { 
+        success: false, 
+        error: `Failed to send email: ${response.status} ${response.statusText}` 
+      };
+    }
+
+    const result = await response.json();
+    console.log('✅ Magic link email sent successfully via Resend:', result.id);
+    return { success: true };
+
+  } catch (error) {
+    console.error('Error sending magic link email:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    };
+  }
+}
+
 export const authConfig = {
-  // NextAuth v5 configuration
   trustHost: true,
   secret: process.env.NEXTAUTH_SECRET,
-  
-  // MongoDB Adapter for sessions and magic links
   adapter: MongoDBAdapter(clientPromise),
   
   session: {
     strategy: 'jwt' as const,
     maxAge: 30 * 24 * 60 * 60, // 30 days
-    updateAge: 24 * 60 * 60, // Update session every 24 hours
+    updateAge: 24 * 60 * 60, // 24 hours
+  },
+
+  // ✅ CRITICAL: Cookie configuration for production
+  cookies: {
+    sessionToken: {
+      name: process.env.NODE_ENV === 'production' 
+        ? '__Secure-next-auth.session-token' 
+        : 'next-auth.session-token',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        domain: process.env.NODE_ENV === 'production' 
+          ? '.hustlehubafrica.com'  // ✅ Allows subdomains
+          : undefined,
+      },
+    },
+    callbackUrl: {
+      name: process.env.NODE_ENV === 'production'
+        ? '__Secure-next-auth.callback-url'
+        : 'next-auth.callback-url',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        domain: process.env.NODE_ENV === 'production'
+          ? '.hustlehubafrica.com'
+          : undefined,
+      },
+    },
+    csrfToken: {
+      name: process.env.NODE_ENV === 'production'
+        ? '__Host-next-auth.csrf-token'
+        : 'next-auth.csrf-token',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+      },
+    },
   },
   
   pages: {
     signIn: '/auth/login',
     signOut: '/auth/login',
     error: '/auth/login',
-    verifyRequest: '/auth/verify-email',
-    newUser: '/auth/activate',
+    verifyRequest: '/auth/verify-request',
+    newUser: undefined, // Don't use automatic newUser redirect
   },
   
   providers: [
-    // 1. Credentials Provider (Email + Password)
+    // ==================== CREDENTIALS PROVIDER ====================
     Credentials({
       id: 'credentials',
       name: 'credentials',
@@ -88,20 +246,7 @@ export const authConfig = {
           const isPasswordValid = await bcrypt.compare(credentials.password as string, user.password || '');
           if (!isPasswordValid) throw new Error('Invalid email or password.');
 
-          // Status checks
-          if (!user.is_active) {
-            throw new Error('Your account is not active. Please contact support.');
-          }
-
-          if (!user.is_verified) {
-            throw new Error('Please verify your email address before signing in.');
-          }
-
-          if (user.approval_status !== 'approved' && user.role !== 'user') {
-            throw new Error('Your account is pending approval. Please wait for administrator approval.');
-          }
-
-          // 2FA verification if enabled
+          // Check 2FA if enabled
           if (user.twoFAEnabled && user.twoFASecret) {
             if (!credentials.token2FA) {
               throw new Error('2FA code is required.');
@@ -121,7 +266,6 @@ export const authConfig = {
           
           await Profile.updateOne({ _id: user._id }, { last_login: new Date() });
 
-          // Return user data for JWT token
           return {
             id: userId,
             email: user.email,
@@ -134,6 +278,8 @@ export const authConfig = {
             activation_paid_at: user.activation_paid_at,
             status: user.status,
             twoFAEnabled: user.twoFAEnabled || false,
+            profile_completed: user.profile_completed || false,
+            phone_number: user.phone_number || null,
           };
           
         } catch (error: any) {
@@ -143,7 +289,7 @@ export const authConfig = {
       },
     }),
 
-    // 2. Google OAuth Provider
+    // ==================== GOOGLE OAUTH PROVIDER ====================
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
@@ -153,89 +299,50 @@ export const authConfig = {
           access_type: "offline",
           response_type: "code"
         }
-      }
+      },
+      allowDangerousEmailAccountLinking: true,
     }),
 
-    // 3. Magic Link (Email) Provider
+    // ==================== EMAIL (MAGIC LINK) PROVIDER ====================
     Email({
       server: {
-        host: 'smtp.placeholder.com',
-        port: 587,
+        host: process.env.EMAIL_SERVER_HOST || 'smtp.resend.com',
+        port: Number(process.env.EMAIL_SERVER_PORT) || 465,
         auth: {
-          user: 'placeholder@example.com',
-          pass: 'password',
+          user: process.env.EMAIL_SERVER_USER || 'resend',
+          pass: process.env.RESEND_API_KEY || '',
         },
       },
-      from: process.env.EMAIL_FROM || 'noreply@hustlehub.africa',
+      from: process.env.EMAIL_FROM || 'HustleHub Africa <noreply@hustlehub.africa>',
+      maxAge: 24 * 60 * 60,
       
-      async sendVerificationRequest(params) {
-        const { identifier, url, provider } = params;
+      async sendVerificationRequest({ identifier: email, url }) {
+        console.log(`📧 Sending magic link to: ${email}`);
         
-        console.log(`Sending magic link to: ${identifier}`);
+        const result = await sendMagicLinkEmail(email, url);
         
-        try {
-          if (process.env.RESEND_API_KEY) {
-            const response = await fetch('https://api.resend.com/emails', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-              },
-              body: JSON.stringify({
-                from: provider.from,
-                to: identifier,
-                subject: 'Sign in to HustleHub Africa',
-                html: `
-                  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h2 style="color: #4F46E5;">Welcome to HustleHub Africa</h2>
-                    <p>Click the link below to sign in to your account:</p>
-                    <a href="${url}" style="display: inline-block; padding: 12px 24px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">
-                      Sign In to HustleHub
-                    </a>
-                    <p style="margin-top: 20px; color: #666;">
-                      If you didn't request this email, you can safely ignore it.
-                    </p>
-                    <p style="color: #666;">
-                      This link will expire in 24 hours.
-                    </p>
-                  </div>
-                `,
-                text: `Sign in to HustleHub Africa: ${url}\n\nThis link will expire in 24 hours.`,
-              }),
-            });
-
-            if (!response.ok) {
-              const errorData = await response.text();
-              console.error('Resend API error:', errorData);
-              throw new Error(`Failed to send email: ${response.status} ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            console.log('Magic link email sent via Resend:', result);
-          } else {
-            console.log('--- MAGIC LINK EMAIL (Development/Fallback) ---');
-            console.log(`To: ${identifier}`);
-            console.log(`Link: ${url}`);
-            console.log('--------------------------------------------------');
-          }
-        } catch (error) {
-          console.error('Error sending magic link email:', error);
+        if (!result.success) {
+          console.error('Failed to send magic link:', result.error);
+          
           if (process.env.NODE_ENV === 'production') {
-            throw error;
+            throw new Error('Failed to send magic link email. Please try again or use another sign-in method.');
           }
+          
+          console.warn('⚠️ Development mode: Magic link not sent, but continuing...');
         }
       },
     }),
   ],
   
   callbacks: {
-    async signIn({ user, account, profile }) {
+    // ==================== SIGN IN CALLBACK ====================
+    async signIn({ user, account, profile, email }) {
       try {
         await connectToDatabase();
 
-        // Handle Google OAuth Sign In
+        // ===== GOOGLE OAUTH SIGN IN =====
         if (account?.provider === 'google' && profile) {
-          console.log('Google sign in attempt:', profile.email);
+          console.log('🔵 Google sign in attempt:', profile.email);
 
           let existingUser = await Profile.findOne({
             $or: [
@@ -245,6 +352,8 @@ export const authConfig = {
           });
 
           if (existingUser) {
+            console.log('✅ Existing user found:', existingUser.email);
+            
             if (!existingUser.oauth_id) {
               existingUser.oauth_id = account.providerAccountId;
               existingUser.oauth_provider = 'google';
@@ -256,211 +365,158 @@ export const authConfig = {
               existingUser.is_verified = true;
               existingUser.oauth_verified = true;
             }
-            
+
             existingUser.last_login = new Date();
             await existingUser.save();
 
-            user.id = existingUser._id.toString();
             return true;
           }
 
-          // Create new user with Google OAuth
+          // ===== CREATE NEW USER FROM GOOGLE OAUTH =====
+          console.log('🆕 Creating new user from Google OAuth');
+          
           const newUserId = randomUUID();
           const newUserReferralId = generateReferralId();
 
           const newUser = await Profile.create({
             _id: newUserId,
-            username: (profile as any).name || profile.email?.split('@')[0],
+            username: (profile as any).name || profile.email?.split('@')[0] || 'user',
             email: profile.email,
-            phone_number: '',
-            password: '',
-            referral_id: newUserReferralId,
-            oauth_provider: 'google',
             oauth_id: account.providerAccountId,
+            oauth_provider: 'google',
             oauth_verified: true,
-            google_profile_picture: (profile as any).picture,
             is_verified: true,
+            google_profile_picture: (profile as any).picture,
+            referral_id: newUserReferralId,
+            role: 'user',
+            profile_completed: false,
             approval_status: 'pending',
-            status: 'inactive',
+            status: 'pending',
             is_approved: false,
             is_active: false,
-            activation_paid_at: null,
             last_login: new Date(),
           });
 
-          user.id = newUser._id.toString();
+          console.log('✅ New OAuth user created:', newUser.email);
           return true;
         }
 
-        // Handle Magic Link (Email) Sign In
+        // ===== MAGIC LINK SIGN IN =====
         if (account?.provider === 'email') {
-          console.log('Magic link sign in attempt:', user.email);
+          console.log('📧 Magic link sign in for:', user.email);
 
-          let existingUser = await Profile.findOne({ email: user.email });
+          const existingUser = await Profile.findOne({ email: user.email });
 
-          if (existingUser) {
-            if (!existingUser.is_verified) {
-              existingUser.is_verified = true;
-              await existingUser.save();
-            }
-            
-            existingUser.last_login = new Date();
-            await existingUser.save();
-
-            user.id = existingUser._id.toString();
-            return true;
+          if (!existingUser) {
+            console.log('❌ No user found for magic link:', user.email);
+            return false;
           }
 
-          // New user signing in with magic link
-          const newUserId = randomUUID();
-          const newUserReferralId = generateReferralId();
+          if (!existingUser.is_verified) {
+            console.log('❌ User email not verified:', user.email);
+            return false;
+          }
 
-          const newUser = await Profile.create({
-            _id: newUserId,
-            username: user.email?.split('@')[0] || 'user',
-            email: user.email,
-            phone_number: '',
-            password: '',
-            referral_id: newUserReferralId,
-            oauth_provider: 'email',
-            oauth_verified: true,
-            is_verified: true,
-            approval_status: 'pending',
-            status: 'inactive',
-            is_approved: false,
-            is_active: false,
-            activation_paid_at: null,
-            last_login: new Date(),
-          });
+          existingUser.last_login = new Date();
+          await existingUser.save();
 
-          user.id = newUser._id.toString();
+          console.log('✅ Magic link sign in successful:', user.email);
           return true;
         }
 
-        // Handle Credentials Sign In
-        if (account?.provider === 'credentials') {
-          console.log('Credentials sign in successful');
-          return true;
-        }
-        
-        return false;
+        return true;
       } catch (error) {
-        console.error('SignIn callback error:', error);
+        console.error('❌ SignIn callback error:', error);
         return false;
       }
     },
-    
-    async jwt({ token, user, account, trigger }) {
-      try {
-        // Initial sign in
-        if (user && account) {
-          console.log('JWT: New sign in', { provider: account.provider, userId: user.id });
 
+    // ==================== JWT CALLBACK ====================
+    async jwt({ token, user, account, trigger, session: updateSession }) {
+      try {
+        if (trigger === 'update' && updateSession) {
+          console.log('🔄 JWT: Updating session with new data');
+          return { ...token, ...updateSession };
+        }
+
+        if (user) {
           await connectToDatabase();
-          const profile = await Profile.findById(user.id);
+          
+          console.log('🔑 JWT: Initial sign in, loading user data for:', user.email);
+          
+          const profile = await Profile.findOne({ 
+            $or: [
+              { _id: user.id },
+              { email: user.email }
+            ]
+          });
+
           if (!profile) {
-            console.error('JWT: User profile not found');
+            console.error('JWT: Profile not found for user:', user.email);
             return token;
           }
 
-          let authMethod = 'email';
-          if (account.provider === 'google') authMethod = 'google';
-          else if (account.provider === 'credentials') authMethod = 'credential'; 
+          const userId = profile._id.toString();
+          const dashboardRoute = getDashboardRoute(profile.role);
 
           const sessionToken = generateSessionToken();
           const sessionTokenHash = hashSessionToken(sessionToken);
-          
-          const customSession = await UserSession.create({
-            user_id: user.id,
+
+          const authMethod = account?.provider === 'google' ? 'google' 
+                          : account?.provider === 'email' ? 'email' 
+                          : 'credentials';
+
+          const newSession = await UserSession.create({
+            user_id: userId,
             session_token_hash: sessionTokenHash,
-            ip_address: 'unknown',
-            user_agent: 'unknown',
-            expires_at: getSessionExpiryTime(),
+            device_info: 'Web Browser',
+            ip_address: 'Unknown',
             is_active: true,
-            auth_method: authMethod, 
+            created_at: new Date(),
             last_activity: new Date(),
+            expires_at: getSessionExpiryTime(),
+            auth_method: authMethod,
           });
 
-          // CRITICAL FIX: Enhanced token with ALL ID fields for maximum compatibility
-          const enhancedToken = {
-            ...token,
-            // PRIMARY user ID fields - set ALL for maximum compatibility
-            sub: user.id,           // NextAuth v5 standard field (subject)
-            userId: user.id,        // Custom field for backward compatibility
-            id: user.id,            // Alternative field
-            
-            // User data
+          token.sub = userId;
+          token.id = userId;
+          token.userId = userId;
+          token.email = profile.email;
+          token.name = profile.username;
+          token.role = profile.role;
+          token.dashboardRoute = dashboardRoute;
+          token.is_verified = profile.is_verified;
+          token.is_active = profile.is_active;
+          token.is_approved = profile.is_approved;
+          token.approval_status = profile.approval_status;
+          token.activation_paid_at = profile.activation_paid_at;
+          token.status = profile.status;
+          token.twoFAEnabled = profile.twoFAEnabled || false;
+          token.profile_completed = profile.profile_completed || false;
+          token.phone_number = profile.phone_number || null;
+          token.sessionId = newSession._id.toString();
+          token.sessionToken = sessionToken;
+          token.authMethod = authMethod;
+          token.lastActivity = Math.floor(Date.now() / 1000);
+
+          console.log('✅ JWT: Token populated with user data:', {
+            userId,
             email: profile.email,
-            name: profile.username,
             role: profile.role,
-            dashboardRoute: getDashboardRoute(profile.role),
-            
-            // Status flags
             is_verified: profile.is_verified,
             is_active: profile.is_active,
+            activation_paid_at: profile.activation_paid_at ? 'Yes' : 'No',
             is_approved: profile.is_approved,
             approval_status: profile.approval_status,
-            activation_paid_at: profile.activation_paid_at,
-            status: profile.status,
-            twoFAEnabled: profile.twoFAEnabled || false,
-            
-            // Session tracking
-            sessionId: customSession._id.toString(),
-            sessionToken: sessionToken,
-            authMethod: authMethod,
-            lastActivity: Math.floor(Date.now() / 1000),
-          };
+          });
 
-          console.log('JWT: Enhanced token created with userId:', enhancedToken.userId, 'sub:', enhancedToken.sub);
-          return enhancedToken;
+          return token;
         }
 
-        // Handle session updates
-        if (trigger === "update") {
-          console.log('JWT: Token update triggered');
-          await connectToDatabase();
-          
-          // CRITICAL: Use multiple fallbacks for userId
+        if (token.sessionId && token.sessionToken) {
           const userId = token.sub || token.userId || token.id;
           if (!userId) {
-            console.error('JWT UPDATE: No userId found in token');
-            return token;
-          }
-          
-          const updatedUser = await Profile.findById(userId);
-          if (updatedUser) {
-            return {
-              ...token,
-              // CRITICAL: Preserve ALL ID fields
-              sub: userId,
-              userId: userId,
-              id: userId,
-              name: updatedUser.username,
-              role: updatedUser.role,
-              dashboardRoute: getDashboardRoute(updatedUser.role),
-              is_verified: updatedUser.is_verified,
-              is_active: updatedUser.is_active,
-              is_approved: updatedUser.is_approved,
-              approval_status: updatedUser.approval_status,
-              activation_paid_at: updatedUser.activation_paid_at,
-              status: updatedUser.status,
-              twoFAEnabled: updatedUser.twoFAEnabled || false,
-            };
-          }
-        }
-
-        // Validate and preserve token on every request
-        if (token.sessionId && !user) {
-          await connectToDatabase();
-          
-          // CRITICAL: Use multiple fallbacks for userId
-          const userId = token.sub || token.userId || token.id;
-          if (!userId) {
-            console.error('JWT VALIDATION: No userId found in token', { 
-              hasSub: !!token.sub, 
-              hasUserId: !!token.userId, 
-              hasId: !!token.id 
-            });
+            console.error('JWT: No userId in token');
             return token;
           }
 
@@ -484,7 +540,6 @@ export const authConfig = {
             expires_at: getSessionExpiryTime(),
           });
 
-          // CRITICAL: Ensure ALL ID fields are preserved
           return {
             ...token,
             sub: userId,
@@ -494,25 +549,18 @@ export const authConfig = {
           };
         }
 
-        // CRITICAL SAFETY CHECK: Always ensure userId consistency across all fields
         const userId = token.sub || token.userId || token.id;
         if (userId) {
           token.sub = userId;
           token.userId = userId;
           token.id = userId;
         } else {
-          console.error('JWT: CRITICAL - No userId found anywhere in token!', {
-            tokenKeys: Object.keys(token),
-            hasSub: !!token.sub,
-            hasUserId: !!token.userId,
-            hasId: !!token.id
-          });
+          console.error('JWT: CRITICAL - No userId found anywhere in token!');
         }
 
         return token;
       } catch (error) {
         console.error('JWT callback error:', error);
-        // CRITICAL: Preserve userId even on error
         const userId = token.sub || token.userId || token.id;
         if (userId) {
           token.sub = userId;
@@ -523,7 +571,7 @@ export const authConfig = {
       }
     },
 
-    // CRITICAL FIX: Enhanced session callback with explicit field mapping
+    // ==================== SESSION CALLBACK ====================
     async session({ session, token }) {
       console.log('SESSION CALLBACK - Input Token:', { 
         hasToken: !!token,
@@ -531,7 +579,6 @@ export const authConfig = {
         userId: token?.userId, 
         id: token?.id,
         email: token?.email,
-        allTokenKeys: token ? Object.keys(token) : []
       });
       
       if (!token) {
@@ -544,24 +591,16 @@ export const authConfig = {
         session.user = {} as any;
       }
 
-      // CRITICAL FIX: Get userId with multiple fallbacks
       const userId = token.sub || token.userId || token.id;
       
       if (!userId) {
-        console.error('SESSION CALLBACK CRITICAL ERROR: No userId found in token!', {
-          tokenKeys: Object.keys(token),
-          tokenValues: token
-        });
-        // Return session as-is but log the error
+        console.error('SESSION CALLBACK CRITICAL ERROR: No userId found in token!');
         return session;
       }
 
-      // EXPLICIT FIELD MAPPING - Map EVERY field explicitly
       session.user.id = userId as string;
       session.user.email = (token.email || session.user.email) as string;
       session.user.name = (token.name || session.user.name) as string;
-      
-      // Map custom fields explicitly
       session.user.role = token.role as string;
       session.user.is_verified = token.is_verified as boolean;
       session.user.is_active = token.is_active as boolean;
@@ -573,33 +612,36 @@ export const authConfig = {
       session.user.status = token.status as string;
       session.user.twoFAEnabled = token.twoFAEnabled as boolean;
       session.user.authMethod = token.authMethod as string;
+      session.user.profile_completed = token.profile_completed as boolean;
+      session.user.phone_number = token.phone_number as string | null;
       
-      // Map session-level properties
       (session as any).dashboardRoute = token.dashboardRoute as string;
       (session as any).expires = token.exp as string;
       
-      console.log('SESSION CALLBACK - Output Session:', {
+      console.log('✅ SESSION CALLBACK SUCCESS:', {
         userId: session.user.id,
         email: session.user.email,
         role: session.user.role,
         is_verified: session.user.is_verified,
         is_active: session.user.is_active,
-        is_approved: session.user.is_approved
+        activation_paid_at: session.user.activation_paid_at ? 'Yes' : 'No',
+        is_approved: session.user.is_approved,
       });
-      
-      // CRITICAL: Verify the session.user.id is set before returning
-      if (!session.user.id) {
-        console.error('SESSION CALLBACK FINAL ERROR: session.user.id is still not set!');
-      } else {
-        console.log('SESSION CALLBACK SUCCESS: session.user.id =', session.user.id);
-      }
       
       return session;
     },
 
+    // ==================== REDIRECT CALLBACK ====================
     async redirect({ url, baseUrl }) {
+      console.log('🔄 REDIRECT CALLBACK:', { url, baseUrl });
+
+      // Handle relative URLs
       if (url.startsWith("/")) return `${baseUrl}${url}`;
-      else if (new URL(url).origin === baseUrl) return url;
+      
+      // Handle URLs from same origin
+      if (new URL(url).origin === baseUrl) return url;
+      
+      // Default to base URL
       return baseUrl;
     }
   },
@@ -629,24 +671,22 @@ export const authConfig = {
     },
   },
 
-  // CRITICAL: Enable debug mode to see detailed logs
-  debug: true,
+  debug: process.env.NODE_ENV === 'development',
 
 } satisfies NextAuthConfig;
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
 
-// ==================== TYPE DECLARATIONS - ENHANCED ====================
-
+// ==================== TYPE DECLARATIONS ====================
 declare module 'next-auth' {
   interface Session {
     dashboardRoute: string;
     expires: string;
     user: {
-      id: string;              // CRITICAL: Must be here
-      email: string;           // Standard NextAuth field
-      name?: string | null;    // Standard NextAuth field
-      image?: string | null;   // Standard NextAuth field
+      id: string;
+      email: string;
+      name?: string | null;
+      image?: string | null;
       role: string;
       is_verified: boolean;
       is_active: boolean;
@@ -656,11 +696,13 @@ declare module 'next-auth' {
       status: string;
       twoFAEnabled: boolean;
       authMethod: string;
+      profile_completed?: boolean;
+      phone_number?: string | null;
     };
   }
   
   interface User {
-    id: string;              // CRITICAL: Must match your DB _id
+    id: string;
     email: string;
     name?: string | null;
     role: string;
@@ -671,23 +713,20 @@ declare module 'next-auth' {
     activation_paid_at?: Date;
     status: string;
     twoFAEnabled: boolean;
+    profile_completed?: boolean;
+    phone_number?: string | null;
   }
 }
 
 declare module 'next-auth/jwt' {
   interface JWT {
-    // CRITICAL: All possible ID fields for maximum compatibility
-    sub: string;             // NextAuth v5 standard (subject)
-    id: string;              // Alternative ID field
-    userId: string;          // Custom ID field
-    
-    // User data
+    sub: string;
+    id: string;
+    userId: string;
     email: string;
     name?: string | null;
     role: string;
     dashboardRoute: string;
-    
-    // Status fields
     is_verified: boolean;
     is_active: boolean;
     is_approved: boolean;
@@ -695,8 +734,8 @@ declare module 'next-auth/jwt' {
     activation_paid_at?: Date;
     status: string;
     twoFAEnabled: boolean;
-    
-    // Session tracking
+    profile_completed?: boolean;
+    phone_number?: string | null;
     sessionId?: string;
     sessionToken?: string;
     authMethod: string;

@@ -1,7 +1,5 @@
-// app/api/reset-password/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth'; // Using NextAuth v5 auth function
 import bcrypt from 'bcryptjs';
 import speakeasy from 'speakeasy';
 import { sendVerificationCodeEmail } from '@/app/actions/email';
@@ -19,10 +17,6 @@ async function sendPasswordSuccessEmail(email: string, username: string, type: '
     ? 'Password Reset Successful' 
     : 'Password Changed Successfully';
   
-  const action = type === 'forgot' 
-    ? 'reset' 
-    : 'changed';
-
   // Use a special code value that indicates this is a success confirmation
   const emailResult = await sendVerificationCodeEmail(
     email,
@@ -205,7 +199,7 @@ export async function POST(request: NextRequest) {
     }
 
     // AUTHENTICATED RESET PASSWORD FLOW (logged-in user)
-    const session = await getServerSession(authOptions);
+    const session = await auth(); // Using NextAuth v5 session retrieval
     if (!session?.user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized. Please log in.' },
@@ -399,3 +393,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

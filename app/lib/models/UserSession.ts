@@ -19,6 +19,9 @@ const UserSessionSchema = new Schema({
   user_agent: { 
     type: String 
   },
+  device_info: {
+    type: String
+  },
   created_at: { 
     type: Date, 
     default: Date.now,
@@ -39,13 +42,17 @@ const UserSessionSchema = new Schema({
     default: true,
     index: true 
   },
+  ended_at: {
+    type: Date
+  },
   auth_method: {
     type: String,
-    // FIX: Updated enum to match all providers used in auth.ts
-    // 'credential' is for email/password login.
+    // 'credentials' is for email/password login (note: 'credentials' not 'credential')
     // 'email' covers magic link login (from the Email provider).
-    enum: ['credential', 'google', 'email'], 
-    required: true
+    // 'google' for Google OAuth
+    enum: ['credentials', 'google', 'email'], 
+    required: true,
+    default: 'credentials'
   }
 }, {
   timestamps: true
@@ -59,4 +66,3 @@ UserSessionSchema.index({ user_id: 1, is_active: 1 });
 UserSessionSchema.index({ session_token_hash: 1, is_active: 1 });
 
 export const UserSession = models.UserSession || model('UserSession', UserSessionSchema);
-

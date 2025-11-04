@@ -1,7 +1,12 @@
 // app/soko/track/[code]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/app/lib/mongoose';
-import { ClickTracking, UserAffiliateLink, SokoCampaign } from '@/app/lib/models/Soko';
+import { 
+  ClickTracking, 
+  UserAffiliateLink, 
+  SokoCampaign, 
+  AlibabaProduct 
+} from '@/app/lib/models/Soko';
 import { headers } from 'next/headers';
 import crypto from 'crypto';
 
@@ -10,7 +15,7 @@ export async function GET(
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    // FIX: Await params before destructuring
+    // Await params before destructuring
     const { code } = await params;
     
     await connectToDatabase();
@@ -45,6 +50,16 @@ export async function GET(
         (campaign.end_date && new Date(campaign.end_date) < now)) {
       console.log(`Campaign is not active: ${campaign._id}`);
       return NextResponse.redirect(new URL('/campaign-expired', request.url));
+    }
+
+    // Get product details if this is a product-specific link
+    let product = null;
+    if (affiliateLink.product_id) {
+      product = await AlibabaProduct.findById(affiliateLink.product_id);
+      if (!product || !product.is_active) {
+        console.log(`Product not found or inactive: ${affiliateLink.product_id}`);
+        return NextResponse.redirect(new URL('/product-unavailable', request.url));
+      }
     }
 
     // Get request metadata with awaited headers
@@ -94,70 +109,103 @@ export async function GET(
     // Generate session ID for tracking
     const sessionId = crypto.randomBytes(16).toString('hex');
 
-    // Create click tracking record with exact schema fields
-    const clickData = {
+    // Check for duplicate clicks (anti-fraud)
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const existingClick = await ClickTracking.findOne({
       affiliate_link_id: affiliateLink._id,
-      user_id: affiliateLink.user_id.toString(),
-      campaign_id: campaign._id,
-      
-      // Click Details
-      clicked_at: new Date(),
       ip_address: ipAddress,
-      user_agent: userAgent,
-      
-      // Device & Location Info
-      device_type: deviceType,
-      browser: browser,
-      operating_system: operatingSystem,
-      country: 'unknown', // Could be enhanced with IP geolocation service
-      city: 'unknown',    // Could be enhanced with IP geolocation service
-      
-      // Referrer Info
-      referrer_url: referrerUrl,
-      utm_source: utmSource,
-      utm_medium: utmMedium,
-      utm_campaign: utmCampaign,
-      
-      // Conversion Status (using valid enum value from schema)
-      status: 'pending' as const, // Using 'pending' which is valid in ClickStatuses
-      
-      // Session Tracking
-      session_id: sessionId,
-      
-      // Metadata
-      metadata: {
-        original_url: request.url,
-        headers: {
-          'user-agent': userAgent,
-          'referer': referrerUrl,
-          'x-forwarded-for': headersList.get('x-forwarded-for'),
-          'x-real-ip': headersList.get('x-real-ip')
-        },
-        query_params: Object.fromEntries(url.searchParams)
-      }
-    };
-
-    // Create click tracking record
-    const clickRecord = await ClickTracking.create(clickData);
-
-    // Update affiliate link stats (atomic update)
-    await UserAffiliateLink.findByIdAndUpdate(affiliateLink._id, {
-      $inc: { total_clicks: 1 },
-      last_click_at: new Date()
+      clicked_at: { $gte: twentyFourHoursAgo }
     });
 
-    // Update campaign stats (atomic update)
-    await SokoCampaign.findByIdAndUpdate(campaign._id, {
-      $inc: { total_clicks: 1 },
-      last_click_at: new Date()
-    });
+    // Get the merchant URL
+    // Priority: Product deep_link > Affiliate link merchant URL > Campaign base link
+    let merchantUrl: string;
+    if (product && product.deep_link) {
+      merchantUrl = product.deep_link;
+    } else if (affiliateLink.merchant_affiliate_url) {
+      merchantUrl = affiliateLink.merchant_affiliate_url;
+    } else {
+      merchantUrl = campaign.base_affiliate_link;
+    }
 
-    // Get the merchant affiliate URL (where we redirect to)
-    const merchantUrl = affiliateLink.merchant_affiliate_url || campaign.base_affiliate_link;
-    
     if (!merchantUrl) {
-      console.error('No merchant URL found for campaign:', campaign._id);
+      console.error('No merchant URL found');
       return NextResponse.redirect(new URL('/404', request.url));
+    }
+
+    // Only create click record if not duplicate
+    if (!existingClick) {
+      // Create click tracking record
+      const clickData = {
+        affiliate_link_id: affiliateLink._id,
+        user_id: affiliateLink.user_id.toString(),
+        campaign_id: campaign._id,
+        product_id: product?._id,
+        
+        // Click Details
+        clicked_at: new Date(),
+        ip_address: ipAddress,
+        user_agent: userAgent,
+        
+        // Device & Location Info
+        device_type: deviceType,
+        browser: browser,
+        operating_system: operatingSystem,
+        country: 'unknown',
+        city: 'unknown',
+        
+        // Referrer Info
+        referrer_url: referrerUrl,
+        utm_source: utmSource,
+        utm_medium: utmMedium,
+        utm_campaign: utmCampaign,
+        
+        // Conversion Status
+        status: 'pending' as const,
+        
+        // Session Tracking
+        session_id: sessionId,
+        
+        // Metadata
+        metadata: {
+          original_url: request.url,
+          headers: {
+            'user-agent': userAgent,
+            'referer': referrerUrl,
+            'x-forwarded-for': headersList.get('x-forwarded-for'),
+            'x-real-ip': headersList.get('x-real-ip')
+          },
+          query_params: Object.fromEntries(url.searchParams),
+          product_info: product ? {
+            product_id: product.product_id,
+            title: product.title,
+            price_usd: product.price_usd,
+            price_kes: product.price_kes
+          } : undefined
+        }
+      };
+
+      // Create click tracking record
+      await ClickTracking.create(clickData);
+
+      // Update affiliate link stats (atomic update)
+      await UserAffiliateLink.findByIdAndUpdate(affiliateLink._id, {
+        $inc: { total_clicks: 1 },
+        last_click_at: new Date()
+      });
+
+      // Update campaign stats (atomic update)
+      await SokoCampaign.findByIdAndUpdate(campaign._id, {
+        $inc: { total_clicks: 1 },
+        last_click_at: new Date()
+      });
+
+      // Update product stats if applicable
+      if (product) {
+        await AlibabaProduct.findByIdAndUpdate(product._id, {
+          $inc: { total_clicks: 1 }
+        });
+      }
     }
 
     // Create redirect URL with tracking parameters
@@ -172,7 +220,12 @@ export async function GET(
     // Add affiliate tracking parameters
     targetUrl.searchParams.set('affiliate_id', affiliateLink.user_id.toString());
     targetUrl.searchParams.set('tracking_code', code);
-    targetUrl.searchParams.set('click_id', clickRecord._id.toString());
+    
+    // Add product ID if this is a product link
+    if (product) {
+      targetUrl.searchParams.set('product_id', product.product_id);
+      targetUrl.searchParams.set('ref_product', product._id.toString());
+    }
     
     // Preserve original UTM parameters if they exist
     const originalUtmSource = url.searchParams.get('utm_source');
@@ -191,14 +244,14 @@ export async function GET(
     targetUrl.searchParams.set('click_timestamp', now.getTime().toString());
 
     // Network-specific parameters
-    if (campaign.affiliate_network === 'CJ Affiliate') {
+    if (campaign.affiliate_network === 'CJ Affiliate' || campaign.campaign_type === 'cj_affiliate') {
       if (campaign.cj_publisher_id) targetUrl.searchParams.set('pid', campaign.cj_publisher_id);
       if (campaign.cj_site_id) targetUrl.searchParams.set('site_id', campaign.cj_site_id);
       if (campaign.cj_advertiser_id) targetUrl.searchParams.set('aid', campaign.cj_advertiser_id);
     }
 
     // Amazon Associates parameters
-    if (campaign.affiliate_network === 'Amazon Associates') {
+    if (campaign.affiliate_network === 'Amazon Associates' || campaign.campaign_type === 'amazon') {
       const amazonTag = campaign.cj_advertiser_id || campaign.cj_publisher_id;
       if (amazonTag && !targetUrl.searchParams.has('tag')) {
         targetUrl.searchParams.set('tag', amazonTag);
@@ -210,7 +263,15 @@ export async function GET(
       if (campaign.cj_publisher_id) targetUrl.searchParams.set('afftrack', campaign.cj_publisher_id);
     }
 
-    console.log(`Tracking click: ${code} for user ${affiliateLink.user_id} -> ${targetUrl.toString()}`);
+    // Alibaba-specific parameters
+    if (campaign.campaign_type === 'alibaba') {
+      targetUrl.searchParams.set('spm', `a2700.galleryofferlist.${affiliateLink.user_id}`);
+      if (product) {
+        targetUrl.searchParams.set('trafficChannel', 'affiliate');
+      }
+    }
+
+    console.log(`Tracking click: ${code} for user ${affiliateLink.user_id}${product ? ` (product: ${product.product_id})` : ''} -> ${targetUrl.toString().substring(0, 100)}...`);
 
     // Perform redirect with 302 status (temporary redirect)
     return NextResponse.redirect(targetUrl.toString(), 302);
@@ -235,7 +296,7 @@ export async function POST(
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    // FIX: Await params before destructuring
+    // Await params before destructuring
     const { code } = await params;
     
     await connectToDatabase();
@@ -248,6 +309,7 @@ export async function POST(
       sale_amount, 
       commission_amount, 
       conversion_date,
+      order_id,
       additional_data 
     } = body;
 
@@ -258,13 +320,16 @@ export async function POST(
     });
 
     if (!affiliateLink) {
-      return NextResponse.json({ success: false, message: 'Invalid tracking code' }, { status: 404 });
+      return NextResponse.json({ 
+        success: false, 
+        message: 'Invalid tracking code' 
+      }, { status: 404 });
     }
 
     // Handle conversion tracking
-    if (conversion_id) {
+    if (conversion_id || order_id) {
       // Update the click status to indicate conversion
-      await ClickTracking.findOneAndUpdate(
+      const clickUpdate = await ClickTracking.findOneAndUpdate(
         { 
           tracking_code: code, 
           status: 'pending',
@@ -279,10 +344,12 @@ export async function POST(
               sale_amount,
               commission_amount,
               conversion_date: conversion_date || new Date(),
+              order_id,
               additional_data
             }
           }
-        }
+        },
+        { sort: { clicked_at: -1 } } // Get most recent click
       );
 
       // Update affiliate link conversion stats
@@ -295,7 +362,25 @@ export async function POST(
         last_conversion_at: new Date()
       });
 
-      console.log(`Conversion recorded for tracking code: ${code}, amount: ${commission_amount}`);
+      // Update campaign stats
+      await SokoCampaign.findByIdAndUpdate(affiliateLink.campaign_id, {
+        $inc: {
+          total_conversions: 1,
+          total_sales_amount: sale_amount || 0
+        }
+      });
+
+      // Update product stats if applicable
+      if (affiliateLink.product_id) {
+        await AlibabaProduct.findByIdAndUpdate(affiliateLink.product_id, {
+          $inc: {
+            total_conversions: 1,
+            total_sales: sale_amount || 0
+          }
+        });
+      }
+
+      console.log(`Conversion recorded for tracking code: ${code}, amount: ${commission_amount}, order: ${order_id}`);
     }
 
     return NextResponse.json({ 
@@ -318,7 +403,7 @@ export async function PUT(
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    // FIX: Await params before destructuring
+    // Await params before destructuring
     const { code } = await params;
     
     await connectToDatabase();
@@ -332,7 +417,10 @@ export async function PUT(
     });
 
     if (!affiliateLink) {
-      return NextResponse.json({ success: false, message: 'Invalid tracking code' }, { status: 404 });
+      return NextResponse.json({ 
+        success: false, 
+        message: 'Invalid tracking code' 
+      }, { status: 404 });
     }
 
     // Update click status
@@ -347,7 +435,8 @@ export async function PUT(
         tracking_code: code,
         user_id: affiliateLink.user_id.toString()
       },
-      updateData
+      updateData,
+      { sort: { clicked_at: -1 } } // Get most recent click
     );
 
     return NextResponse.json({ 

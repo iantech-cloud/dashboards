@@ -4,15 +4,14 @@ import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import { connectToDatabase } from '@/app/lib/mongoose';
 import { Profile } from '@/app/lib/models/Profile';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth';
 
 export async function POST(request: NextRequest) {
   try {
     // Get the authenticated user's session
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
-    if (!session || !session.user?.email) {
+    if (!session?.user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized. Please log in.' },
         { status: 401 }
@@ -127,9 +126,9 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     // Get the authenticated user's session
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
-    if (!session || !session.user?.email) {
+    if (!session?.user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized. Please log in.' },
         { status: 401 }
@@ -172,9 +171,9 @@ export async function GET(request: NextRequest) {
 // DELETE method to disable 2FA or reset setup
 export async function DELETE(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
-    if (!session || !session.user?.email) {
+    if (!session?.user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized. Please log in.' },
         { status: 401 }

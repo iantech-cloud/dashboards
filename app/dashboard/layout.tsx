@@ -1,4 +1,4 @@
-// app/dashboard/layout.tsx - DEBUGGING VERSION
+// app/dashboard/layout.tsx - MODERNIZED WITH ADVANCED STYLING
 'use client';
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
@@ -6,7 +6,7 @@ import { signOut, useSession } from 'next-auth/react';
 import SideNav from '@/app/ui/dashboard/sidenav';
 import BottomNav from '@/app/ui/dashboard/BottomNav';
 import Alert from '@/app/ui/Alert';
-import { Loader2, LogOut, FileText, Plus, BookOpen } from 'lucide-react';
+import { Loader2, LogOut, FileText, Plus, BookOpen, Sparkles } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { DashboardProvider } from './DashboardContext';
 import { getUserProfile } from '../actions/user';
@@ -14,7 +14,9 @@ import { getReferrals } from '../actions/referrals';
 import { getTransactions } from '../actions/transactions';
 import Link from 'next/link';
 import SessionMonitor from '@/app/components/SessionMonitor';
-import SessionDebugger from '@/app/components/SessionDebugger';
+import SessionDebugger from '@/app/components/SessionDebugger'
+import UserChatWidget from '@/app/components/chat/UserChatWidget';
+
 const MAX_RETRIES = 3;
 
 async function apiFetch<T>(
@@ -117,12 +119,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [error, setError] = useState<string | null>(null);
   const [mpesaNotification, setMpesaNotification] = useState<any>(null);
   const [hasAttemptedFetch, setHasAttemptedFetch] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [shouldCheckStatus, setShouldCheckStatus] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
     
   const { data: session, status, update } = useSession();
 
-  // DEBUG: Log session changes
   useEffect(() => {
     console.log('🔐 DASHBOARD LAYOUT - Session changed:', {
       status,
@@ -140,8 +143,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (pathname?.includes('/dashboard/wallet')) return 'wallet';
     if (pathname?.includes('/dashboard/surveys')) return 'surveys';
     if (pathname?.includes('/dashboard/referrals')) return 'referrals';
-    if (pathname?.includes('/dashboard/help')) return 'help';
+    if (pathname?.includes('/dashboard/support')) return 'support';
     if (pathname?.includes('/dashboard/settings')) return 'settings';
+    if (pathname?.includes('/dashboard/soko')) return 'affiliate';
     return 'dashboard';
   };
 
@@ -159,7 +163,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     [externalApiToken]
   );
 
-  // FIXED: Only fetch user data when session is fully populated
   const fetchUser = useCallback(async () => {
     console.log('🔄 fetchUser called:', { 
       status, 
@@ -168,13 +171,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       hasAttemptedFetch 
     });
 
-    // CRITICAL FIX: Check both status and session.user
     if (status !== 'authenticated' || !session?.user?.id) {
       console.log('❌ fetchUser: Session not ready yet', { status, hasUserId: !!session?.user?.id });
       return false;
     }
 
-    // Prevent multiple fetch attempts
     if (hasAttemptedFetch) {
       console.log('⏸️ fetchUser: Already attempted fetch, skipping');
       return false;
@@ -222,6 +223,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       setUser(transformedUser);
       setLoadingApp(false);
+      setShouldCheckStatus(true);
       console.log('✅ fetchUser: Success! User set:', transformedUser);
       return true;
     } catch (err) {
@@ -229,59 +231,59 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       setUser(null);
       setError(err instanceof Error ? err.message : 'Failed to fetch user data. Please try again.');
       setLoadingApp(false);
-      setHasAttemptedFetch(false); // Reset to allow retry
+      setHasAttemptedFetch(false);
       return false;
     }
   }, [status, session, hasAttemptedFetch]);
 
-  const checkUserStatus = useCallback(async () => {
-    if (!user) return;
+  const checkUserStatus = useCallback(async (userToCheck: User) => {
+    console.log('👤 User status check:', userToCheck);
 
-    console.log('👤 User status check:', user);
-
-    if (user.status === 'banned') {
+    if (userToCheck.status === 'banned') {
       await signOut({ redirect: false });
       console.log('Redirecting to /auth/login (banned)');
-      router.push(`/auth/login?status=banned&reason=${encodeURIComponent(user.banReason || 'Your account has been permanently banned.')}`);
+      router.push(`/auth/login?status=banned&reason=${encodeURIComponent(userToCheck.banReason || 'Your account has been permanently banned.')}`);
       return;
     }
 
-    if (user.status === 'suspended' && user.suspendedAt) {
-      const suspendedUntil = new Date(user.suspendedAt).getTime();
+    if (userToCheck.status === 'suspended' && userToCheck.suspendedAt) {
+      const suspendedUntil = new Date(userToCheck.suspendedAt).getTime();
       const now = Date.now();
       if (suspendedUntil > now) {
         await signOut({ redirect: false });
-        let message = `Your account has been suspended. Until: ${new Date(user.suspendedAt).toLocaleString()}.`;
-        if (user.suspensionReason) message += ` Reason: ${user.suspensionReason}`;
+        let message = `Your account has been suspended. Until: ${new Date(userToCheck.suspendedAt).toLocaleString()}.`;
+        if (userToCheck.suspensionReason) message += ` Reason: ${userToCheck.suspensionReason}`;
         console.log('Redirecting to /auth/login (suspended)');
         router.push(`/auth/login?status=suspended&message=${encodeURIComponent(message)}`);
       } else {
-        const unsuspendResult = await authenticatedApiFetch('/api/unsuspend', 'POST', { userId: user.id });
+        const unsuspendResult = await authenticatedApiFetch('/api/unsuspend', 'POST', { userId: userToCheck.id });
         console.log('Unsuspend result (API call):', unsuspendResult);
-        if (unsuspendResult.success) await fetchUser();
+        if (unsuspendResult.success) {
+          setHasAttemptedFetch(false);
+        }
       }
       return;
     }
 
-    if (!user.isVerified) {
+    if (!userToCheck.isVerified) {
       await signOut({ redirect: false });
       console.log('Redirecting to /auth/login (unverified)');
-      router.push(`/auth/login?status=unverified_email&email=${encodeURIComponent(user.email || '')}`);
+      router.push(`/auth/login?status=unverified_email&email=${encodeURIComponent(userToCheck.email || '')}`);
       return;
     }
 
-    if (!user.isActive) {
+    if (!userToCheck.isActive) {
       console.log('Redirecting to /activate');
       router.push('/activate');
       return;
     }
 
-    if (!user.isApproved) {
+    if (!userToCheck.isApproved) {
       console.log('Redirecting to /pending-approval');
       router.push('/pending-approval');
       return;
     }
-  }, [user, authenticatedApiFetch, router, fetchUser]);
+  }, [authenticatedApiFetch, router]);
 
   const fetchMpesaChangeRequests = useCallback(async () => {
     if (!user) return;
@@ -305,7 +307,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [user, authenticatedApiFetch]);
 
-  // FIXED: Primary authentication gate - wait for session to be fully loaded
   useEffect(() => {
     console.log('🎯 Auth useEffect:', { 
       status, 
@@ -328,11 +329,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return;
     }
 
-    // CRITICAL FIX: Wait for session.user.id to be populated with proper timing
     if (status === 'authenticated') {
       if (session?.user?.id) {
         console.log('✅ Session ready with user.id:', session.user.id);
-        // Use setTimeout to ensure React has updated the state properly
         const timer = setTimeout(() => {
           if (!user && !hasAttemptedFetch) {
             console.log('📥 Fetching user data now...');
@@ -345,22 +344,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         return () => clearTimeout(timer);
       } else {
         console.log('⚠️ Session authenticated but user.id not available yet - waiting...');
-        // Force update to trigger re-render
         update();
       }
     }
   }, [status, session, user, fetchUser, router, update, hasAttemptedFetch]);
 
-  // Run user status checks after user data is loaded
   useEffect(() => {
-    if (user) {
+    if (shouldCheckStatus && user) {
       console.log('👤 User data loaded, running status checks');
-      checkUserStatus();
+      checkUserStatus(user);
       fetchMpesaChangeRequests();
+      setShouldCheckStatus(false);
     }
-  }, [user, checkUserStatus, fetchMpesaChangeRequests]);
+  }, [shouldCheckStatus, user, checkUserStatus, fetchMpesaChangeRequests]);
 
   const handleLogout = useCallback(async () => {
+    if (isLoggingOut) return;
+    
+    setIsLoggingOut(true);
     try {
       await authenticatedApiFetch('/api/auth/logout', 'POST'); 
     } catch(e) {
@@ -373,10 +374,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setHasAttemptedFetch(false);
     await signOut({ redirect: false });
     console.log('Logging out, redirecting to /auth/login');
+    
     router.push('/auth/login');
-  }, [authenticatedApiFetch, router]);
+  }, [authenticatedApiFetch, router, isLoggingOut]);
 
-  // FIXED: Better loading state logic
   const isOverallLoading = 
     status === 'loading' || 
     (status === 'authenticated' && !session?.user?.id) || 
@@ -394,42 +395,61 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (isOverallLoading) {
     console.log('⏳ Layout: Loading - status:', status, 'hasUserId:', !!session?.user?.id, 'loadingApp:', loadingApp, 'hasUser:', !!user);
     return (
-      <div className="flex justify-center items-center h-full min-h-screen bg-gray-50">
-        <Loader2 className="animate-spin text-indigo-500 w-8 h-8" />
-        <p className="ml-2 text-gray-600">Loading application data...</p>
+      <div className="flex justify-center items-center h-full min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-cyan-50/30">
+        <div className="text-center">
+          <div className="relative inline-flex">
+            <Loader2 className="animate-spin text-blue-600 w-12 h-12" />
+            <div className="absolute inset-0 animate-ping">
+              <Loader2 className="text-cyan-400 w-12 h-12 opacity-20" />
+            </div>
+          </div>
+          <p className="mt-4 text-lg font-medium text-slate-700">Loading application data...</p>
+          <p className="mt-1 text-sm text-slate-500">Please wait while we prepare your dashboard</p>
+        </div>
       </div>
     );
   }
 
-  // Show error if authenticated with user.id but failed to fetch user data
   if (status === 'authenticated' && session?.user?.id && !user && error) {
     console.log('❌ Layout: Authenticated with user.id but no user data loaded - error:', error);
     return (
-      <div className="flex justify-center items-center h-full min-h-screen bg-gray-50">
-        <div className="text-center">
-          <p className="text-red-500 mb-4">Failed to load user data: {error}</p>
+      <div className="flex justify-center items-center h-full min-h-screen bg-gradient-to-br from-red-50 via-orange-50/30 to-red-50/30">
+        <div className="text-center p-8 bg-white/80 backdrop-blur-lg rounded-3xl shadow-xl border border-red-200/50 max-w-md">
+          <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <p className="text-red-600 font-semibold mb-4">Failed to load user data</p>
+          <p className="text-sm text-red-500 mb-6">{error}</p>
           <button
             onClick={handleLogout}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 transition-all duration-250 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={isLoggingOut}
           >
-            Sign Out and Re-Login
+            {isLoggingOut ? 'Signing Out...' : 'Sign Out and Re-Login'}
           </button>
         </div>
       </div>
     );
   }
 
-  // CRITICAL FIX: Ensure user is loaded before rendering children
   if (status === 'authenticated' && session?.user?.id && !user && !loadingApp) {
     console.log('🔄 Layout: Should have user but none found - attempting refetch');
-    // This should trigger the fetchUser again
     if (!hasAttemptedFetch) {
       fetchUser();
     }
     return (
-      <div className="flex justify-center items-center h-full min-h-screen bg-gray-50">
-        <Loader2 className="animate-spin text-indigo-500 w-8 h-8" />
-        <p className="ml-2 text-gray-600">Finalizing user session...</p>
+      <div className="flex justify-center items-center h-full min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-cyan-50/30">
+        <div className="text-center">
+          <div className="relative inline-flex">
+            <Loader2 className="animate-spin text-blue-600 w-10 h-10" />
+            <div className="absolute inset-0 animate-ping">
+              <Loader2 className="text-cyan-400 w-10 h-10 opacity-20" />
+            </div>
+          </div>
+          <p className="mt-3 text-base font-medium text-slate-700">Finalizing user session...</p>
+        </div>
       </div>
     );
   }
@@ -443,42 +463,59 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <>
       <SessionMonitor />
-      <div className="flex flex-col lg:flex-row min-h-screen bg-gray-50">
+      <div className="flex flex-col lg:flex-row min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/20 to-cyan-50/20 relative overflow-hidden">
+        {/* Animated background elements */}
+        <div className="absolute top-0 left-0 w-96 h-96 bg-gradient-to-br from-blue-400/10 to-transparent rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-tl from-cyan-400/10 to-transparent rounded-full blur-3xl animate-pulse delay-1000"></div>
+        
         <SideNav userName={user.name} onLogout={handleLogout} />
-        <main className="flex-1 p-4 md:p-8 pb-20 lg:pb-8">
-          <header className="lg:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow-md">
-            <h1 className="text-2xl font-bold text-gray-800">HustleHub</h1>
+        
+        <main className="flex-1 p-4 md:p-8 pb-20 lg:pb-8 relative z-10 h-screen overflow-y-auto main-content-scrollbar">
+          {/* Mobile Header with Glassmorphism */}
+          <header className="lg:hidden flex justify-between items-center mb-6 bg-white/70 backdrop-blur-xl p-4 rounded-2xl shadow-lg border border-white/50">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/30">
+                <Sparkles className="text-white w-5 h-5" />
+              </div>
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                HustleHub
+              </h1>
+            </div>
             <button
               onClick={handleLogout}
-              className="flex items-center text-red-500 hover:text-red-700 transition-colors p-2 rounded-full bg-red-50 hover:bg-red-100"
+              disabled={isLoggingOut}
+              className="flex items-center space-x-2 text-red-500 hover:text-red-700 transition-all duration-250 p-2 rounded-xl bg-red-50 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
             >
-              <LogOut size={20} className="mr-1" />
-              <span className="font-semibold text-sm">Logout</span>
+              <LogOut size={20} />
+              <span className="font-semibold text-sm">
+                {isLoggingOut ? 'Logging Out...' : 'Logout'}
+              </span>
             </button>
           </header>
 	
-	<SessionDebugger />
-          {/* ... rest of your JSX remains the same ... */}
+          <SessionDebugger />
+          
+          {/* Quick Action Buttons with Modern Design */}
           {(getCurrentSection() === 'dashboard' || getCurrentSection() === 'content') && (
             <div className="mb-6">
               <div className="flex flex-wrap gap-3">
                 <Link
                   href="/dashboard/content/create"
-                  className="inline-flex items-center px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                  className="group inline-flex items-center px-5 py-3 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 transition-all duration-250 transform hover:scale-105"
                 >
-                  <Plus className="w-5 h-5 mr-2" />
+                  <Plus className="w-5 h-5 mr-2 group-hover:rotate-90 transition-transform duration-250" />
                   Create Content
                 </Link>
                 <Link
                   href="/dashboard/content"
-                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                  className="inline-flex items-center px-5 py-3 border-2 border-slate-200 bg-white/70 backdrop-blur-sm text-slate-700 font-semibold rounded-xl hover:bg-white hover:border-blue-300 hover:text-blue-600 transition-all duration-250 shadow-sm hover:shadow-md"
                 >
                   <FileText className="w-5 h-5 mr-2" />
                   My Submissions
                 </Link>
                 <Link
                   href="/dashboard/blog"
-                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                  className="inline-flex items-center px-5 py-3 border-2 border-slate-200 bg-white/70 backdrop-blur-sm text-slate-700 font-semibold rounded-xl hover:bg-white hover:border-cyan-300 hover:text-cyan-600 transition-all duration-250 shadow-sm hover:shadow-md"
                 >
                   <BookOpen className="w-5 h-5 mr-2" />
                   Read Blogs
@@ -487,53 +524,78 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           )}
 
+          {/* Section Headers with Gradient */}
           <div className="mb-6">
             {getCurrentSection() === 'content' && (
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Content Management</h1>
-                <p className="text-gray-600 mt-1">Create and manage your content submissions</p>
+              <div className="bg-white/70 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-white/50">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                  Content Management
+                </h1>
+                <p className="text-slate-600 mt-2">Create and manage your content submissions</p>
               </div>
             )}
             {getCurrentSection() === 'blog' && (
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Blog Posts</h1>
-                <p className="text-gray-600 mt-1">Read and learn from our blog posts</p>
+              <div className="bg-white/70 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-white/50">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                  Blog Posts
+                </h1>
+                <p className="text-slate-600 mt-2">Read and learn from our blog posts</p>
               </div>
             )}
             {getCurrentSection() === 'wallet' && (
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Wallet & Payments</h1>
-                <p className="text-gray-600 mt-1">Manage your balance and transactions</p>
+              <div className="bg-white/70 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-white/50">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                  Wallet & Payments
+                </h1>
+                <p className="text-slate-600 mt-2">Manage your balance and transactions</p>
               </div>
             )}
             {getCurrentSection() === 'surveys' && (
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Earn Surveys</h1>
-                <p className="text-gray-600 mt-1">Complete surveys and earn money</p>
+              <div className="bg-white/70 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-white/50">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                  Earn Surveys
+                </h1>
+                <p className="text-slate-600 mt-2">Complete surveys and earn money</p>
               </div>
             )}
             {getCurrentSection() === 'referrals' && (
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Referrals</h1>
-                <p className="text-gray-600 mt-1">Invite friends and earn rewards</p>
+              <div className="bg-white/70 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-white/50">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                  Referrals
+                </h1>
+                <p className="text-slate-600 mt-2">Invite friends and earn rewards</p>
               </div>
             )}
-            {getCurrentSection() === 'help' && (
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Help & Support</h1>
-                <p className="text-gray-600 mt-1">Get help and support</p>
+            {getCurrentSection() === 'support' && (
+              <div className="bg-white/70 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-white/50">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                  Help & Support
+                </h1>
+                <p className="text-slate-600 mt-2">Get help and support</p>
               </div>
             )}
             {getCurrentSection() === 'settings' && (
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-                <p className="text-gray-600 mt-1">Manage your account settings</p>
+              <div className="bg-white/70 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-white/50">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                  Settings
+                </h1>
+                <p className="text-slate-600 mt-2">Manage your account settings</p>
+              </div>
+            )}
+            {getCurrentSection() === 'affiliate' && (
+              <div className="bg-white/70 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-white/50">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                  Affiliate Marketing
+                </h1>
+                <p className="text-slate-600 mt-2">Promote products and earn commissions</p>
               </div>
             )}
             {getCurrentSection() === 'dashboard' && (
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-                <p className="text-gray-600 mt-1">Welcome back, {user.name}!</p>
+              <div className="bg-white/70 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-white/50">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                  Dashboard
+                </h1>
+                <p className="text-slate-600 mt-2">Welcome back, {user.name}! 👋</p>
               </div>
             )}
           </div>
@@ -555,6 +617,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         
         <BottomNav userName={user.name} />
       </div>
+
+      <UserChatWidget />
     </>
   );
 }

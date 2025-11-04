@@ -294,8 +294,8 @@ async function assignUsersToSurvey(surveyId: Types.ObjectId, targetPercentage: n
   } catch (error: any) {
     console.error('[ASSIGNMENT] Error assigning users to survey:', error);
     // Log the specific validation error details
-    if (error.errors) {
-      console.error('[ASSIGNMENT] Validation errors:', error.errors);
+    if (error.errorMessage) {
+      console.error('[ASSIGNMENT] Validation errorMessage:', error.errorMessage);
     }
     return 0;
   }

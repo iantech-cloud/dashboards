@@ -1,4 +1,4 @@
-// app/admin/company/page.tsx - COMPLETE COMPANY DASHBOARD
+// app/admin/company/page.tsx - FIXED COMPANY DASHBOARD
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -7,7 +7,8 @@ import {
   getCompanyTransactions, 
   getRevenueBreakdown,
   updateCompanyInfo,
-  exportCompanyReport
+  exportCompanyReport,
+  syncCompanyFinancials  // NEW: Import sync function
 } from '@/app/actions/company';
 import { 
   Building2, 
@@ -30,7 +31,8 @@ import {
   Users,
   Target,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Database  // NEW: For sync button
 } from 'lucide-react';
 
 interface CompanyData {
@@ -44,6 +46,7 @@ interface CompanyData {
   activation_revenue: number;
   unclaimed_referral_revenue: number;
   content_payment_revenue: number;
+  spin_cost_revenue: number;  // NEW
   other_revenue: number;
   is_active: boolean;
   created_at: Date;
@@ -86,6 +89,7 @@ interface RevenueCategory {
 export default function CompanyDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncing, setSyncing] = useState(false);  // NEW: Syncing state
   const [company, setCompany] = useState<CompanyData | null>(null);
   const [stats, setStats] = useState<CompanyStats | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -94,6 +98,7 @@ export default function CompanyDashboard() {
     total: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);  // NEW: Sync feedback
   
   // Filters
   const [typeFilter, setTypeFilter] = useState('all');
@@ -147,6 +152,31 @@ export default function CompanyDashboard() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  // NEW: Sync company financials
+  const handleSyncFinancials = async () => {
+    try {
+      setSyncing(true);
+      setSyncMessage(null);
+      
+      const result = await syncCompanyFinancials();
+      
+      if (result.success && result.data) {
+        setSyncMessage(`✅ Synced! Revenue: KES ${result.data.synced_revenue.toLocaleString()}, Balance: KES ${result.data.synced_balance.toLocaleString()}`);
+        // Reload data to show updated values
+        await loadData();
+      } else {
+        setError(result.error || 'Failed to sync financials');
+      }
+    } catch (err) {
+      setError('An error occurred during sync');
+      console.error(err);
+    } finally {
+      setSyncing(false);
+      // Clear sync message after 5 seconds
+      setTimeout(() => setSyncMessage(null), 5000);
     }
   };
 
@@ -234,6 +264,16 @@ export default function CompanyDashboard() {
             </div>
           </div>
           <div className="flex gap-2">
+            {/* NEW: Sync Button */}
+            <button
+              onClick={handleSyncFinancials}
+              disabled={syncing}
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition flex items-center gap-2 shadow-md"
+              title="Sync financials from transactions"
+            >
+              <Database className={`w-4 h-4 ${syncing ? 'animate-pulse' : ''}`} />
+              <span className="hidden sm:inline">{syncing ? 'Syncing...' : 'Sync'}</span>
+            </button>
             <button
               onClick={() => loadData()}
               disabled={refreshing}
@@ -251,6 +291,27 @@ export default function CompanyDashboard() {
             </button>
           </div>
         </div>
+
+        {/* NEW: Sync Message */}
+        {syncMessage && (
+          <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <p className="text-green-700 text-sm font-medium">{syncMessage}</p>
+          </div>
+        )}
+
+        {/* NEW: Balance Status Alert */}
+        {stats.current_balance === 0 && stats.total_revenue > 0 && (
+          <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-yellow-800 font-semibold">Balance Sync Required</p>
+              <p className="text-yellow-700 text-sm mt-1">
+                Company has KES {stats.total_revenue.toLocaleString()} revenue but balance shows KES 0. 
+                Click the <strong>Sync</strong> button to recalculate from transactions.
+              </p>
+            </div>
+          </div>
+        )}
         
         {/* Company Info Card */}
         <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
@@ -398,107 +459,109 @@ export default function CompanyDashboard() {
         {[
           { id: 'overview' as const, label: 'Overview', icon: PieChartIcon },
           { id: 'transactions' as const, label: 'Transactions', icon: FileText },
-          { id: 'breakdown' as const, label: 'Breakdown', icon: BarChart3 }
-        ].map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id)}
-            className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition whitespace-nowrap ${
-              activeTab === id
-                ? 'bg-blue-600 text-white shadow-lg'
-                : 'bg-white text-gray-600 hover:bg-gray-100 shadow-md'
-            }`}
-          >
-            <Icon className="w-5 h-5" />
-            {label}
-          </button>
-        ))}
+          { id: 'breakdown' as const, label: 'Revenue Breakdown', icon: BarChart3 }
+        ].map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition whitespace-nowrap ${
+                activeTab === tab.id
+                  ? 'bg-blue-600 text-white shadow-lg'
+                  : 'bg-white text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Tab Content */}
+      {/* Tab Content - Overview */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          {/* Statistics Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <Target className="w-5 h-5 text-blue-600" />
-                Activation Statistics
-              </h3>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-                  <span className="text-gray-700 font-medium">Total Activations</span>
-                  <span className="font-bold text-blue-600 text-lg">{stats.activation_count}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                  <span className="text-gray-700 font-medium">Activation Revenue</span>
-                  <span className="font-bold text-green-600 text-lg">
-                    KES {company.activation_revenue.toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg">
-                  <span className="text-gray-700 font-medium">Avg per Activation</span>
-                  <span className="font-bold text-purple-600 text-lg">
-                    KES {stats.activation_count > 0 ? (company.activation_revenue / stats.activation_count).toFixed(2) : '0'}
-                  </span>
-                </div>
+          {/* Revenue Sources Grid */}
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <h3 className="text-xl font-semibold text-gray-900 mb-6 flex items-center gap-2">
+              <Target className="w-6 h-6 text-green-600" />
+              Revenue Sources
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-5 border-2 border-green-200">
+                <p className="text-sm font-semibold text-gray-700 mb-2">Activation Fees</p>
+                <p className="text-2xl font-bold text-green-700">
+                  KES {company.activation_revenue.toLocaleString()}
+                </p>
+                <p className="text-xs text-gray-600 mt-1">{stats.activation_count} activations</p>
               </div>
-            </div>
-            
-            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <Users className="w-5 h-5 text-orange-600" />
-                Referral Statistics
-              </h3>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center p-3 bg-orange-50 rounded-lg">
-                  <span className="text-gray-700 font-medium">Referral Bonuses Paid</span>
-                  <span className="font-bold text-orange-600 text-lg">{stats.referral_bonus_count}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg">
-                  <span className="text-gray-700 font-medium">Unclaimed Referrals</span>
-                  <span className="font-bold text-yellow-600 text-lg">
-                    KES {company.unclaimed_referral_revenue.toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
-                  <span className="text-gray-700 font-medium">Total Referral Impact</span>
-                  <span className="font-bold text-indigo-600 text-lg">
-                    KES {(company.unclaimed_referral_revenue + (stats.referral_bonus_count * 700)).toLocaleString()}
-                  </span>
-                </div>
+              
+              <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg p-5 border-2 border-orange-200">
+                <p className="text-sm font-semibold text-gray-700 mb-2">Unclaimed Referrals</p>
+                <p className="text-2xl font-bold text-orange-700">
+                  KES {company.unclaimed_referral_revenue.toLocaleString()}
+                </p>
+                <p className="text-xs text-gray-600 mt-1">{stats.referral_bonus_count} referrals</p>
+              </div>
+              
+              {/* NEW: Show Spin Cost Revenue */}
+              <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-5 border-2 border-purple-200">
+                <p className="text-sm font-semibold text-gray-700 mb-2">Spin Costs</p>
+                <p className="text-2xl font-bold text-purple-700">
+                  KES {(company.spin_cost_revenue || 0).toLocaleString()}
+                </p>
+                <p className="text-xs text-gray-600 mt-1">User spin purchases</p>
+              </div>
+              
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-5 border-2 border-blue-200">
+                <p className="text-sm font-semibold text-gray-700 mb-2">Content Payments</p>
+                <p className="text-2xl font-bold text-blue-700">
+                  KES {company.content_payment_revenue.toLocaleString()}
+                </p>
+                <p className="text-xs text-gray-600 mt-1">User submissions</p>
               </div>
             </div>
           </div>
 
-          {/* Financial Summary */}
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl shadow-lg p-6 border border-blue-200">
-            <h3 className="text-lg font-semibold text-gray-800 mb-6 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-blue-600" />
-              Financial Summary
+          {/* Financial Health */}
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <h3 className="text-xl font-semibold text-gray-900 mb-6 flex items-center gap-2">
+              <CreditCard className="w-6 h-6 text-blue-600" />
+              Financial Health
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-white rounded-lg p-4 shadow-sm">
-                <p className="text-sm text-gray-600 mb-1">Total Revenue</p>
-                <p className="text-2xl font-bold text-green-600">
-                  KES {stats.total_revenue.toLocaleString()}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">All time earnings</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <p className="text-sm text-gray-600 mb-2">Revenue vs Expenses</p>
+                <div className="flex items-end gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-green-600">Revenue</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      KES {stats.total_revenue.toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-red-600">Expenses</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      KES {stats.total_expenses.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div className="bg-white rounded-lg p-4 shadow-sm">
-                <p className="text-sm text-gray-600 mb-1">Total Expenses</p>
-                <p className="text-2xl font-bold text-red-600">
-                  KES {stats.total_expenses.toLocaleString()}
+              
+              <div>
+                <p className="text-sm text-gray-600 mb-2">Profit Margin</p>
+                <p className="text-4xl font-bold text-green-600">
+                  {stats.total_revenue > 0 
+                    ? ((stats.net_profit / stats.total_revenue) * 100).toFixed(1)
+                    : '0'}%
                 </p>
-                <p className="text-xs text-gray-500 mt-1">All time costs</p>
               </div>
-              <div className="bg-white rounded-lg p-4 shadow-sm">
-                <p className="text-sm text-gray-600 mb-1">Net Profit</p>
-                <p className={`text-2xl font-bold ${stats.net_profit >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
-                  KES {stats.net_profit.toLocaleString()}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {stats.net_profit >= 0 ? 'Profitable' : 'Loss'}
+              
+              <div>
+                <p className="text-sm text-gray-600 mb-2">Cash Flow Status</p>
+                <p className={`text-4xl font-bold ${stats.net_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {stats.net_profit >= 0 ? 'Positive' : 'Negative'}
                 </p>
               </div>
             </div>
@@ -506,111 +569,37 @@ export default function CompanyDashboard() {
         </div>
       )}
 
-      {activeTab === 'breakdown' && revenueBreakdown && (
-        <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
-          <h2 className="text-2xl font-semibold text-gray-800 mb-6 flex items-center gap-2">
-            <PieChartIcon className="w-6 h-6 text-blue-600" />
-            Revenue Breakdown
-          </h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            {revenueBreakdown.categories.map((category, index) => (
-              <div 
-                key={index} 
-                className="border-2 rounded-xl p-4 hover:shadow-lg transition"
-                style={{ borderColor: category.color }}
+      {/* Tab Content - Transactions */}
+      {activeTab === 'transactions' && (
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+          {/* Filters */}
+          <div className="p-6 border-b bg-gray-50 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-semibold text-gray-700">Filter by type:</label>
+              <select
+                value={typeFilter}
+                onChange={(e) => {
+                  setTypeFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">{category.name}</span>
-                  <div 
-                    className="w-4 h-4 rounded-full" 
-                    style={{ backgroundColor: category.color }}
-                  />
-                </div>
-                <p className="text-2xl font-bold text-gray-900 mb-1">
-                  KES {category.amount.toLocaleString()}
-                </p>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="h-2 rounded-full transition-all duration-500"
-                      style={{ 
-                        width: `${category.percentage}%`,
-                        backgroundColor: category.color
-                      }}
-                    />
-                  </div>
-                  <span className="text-sm font-semibold text-gray-600">
-                    {category.percentage.toFixed(1)}%
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-          
-          {/* Visual Bar Chart */}
-          <div className="mb-4">
-            <p className="text-sm font-medium text-gray-700 mb-3">Revenue Distribution</p>
-            <div className="h-12 flex rounded-xl overflow-hidden shadow-md">
-              {revenueBreakdown.categories.map((category, index) => (
-                category.percentage > 0 && (
-                  <div
-                    key={index}
-                    className="flex items-center justify-center text-sm text-white font-bold transition-all hover:opacity-90"
-                    style={{ 
-                      width: `${category.percentage}%`,
-                      backgroundColor: category.color,
-                      minWidth: category.percentage > 5 ? 'auto' : '50px'
-                    }}
-                    title={`${category.name}: ${category.percentage.toFixed(1)}%`}
-                  >
-                    {category.percentage > 8 && `${category.percentage.toFixed(0)}%`}
-                  </div>
-                )
-              ))}
+                <option value="all">All Types</option>
+                <option value="COMPANY_REVENUE">Company Revenue</option>
+                <option value="ACTIVATION_FEE">Activation Fees</option>
+                <option value="SPIN_COST">Spin Costs</option>
+                <option value="UNCLAIMED_REFERRAL">Unclaimed Referrals</option>
+              </select>
             </div>
-          </div>
-
-          <div className="text-center pt-4 border-t">
-            <p className="text-lg font-semibold text-gray-700">
-              Total Revenue: <span className="text-blue-600 text-xl">KES {revenueBreakdown.total.toLocaleString()}</span>
+            <p className="text-sm text-gray-600">
+              Showing <strong>{transactions.length}</strong> transactions
             </p>
           </div>
-        </div>
-      )}
 
-      {activeTab === 'transactions' && (
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
-          <div className="p-6 border-b bg-gray-50">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <h2 className="text-2xl font-semibold text-gray-800 flex items-center gap-2">
-                <FileText className="w-6 h-6 text-blue-600" />
-                Transaction History
-              </h2>
-              
-              {/* Filter */}
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium text-gray-700">Filter:</label>
-                <select
-                  value={typeFilter}
-                  onChange={(e) => {
-                    setTypeFilter(e.target.value);
-                    setPage(1);
-                  }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                >
-                  <option value="all">All Types</option>
-                  <option value="COMPANY_REVENUE">Company Revenue</option>
-                  <option value="ACTIVATION_FEE">Activation Fee</option>
-                  <option value="UNCLAIMED_REFERRAL">Unclaimed Referral</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
+          {/* Transactions Table */}
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-100 border-b-2 border-gray-200">
+              <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
                     Date & Time
@@ -638,7 +627,11 @@ export default function CompanyDashboard() {
                     <td colSpan={6} className="px-6 py-12 text-center">
                       <FileText className="w-16 h-16 text-gray-300 mx-auto mb-3" />
                       <p className="text-gray-500 font-medium">No transactions found</p>
-                      <p className="text-gray-400 text-sm mt-1">Try adjusting your filters</p>
+                      <p className="text-gray-400 text-sm mt-1">
+                        {stats.total_revenue > 0 && transactions.length === 0 
+                          ? 'Click "Sync" button above to load transactions'
+                          : 'Try adjusting your filters'}
+                      </p>
                     </td>
                   </tr>
                 ) : (
@@ -720,6 +713,56 @@ export default function CompanyDashboard() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Tab Content - Revenue Breakdown */}
+      {activeTab === 'breakdown' && revenueBreakdown && (
+        <div className="bg-white rounded-xl shadow-lg p-6">
+          <h3 className="text-2xl font-semibold text-gray-900 mb-6 flex items-center gap-2">
+            <PieChartIcon className="w-6 h-6 text-purple-600" />
+            Revenue Breakdown
+          </h3>
+          
+          <div className="mb-6">
+            <p className="text-sm text-gray-600 mb-2">Total Revenue</p>
+            <p className="text-4xl font-bold text-gray-900">
+              KES {revenueBreakdown.total.toLocaleString()}
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {revenueBreakdown.categories.map((category, index) => (
+              <div key={index} className="border-b border-gray-200 pb-4 last:border-0">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <div 
+                      className="w-4 h-4 rounded" 
+                      style={{ backgroundColor: category.color }}
+                    />
+                    <span className="font-semibold text-gray-900">{category.name}</span>
+                  </div>
+                  <span className="text-sm font-bold text-gray-700">
+                    {category.percentage.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden">
+                    <div 
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ 
+                        width: `${category.percentage}%`,
+                        backgroundColor: category.color 
+                      }}
+                    />
+                  </div>
+                  <p className="text-lg font-bold text-gray-900 w-40 text-right">
+                    KES {category.amount.toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -830,7 +873,9 @@ function getTypeColor(type: string): string {
   const colors: { [key: string]: string } = {
     'COMPANY_REVENUE': 'bg-green-100 text-green-800 border border-green-300',
     'ACTIVATION_FEE': 'bg-blue-100 text-blue-800 border border-blue-300',
+    'ACCOUNT_ACTIVATION': 'bg-blue-100 text-blue-800 border border-blue-300',
     'UNCLAIMED_REFERRAL': 'bg-orange-100 text-orange-800 border border-orange-300',
+    'SPIN_COST': 'bg-purple-100 text-purple-800 border border-purple-300',
     'DEFAULT': 'bg-gray-100 text-gray-800 border border-gray-300'
   };
   return colors[type] || colors['DEFAULT'];

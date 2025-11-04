@@ -1,12 +1,10 @@
-// app/api/admin/reports/route.ts - UPDATED FOR COMPANY MODEL
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth';
 import { connectToDatabase, Profile, Transaction, Withdrawal, Company } from '@/app/lib/models';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user?.email) {
       return NextResponse.json(
@@ -25,7 +23,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get or create company profile
     let company = await Company.findOne({ email: 'company@hustlehubafrica.com' });
     if (!company) {
       company = await Company.create({
@@ -104,12 +101,10 @@ export async function GET(request: NextRequest) {
     // ============================================================
     
     // REVENUE (Money coming INTO the company)
-    // Company revenue transactions (KES 300 per activation with referral, KES 1000 without)
     const companyRevenue = companyTransactionsPeriod
       .filter(t => ['COMPANY_REVENUE', 'ACTIVATION_FEE'].includes(t.type))
       .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
     
-    // Unclaimed referral revenue (when users don't have referrers)
     const unclaimedReferralRevenue = companyTransactionsPeriod
       .filter(t => t.type === 'UNCLAIMED_REFERRAL')
       .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
@@ -117,7 +112,7 @@ export async function GET(request: NextRequest) {
     const totalRevenue = companyRevenue + unclaimedReferralRevenue;
     
     // EXPENSES (Money going OUT from the company)
-    // 1. Referral bonuses paid (KES 700 per referral)
+    // 1. Referral bonuses paid
     const referralExpense = userTransactionsPeriod
       .filter(t => t.type === 'REFERRAL')
       .reduce((sum, t) => sum + (t.amount_cents / 100), 0);
@@ -153,10 +148,10 @@ export async function GET(request: NextRequest) {
     // ============================================================
     
     // ASSETS (What the company HAS)
-    // 1. Company wallet balance (from Company model)
+    // 1. Company wallet balance
     const companyWalletBalance = company.wallet_balance_cents / 100;
     
-    // 2. User deposits in system (money users deposited - this is liability, not asset)
+    // 2. User deposits in system (Liability, but tracked for balancing)
     const totalDeposits = await Transaction.find({
       target_type: 'user',
       type: 'DEPOSIT',
@@ -164,8 +159,8 @@ export async function GET(request: NextRequest) {
     }).lean();
     const totalDepositsAmount = totalDeposits.reduce((sum, t) => sum + (t.amount_cents / 100), 0);
     
-    // Total Assets = Company wallet + Deposits held
-    const totalAssets = companyWalletBalance + totalDepositsAmount;
+    // Total Assets = Company wallet (Company's cash)
+    const totalAssets = companyWalletBalance; 
     
     // LIABILITIES (What the company OWES)
     // 1. Current user wallet balances (money we owe to users)
@@ -224,8 +219,8 @@ export async function GET(request: NextRequest) {
     const equityStatement = {
       beginningEquity: Math.max(0, beginningEquity),
       netIncome: netIncome,
-      deposits: depositsInPeriodAmount, // Capital contributions from users
-      withdrawals: withdrawalExpense, // Distributions to users
+      deposits: depositsInPeriodAmount, 
+      withdrawals: withdrawalExpense,
       endingEquity: totalEquity,
       period: `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`
     };
@@ -272,11 +267,9 @@ export async function GET(request: NextRequest) {
         netIncome: netIncome,
         period: `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`,
         breakdown: {
-          // Revenue breakdown
           activationFees: companyRevenue,
           companyRevenue: companyRevenue,
           unclaimedReferrals: unclaimedReferralRevenue,
-          // Expense breakdown
           referralBonuses: referralExpense,
           bonuses: bonusExpense,
           taskPayments: taskPaymentExpense,
@@ -354,3 +347,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+

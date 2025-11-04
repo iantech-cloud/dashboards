@@ -1,4 +1,4 @@
-// lib/models.ts
+// lib/models.ts - COMPLETE VERSION WITH ANTI-PHISHING CODE
 import mongoose, { Schema, model, models, Types } from 'mongoose';
 import { connectToDatabase } from './mongoose';
 
@@ -24,8 +24,8 @@ const TransactionTypes = [
   'ACTIVATION_FEE',
   'COMPANY_REVENUE',
   'ACCOUNT_ACTIVATION',
-  'SPIN_COST', // Added for spin cost transactions
-  'SPIN_PRIZE' // Added for prize transactions
+  'SPIN_COST',
+  'SPIN_PRIZE'
 ] as const;
 const InvoiceStatuses = ['pending', 'paid'] as const;
 const BlogPostStatuses = ['draft', 'published', 'archived'] as const;
@@ -40,33 +40,40 @@ const MpesaResultCodes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 17,
 // Source Types for Transactions and M-Pesa
 const SourceTypes = ['wallet', 'dashboard', 'api', 'activation'] as const;
 
-/**
- * Survey Categories
- */
+// Survey Categories
 const SurveyCategories = ['market_research', 'consumer_insights', 'product_feedback', 'academic', 'other'] as const;
 
-/**
- * Survey Status
- */
+// Survey Status
 const SurveyStatuses = ['draft', 'scheduled', 'active', 'completed', 'cancelled'] as const;
 
-// Audit Log Action Types - UPDATED FOR USER MANAGEMENT & SPIN
+// Audit Log Action Types - UPDATED FOR USER MANAGEMENT, SPIN & CSV
 const AuditActionTypes = [
   'create', 'update', 'delete', 'approve', 'reject', 'activate', 'suspend', 'ban',
   'spin_win', 'spin_attempt', 'spin_settings_update', 'spin_wheel_activated', 'spin_wheel_deactivated',
-  // ADD THESE SOKO-SPECIFIC ACTIONS:
-  'campaign_create', 'campaign_update', 'campaign_delete', 'campaign_toggle_status',
+  'campaign_create', 'campaign_update', 'campaign_delete', 'campaign_toggle_status', 'campaign_create_csv',
   'conversion_approve', 'conversion_reject', 
-  'payout_approve', 'payout_reject', 'payout_process'
+  'payout_approve', 'payout_reject', 'payout_process',
+  'csv_import', 'product_create', 'product_update', 'product_delete', 'product_bulk_delete'
 ] as const;
+
 const AuditResourceTypes = [
   'user', 'transaction', 'activation', 'withdrawal', 'profile', 'referral',
   'spin', 'spin_prize', 'spin_settings', 'spin_log', 'blog_post', 'mpesa_change_request',
-  // ADD THESE SOKO-SPECIFIC RESOURCES:
-  'campaign', 'affiliate_link', 'conversion', 'payout', 'soko'
+  'campaign', 'affiliate_link', 'conversion', 'payout', 'soko', 'anti_phishing',
+  'product', 'csv_import', 'alibaba_product'
 ] as const;
 
-// --- New Spin to Win Enums ---
+const AuditActions = [
+  'CREATE', 'UPDATE', 'DELETE', 'ACTIVATE', 'DEACTIVATE', 
+  'APPROVE', 'REJECT', 'SUSPEND', 'BAN', 'UNBAN',
+  'SPIN_WIN', 'SPIN_ATTEMPT', 'SPIN_SETTINGS_UPDATE',
+  'CAMPAIGN_CREATE', 'CAMPAIGN_UPDATE', 'CAMPAIGN_DELETE', 'CAMPAIGN_TOGGLE_STATUS', 'CAMPAIGN_CREATE_FROM_CSV',
+  'CONVERSION_APPROVE', 'CONVERSION_REJECT',
+  'PAYOUT_APPROVE', 'PAYOUT_REJECT', 'PAYOUT_PROCESS',
+  'CSV_IMPORT', 'PRODUCT_CREATE', 'PRODUCT_UPDATE', 'PRODUCT_DELETE'
+] as const;
+
+// Spin to Win Enums
 const SpinPrizeTypes = [
   'EXTRA_SPIN_VOUCHER',
   'BONUS_CREDIT',
@@ -86,23 +93,26 @@ const SpinStatuses = ['pending', 'won', 'lost', 'credited'] as const;
 const UserTiers = ['starter', 'bronze', 'silver', 'gold', 'diamond'] as const;
 const SpinActivationModes = ['manual', 'scheduled'] as const;
 const WeekDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
-// --- End New Spin to Win Enums ---
-
 
 // --- Helper function to get or create a model ---
 const getModel = (name: string, schema: Schema) => {
   return models[name] || model(name, schema);
 };
 
-// --- Step 2: Define Schemas & Models ---
+// --- Define Schemas & Models ---
 
 /**
- * 1. Profile Model (replaces profiles table) - ENHANCED FOR M-PESA & ACTIVATION & SPIN & 2FA
+ * 1. Profile Model - ENHANCED FOR M-PESA & ACTIVATION & SPIN & 2FA & ANTI-PHISHING
  */
 const ProfileSchema = new Schema({
   _id: { type: String, required: true },
   username: { type: String, required: true, maxlength: 50 },
-  phone_number: { type: String, required: true, maxlength: 50 },
+  phone_number: { 
+    type: String, 
+    required: false,
+    default: null,
+    maxlength: 50 
+  },
   email: { type: String, required: true, unique: true, maxlength: 255 },
   password: {
     type: String,
@@ -110,12 +120,11 @@ const ProfileSchema = new Schema({
     select: false
   },
 
-  // ===== 2FA FIELDS - UPDATED =====
+  // ===== 2FA FIELDS =====
   twoFAEnabled: { type: Boolean, default: false },
   twoFASecret: { 
     type: String, 
     default: null,
-    // NOT using select: false to avoid update issues
   },
   twoFABackupCodes: [{
     code: { type: String },
@@ -125,6 +134,25 @@ const ProfileSchema = new Schema({
   twoFALastUsed: { type: Date },
   twoFASetupDate: { type: Date },
   // ===== END 2FA FIELDS =====
+
+  // ===== ANTI-PHISHING CODE FIELDS =====
+  antiPhishingCode: { 
+    type: String, 
+    default: null,
+    select: false // Don't return in queries by default for security
+  },
+  antiPhishingCodeSet: { 
+    type: Boolean, 
+    default: false,
+    index: true
+  },
+  antiPhishingSetAt: { 
+    type: Date 
+  },
+  antiPhishingLastUpdated: { 
+    type: Date 
+  },
+  // ===== END ANTI-PHISHING CODE FIELDS =====
 
   referral_id: { type: String, unique: true, sparse: true, maxlength: 10 },
   role: { type: String, enum: UserRoles, default: 'user', required: true },
@@ -158,7 +186,7 @@ const ProfileSchema = new Schema({
   tasks_completed: { type: Number, default: 0 },
   
   // Enhanced spin fields
-  available_spins: { type: Number, default: 0 }, // Updated available_spins
+  available_spins: { type: Number, default: 0 },
   total_spins_used: { type: Number, default: 0 },
   total_prizes_won: { type: Number, default: 0 },
   spin_tier: { 
@@ -167,7 +195,7 @@ const ProfileSchema = new Schema({
     default: 'starter' 
   },
   last_spin_at: { type: Date },
-  spin_streak: { type: Number, default: 0 }, // Consecutive days with spins
+  spin_streak: { type: Number, default: 0 },
   max_spin_streak: { type: Number, default: 0 },
 
   // Enhanced M-Pesa Integration Fields
@@ -176,7 +204,11 @@ const ProfileSchema = new Schema({
   last_deposit_at: { type: Date },
   last_withdrawal_at: { type: Date },
 
-  preferred_mpesa_number: { type: String },
+  preferred_mpesa_number: { 
+    type: String, 
+    required: false,
+    default: null 
+  },
   mpesa_number_verified: { type: Boolean, default: false },
   mpesa_verification_date: { type: Date },
 
@@ -206,6 +238,13 @@ const ProfileSchema = new Schema({
   profile_completed: { type: Boolean, default: false },
   completion_percentage: { type: Number, default: 0 },
 
+  // Authentication method tracking
+  authMethod: { 
+    type: String, 
+    enum: ['email', 'google'], 
+    default: 'email' 
+  },
+
   // Login tracking
   last_login: { type: Date },
 
@@ -224,13 +263,17 @@ const ProfileSchema = new Schema({
     { fields: { referred_by: 1 } },
     { fields: { spin_tier: 1 } },
     { fields: { available_spins: 1 } },
+    { fields: { authMethod: 1 } },
     // 2FA INDEXES
     { fields: { twoFAEnabled: 1 } },
     { fields: { twoFALastUsed: 1 } },
+    // ANTI-PHISHING INDEXES
+    { fields: { antiPhishingCodeSet: 1 } },
+    { fields: { antiPhishingSetAt: 1 } },
   ]
 });
 
-// ADD THESE METHODS to ProfileSchema (after schema definition, before export):
+// 2FA Methods
 ProfileSchema.methods.enable2FA = function(secret: string) {
   this.twoFASecret = secret;
   this.twoFAEnabled = true;
@@ -251,7 +294,31 @@ ProfileSchema.methods.verify2FAToken = function() {
   return this.save();
 };
 
-// ADD VIRTUAL FIELDS
+// Anti-phishing code methods
+ProfileSchema.methods.setAntiPhishingCode = function(hashedCode: string) {
+  this.antiPhishingCode = hashedCode;
+  this.antiPhishingCodeSet = true;
+  this.antiPhishingSetAt = this.antiPhishingSetAt || new Date();
+  this.antiPhishingLastUpdated = new Date();
+  return this.save();
+};
+
+ProfileSchema.methods.removeAntiPhishingCode = function() {
+  this.antiPhishingCode = null;
+  this.antiPhishingCodeSet = false;
+  this.antiPhishingLastUpdated = new Date();
+  return this.save();
+};
+
+ProfileSchema.methods.getAntiPhishingCode = async function() {
+  if (!this.antiPhishingCodeSet || !this.antiPhishingCode) {
+    return null;
+  }
+  // Note: Returns the hashed code. In production, consider using encryption instead
+  return this.antiPhishingCode;
+};
+
+// Virtual fields
 ProfileSchema.virtual('twoFASetupInProgress').get(function() {
   return !this.twoFAEnabled && !!this.twoFASecret;
 });
@@ -260,14 +327,45 @@ ProfileSchema.virtual('requires2FA').get(function() {
   return this.twoFAEnabled && !!this.twoFASecret;
 });
 
-// ENSURE JSON SERIALIZATION SECURITY
+ProfileSchema.virtual('hasPhoneNumber').get(function() {
+  return !!this.phone_number;
+});
+
+ProfileSchema.virtual('hasAntiPhishingCode').get(function() {
+  return this.antiPhishingCodeSet && !!this.antiPhishingCode;
+});
+
+// Profile completion calculation
+ProfileSchema.methods.calculateCompletionPercentage = function() {
+  const requiredFields = [
+    'username',
+    'email',
+  ];
+  
+  const completedFields = requiredFields.filter(field => 
+    this[field] !== null && this[field] !== undefined && this[field] !== ''
+  );
+  
+  // Add bonus for optional fields
+  const bonusFields = (this.phone_number ? 1 : 0) + (this.antiPhishingCodeSet ? 1 : 0);
+  
+  this.completion_percentage = Math.round(
+    ((completedFields.length + bonusFields) / (requiredFields.length + 2)) * 100
+  );
+  
+  this.profile_completed = this.completion_percentage >= 80;
+  return this.save();
+};
+
+// JSON serialization security
 ProfileSchema.set('toJSON', {
   virtuals: true,
   transform: function(doc, ret) {
-    // Remove sensitive 2FA data from JSON output
+    // Remove sensitive data from JSON output
     delete ret.twoFASecret;
     delete ret.twoFABackupCodes;
     delete ret.password;
+    delete ret.antiPhishingCode; // CRITICAL: Never expose hashed code
     return ret;
   }
 });
@@ -275,11 +373,11 @@ ProfileSchema.set('toJSON', {
 export const Profile = getModel('Profile', ProfileSchema);
 
 /**
- * 2. ActivationPayment Model (replaces activation_payments table) - ENHANCED
+ * 2. ActivationPayment Model
  */
 const ActivationPaymentSchema = new Schema({
   user_id: { type: String, ref: 'Profile', required: true, index: true },
-  amount_cents: { type: Number, default: 100000, required: true }, // KES 1000
+  amount_cents: { type: Number, default: 100000, required: true },
   currency: { type: String, default: 'KES', maxlength: 3, required: true },
   provider: { type: String, enum: PaymentProviders, required: true },
   provider_reference: { type: String, maxlength: 255 },
@@ -287,13 +385,11 @@ const ActivationPaymentSchema = new Schema({
   status: { type: String, enum: PaymentStatuses, default: 'pending', required: true, index: true },
   paid_at: { type: Date },
   
-  // Enhanced fields for better tracking
   mpesa_transaction_id: { type: Schema.Types.ObjectId, ref: 'MpesaTransaction' },
   checkout_request_id: { type: String, index: true },
   mpesa_receipt_number: { type: String },
   phone_number: { type: String, required: true },
   
-  // Activation specific metadata
   metadata: { 
     type: Schema.Types.Mixed,
     default: {
@@ -303,13 +399,11 @@ const ActivationPaymentSchema = new Schema({
     }
   },
   
-  // Retry and error handling
   retry_count: { type: Number, default: 0 },
   last_retry_at: { type: Date },
   error_message: { type: String },
   error_stack: { type: String },
   
-  // Processing info
   processed_by_system: { type: Boolean, default: false },
   processed_at: { type: Date },
   processing_duration_ms: { type: Number },
@@ -328,7 +422,7 @@ const ActivationPaymentSchema = new Schema({
 export const ActivationPayment = getModel('ActivationPayment', ActivationPaymentSchema);
 
 /**
- * 3. SupportTicket Model (replaces support_tickets table)
+ * 3. SupportTicket Model
  */
 const SupportTicketSchema = new Schema({
   user_id: { type: String, ref: 'Profile', required: true, index: true },
@@ -341,8 +435,7 @@ const SupportTicketSchema = new Schema({
   resolved_by: { type: String, ref: 'Profile' },
   closed_at: { type: Date },
   
-  // Enhanced fields
-  category: { type: String, enum: ['activation', 'deposit', 'withdrawal', 'technical', 'general', 'spin'], default: 'general' },
+  category: { type: String, enum: ['activation', 'deposit', 'withdrawal', 'technical', 'general', 'spin', 'security'], default: 'general' },
   related_transaction_id: { type: Schema.Types.ObjectId, ref: 'Transaction' },
   related_mpesa_transaction_id: { type: Schema.Types.ObjectId, ref: 'MpesaTransaction' },
   
@@ -357,7 +450,7 @@ const SupportTicketSchema = new Schema({
 export const SupportTicket = getModel('SupportTicket', SupportTicketSchema);
 
 /**
- * 4. AdminAuditLog Model (replaces admin_audit_logs table) - ENHANCED FOR SPIN CONTROL
+ * 4. AdminAuditLog Model
  */
 const AdminAuditLogSchema = new Schema({
   actor_id: { type: String, ref: 'Profile', required: true, index: true },
@@ -366,7 +459,6 @@ const AdminAuditLogSchema = new Schema({
     required: true, 
     maxlength: 100,
    enum: [
-      // User Management Actions
       'APPROVE_USER',
       'REJECT_USER',
       'ACTIVATE_USER',
@@ -377,21 +469,15 @@ const AdminAuditLogSchema = new Schema({
       'UPDATE_USER_BALANCE',
       'RESET_USER_LIMITS',
       'DELETE_USER',
-      
-      // Withdrawal Management Actions
       'APPROVE_WITHDRAWAL',
       'REJECT_WITHDRAWAL',
       'COMPLETE_WITHDRAWAL',
       'REVERSE_WITHDRAWAL',
       'UPDATE_WITHDRAWAL_NOTES',
-      
-      // M-Pesa Change Request Actions
       'CREATE_MPESA_CHANGE_REQUEST',
       'APPROVE_MPESA_CHANGE',
       'REJECT_MPESA_CHANGE',
       'DELETE_MPESA_CHANGE_REQUEST',
-      
-      // Spin Actions
       'CREATE_SPIN_PRIZE',
       'UPDATE_SPIN_PRIZE',
       'DELETE_SPIN_PRIZE',
@@ -401,39 +487,36 @@ const AdminAuditLogSchema = new Schema({
       'UPDATE_SPIN_SCHEDULE',
       'VIEW_SPIN_LOGS',
       'MANAGE_SPIN_PRIZES',
-      
-      // Blog Actions
       'CREATE_BLOG_POST',
       'UPDATE_BLOG_POST',
       'DELETE_BLOG_POST',
-      
-      // Survey Actions
       'CREATE_SURVEY',
       'UPDATE_SURVEY',
       'DELETE_SURVEY',
       'ACTIVATE_SURVEY',
       'DEACTIVATE_SURVEY',
-      
-      // Transaction Actions
       'CREATE_TRANSACTION',
       'UPDATE_TRANSACTION',
       'REVERSE_TRANSACTION',
-      
-      // System Actions
       'UPDATE_SYSTEM_SETTINGS',
       'VIEW_AUDIT_LOGS',
       'EXPORT_DATA',
-      
-      // SOKO Actions - ADD THESE:
       'CAMPAIGN_CREATE',
       'CAMPAIGN_UPDATE',
       'CAMPAIGN_DELETE',
       'CAMPAIGN_TOGGLE_STATUS',
+      'CAMPAIGN_CREATE_FROM_CSV',
       'CONVERSION_APPROVE',
       'CONVERSION_REJECT',
       'PAYOUT_APPROVE',
       'PAYOUT_REJECT',
-      'PAYOUT_PROCESS'
+      'PAYOUT_PROCESS',
+      'UPDATE_ANTI_PHISHING',
+      'REMOVE_ANTI_PHISHING',
+      'CSV_IMPORT',
+      'PRODUCT_CREATE',
+      'PRODUCT_UPDATE',
+      'PRODUCT_DELETE'
     ]
   },
   target_type: { type: String, required: true, maxlength: 50 },
@@ -442,7 +525,6 @@ const AdminAuditLogSchema = new Schema({
   ip_address: { type: String },
   user_agent: { type: String },
   
-  // Enhanced fields for user management & spin
   resource_type: { 
     type: String, 
     enum: AuditResourceTypes, 
@@ -457,16 +539,13 @@ const AdminAuditLogSchema = new Schema({
     index: true 
   },
   
-  // Additional metadata for better tracking
   metadata: {
     type: Schema.Types.Mixed,
     default: {}
   },
   
-  // Performance tracking
   processing_time_ms: { type: Number },
   
-  // Spin-specific fields
   spin_related: {
     prize_type: { type: String, enum: SpinPrizeTypes },
     spin_settings_id: { type: Schema.Types.ObjectId, ref: 'SpinSettings' },
@@ -487,26 +566,22 @@ const AdminAuditLogSchema = new Schema({
   ]
 });
 export const AdminAuditLog = getModel('AdminAuditLog', AdminAuditLogSchema);
-
 /**
- * 5. Referral Model (replaces referrals table) - ENHANCED
+ * 5. Referral Model
  */
 const ReferralSchema = new Schema({
   referrer_id: { type: String, ref: 'Profile', required: true, index: true },
   referred_id: { type: String, ref: 'Profile', required: true, unique: true },
   earning_cents: { type: Number, default: 0 },
   
-  // Enhanced fields
   status: { type: String, enum: ['active', 'inactive', 'bonus_paid'], default: 'active' },
   referral_bonus_paid: { type: Boolean, default: false },
-  referral_bonus_amount_cents: { type: Number, default: 5000 }, // KES 50
+  referral_bonus_amount_cents: { type: Number, default: 5000 },
   bonus_paid_at: { type: Date },
   
-  // Activation tracking
   referred_user_activated: { type: Boolean, default: false },
   referred_user_activated_at: { type: Date },
   
-  // Enhanced metadata for user management
   metadata: {
     type: Schema.Types.Mixed,
     default: {}
@@ -524,14 +599,13 @@ const ReferralSchema = new Schema({
 export const Referral = getModel('Referral', ReferralSchema);
 
 /**
- * 6. DownlineUser Model (replaces downline_users table)
+ * 6. DownlineUser Model
  */
 const DownlineUserSchema = new Schema({
   main_user_id: { type: String, ref: 'Profile', required: true },
   downline_user_id: { type: String, ref: 'Profile', required: true, unique: true },
   level: { type: Number, default: 1 },
   
-  // Enhanced fields
   activated: { type: Boolean, default: false },
   activation_date: { type: Date },
   total_earnings_from_downline_cents: { type: Number, default: 0 },
@@ -547,7 +621,7 @@ const DownlineUserSchema = new Schema({
 export const DownlineUser = getModel('DownlineUser', DownlineUserSchema);
 
 /**
- * 7. Earning Model (replaces earnings table)
+ * 7. Earning Model
  */
 const EarningSchema = new Schema({
   user_id: { type: String, ref: 'Profile', required: true, index: true },
@@ -555,9 +629,8 @@ const EarningSchema = new Schema({
   type: { type: String, enum: EarningTypes, required: true },
   description: { type: String },
   
-  // Enhanced fields
-  source_id: { type: Schema.Types.ObjectId }, // Reference to source (task, referral, etc)
-  source_type: { type: String }, // Type of source
+  source_id: { type: Schema.Types.ObjectId },
+  source_type: { type: String },
   transaction_id: { type: Schema.Types.ObjectId, ref: 'Transaction' },
   processed: { type: Boolean, default: false },
   processed_at: { type: Date },
@@ -573,7 +646,7 @@ const EarningSchema = new Schema({
 export const Earning = getModel('Earning', EarningSchema);
 
 /**
- * 8. Withdrawal Model (replaces withdrawals table) - ENHANCED
+ * 8. Withdrawal Model
  */
 const WithdrawalSchema = new Schema({
   user_id: { type: String, ref: 'Profile', required: true, index: true },
@@ -584,16 +657,13 @@ const WithdrawalSchema = new Schema({
   approved_by: { type: String, ref: 'Profile' },
   approved_at: { type: Date },
   
-  // Enhanced fields for better tracking
   processed_at: { type: Date },
   processing_notes: { type: String },
   failure_reason: { type: String },
   
-  // M-Pesa specific fields for withdrawals
   mpesa_receipt_number: { type: String },
   mpesa_response: { type: Schema.Types.Mixed },
   
-  // User eligibility checks
   user_was_active: { type: Boolean, default: true },
   user_balance_before: { type: Number },
   user_balance_after: { type: Number },
@@ -613,10 +683,10 @@ const WithdrawalSchema = new Schema({
 export const Withdrawal = getModel('Withdrawal', WithdrawalSchema);
 
 /**
- * 9. Transaction Model (replaces transactions table) - ENHANCED FOR M-PESA & ACTIVATION & SPIN & COMPANY
+ * 9. Transaction Model
  */
 const TransactionSchema = new Schema({
-  user_id: { type: String, ref: 'Profile', required: false, index: true }, // Now optional for company transactions
+  user_id: { type: String, ref: 'Profile', required: false, index: true },
   amount_cents: { type: Number, required: true },
   type: {
     type: String,
@@ -648,7 +718,6 @@ const TransactionSchema = new Schema({
   reconciled_at: { type: Date },
   reconciliation_notes: { type: String },
   
-  // Enhanced fields for better tracking
   processed_at: { type: Date },
   processing_duration_ms: { type: Number },
   source: { 
@@ -657,27 +726,22 @@ const TransactionSchema = new Schema({
     default: 'wallet' 
   },
   
-  // Balance tracking
   balance_before_cents: { type: Number },
   balance_after_cents: { type: Number },
   
-  // Activation specific
   is_activation_fee: { type: Boolean, default: false },
   activation_payment_id: { type: Schema.Types.ObjectId, ref: 'ActivationPayment' },
   
-  // Spin specific
   spin_related: {
     spin_log_id: { type: Schema.Types.ObjectId, ref: 'SpinLog' },
     prize_type: { type: String, enum: SpinPrizeTypes },
     spin_cost: { type: Boolean, default: false }
   },
   
-  // User management specific fields
   admin_processed: { type: Boolean, default: false },
   admin_processed_by: { type: String, ref: 'Profile' },
   admin_processed_at: { type: Date },
 
-  // NEW: Company transaction support
   target_type: {
     type: String,
     enum: ['user', 'company'],
@@ -686,7 +750,6 @@ const TransactionSchema = new Schema({
     index: true
   },
   
-  // NEW: Target entity ID (can be user_id or company_id)
   target_id: {
     type: String,
     required: true,
@@ -706,16 +769,14 @@ const TransactionSchema = new Schema({
     { fields: { is_activation_fee: 1 } },
     { fields: { admin_processed: 1 } },
     { fields: { 'spin_related.prize_type': 1 } },
-    { fields: { target_type: 1, target_id: 1 } }, // NEW index for company transactions
+    { fields: { target_type: 1, target_id: 1 } },
   ]
 });
 
 export const Transaction = getModel('Transaction', TransactionSchema);
 
-// --- Models required by the existing functions ---
-
 /**
- * 10. Customer Model (replaces customers table)
+ * 10. Customer Model
  */
 const CustomerSchema = new Schema({
   name: { type: String, required: true },
@@ -728,7 +789,7 @@ const CustomerSchema = new Schema({
 export const Customer = getModel('Customer', CustomerSchema);
 
 /**
- * 11. Invoice Model (replaces invoices table)
+ * 11. Invoice Model
  */
 const InvoiceSchema = new Schema({
   customer_id: { type: Types.ObjectId, ref: 'Customer', required: true, index: true },
@@ -742,7 +803,7 @@ const InvoiceSchema = new Schema({
 export const Invoice = getModel('Invoice', InvoiceSchema);
 
 /**
- * 12. Revenue Model (replaces revenue table)
+ * 12. Revenue Model
  */
 const RevenueSchema = new Schema({
   month: { type: String, required: true, unique: true },
@@ -754,7 +815,7 @@ const RevenueSchema = new Schema({
 export const Revenue = getModel('Revenue', RevenueSchema);
 
 /**
- * 13. MpesaChangeRequest Model (Fixes the export error)
+ * 13. MpesaChangeRequest Model
  */
 const MpesaChangeRequestSchema = new Schema({
   user_id: { type: String, ref: 'Profile', required: true, index: true },
@@ -774,10 +835,9 @@ const MpesaChangeRequestSchema = new Schema({
 export const MpesaChangeRequest = getModel('MpesaChangeRequest', MpesaChangeRequestSchema);
 
 /**
- * 14. MpesaTransaction Model (ENHANCED for tracking M-Pesa transactions)
+ * 14. MpesaTransaction Model
  */
 const MpesaTransactionSchema = new Schema({
-  // M-Pesa API Identifiers
   checkout_request_id: { 
     type: String, 
     unique: true, 
@@ -795,7 +855,6 @@ const MpesaTransactionSchema = new Schema({
     index: true 
   },
 
-  // User and Transaction Details
   user_id: { 
     type: String, 
     ref: 'Profile', 
@@ -819,7 +878,6 @@ const MpesaTransactionSchema = new Schema({
     type: String 
   },
 
-  // M-Pesa Response Details
   result_code: { 
     type: Number,
     enum: MpesaResultCodes,
@@ -829,7 +887,6 @@ const MpesaTransactionSchema = new Schema({
     type: String 
   },
 
-  // Status Tracking
   status: {
     type: String,
     enum: MpesaTransactionStatuses,
@@ -837,7 +894,6 @@ const MpesaTransactionSchema = new Schema({
     index: true
   },
 
-  // Timestamps for lifecycle tracking
   initiated_at: { 
     type: Date, 
     default: Date.now 
@@ -852,7 +908,6 @@ const MpesaTransactionSchema = new Schema({
     type: Date 
   },
 
-  // API Request/Response Storage
   stk_push_request: { 
     type: Schema.Types.Mixed 
   },
@@ -863,7 +918,6 @@ const MpesaTransactionSchema = new Schema({
     type: Schema.Types.Mixed 
   },
 
-  // Retry and Error Handling
   retry_count: { 
     type: Number, 
     default: 0 
@@ -878,7 +932,6 @@ const MpesaTransactionSchema = new Schema({
     type: String 
   },
 
-  // Enhanced Metadata
   metadata: {
     type: Schema.Types.Mixed,
     default: {}
@@ -895,7 +948,6 @@ const MpesaTransactionSchema = new Schema({
     type: String 
   },
 
-  // Reconciliation Fields
   reconciled: { 
     type: Boolean, 
     default: false 
@@ -907,7 +959,6 @@ const MpesaTransactionSchema = new Schema({
     type: String 
   },
 
-  // Activation specific
   is_activation_payment: { type: Boolean, default: false },
   activation_processed: { type: Boolean, default: false },
   activation_processed_at: { type: Date },
@@ -930,7 +981,7 @@ const MpesaTransactionSchema = new Schema({
 export const MpesaTransaction = getModel('MpesaTransaction', MpesaTransactionSchema);
 
 /**
- * 15. MpesaCallbackLog Model (ENHANCED for auditing callbacks)
+ * 15. MpesaCallbackLog Model
  */
 const MpesaCallbackLogSchema = new Schema({
   checkout_request_id: { 
@@ -966,7 +1017,6 @@ const MpesaCallbackLogSchema = new Schema({
     type: Number 
   },
   
-  // Enhanced fields
   headers: { 
     type: Schema.Types.Mixed 
   },
@@ -981,7 +1031,6 @@ const MpesaCallbackLogSchema = new Schema({
     type: Number 
   },
   
-  // Activation specific
   is_activation_callback: { type: Boolean, default: false },
   
 }, {
@@ -998,7 +1047,7 @@ const MpesaCallbackLogSchema = new Schema({
 export const MpesaCallbackLog = getModel('MpesaCallbackLog', MpesaCallbackLogSchema);
 
 /**
- * 16. BlogPost Model (for admin blog management) - UPDATED FOR USER CONTENT INTEGRATION
+ * 16. BlogPost Model
  */
 const BlogPostSchema = new Schema({
   title: { type: String, required: true, maxlength: 255 },
@@ -1018,10 +1067,9 @@ const BlogPostSchema = new Schema({
   meta_title: { type: String, maxlength: 255 },
   meta_description: { type: String, maxlength: 500 },
   tags: [{ type: String, maxlength: 50 }],
-  read_time: { type: Number, default: 5 }, // in minutes
+  read_time: { type: Number, default: 5 },
   category: { type: String, maxlength: 100 },
 
-  // New fields for user content integration
   source_submission_id: {
     type: Schema.Types.ObjectId,
     ref: 'UserContent',
@@ -1050,7 +1098,7 @@ const BlogPostSchema = new Schema({
 export const BlogPost = getModel('BlogPost', BlogPostSchema);
 
 /**
- * 17. UserContent Model (for user submissions from earn by tasks) - UPDATED
+ * 17. UserContent Model
  */
 const UserContentSchema = new Schema({
   user: { type: String, ref: 'Profile', required: true, index: true },
@@ -1080,14 +1128,13 @@ const UserContentSchema = new Schema({
     default: 'pending',
     index: true
   },
-  payment_amount: { type: Number, required: true }, // in cents
+  payment_amount: { type: Number, required: true },
   task_category: { type: String, required: true, maxlength: 100 },
   external_url: { type: String },
   attachments: [{ type: String }],
   tags: [{ type: String, maxlength: 50 }],
   word_count: { type: Number, default: 0 },
 
-  // New field to track if blog post was created
   blog_post_id: {
     type: Schema.Types.ObjectId,
     ref: 'BlogPost',
@@ -1109,7 +1156,7 @@ const UserContentSchema = new Schema({
 export const UserContent = getModel('UserContent', UserContentSchema);
 
 /**
- * 18. Survey Model - UPDATED
+ * 18. Survey Model
  */
 const SurveySchema = new Schema({
   title: { type: String, required: true, maxlength: 255 },
@@ -1120,9 +1167,9 @@ const SurveySchema = new Schema({
     required: true,
     index: true
   },
-  topics: [{ type: String }], // AI-generated topics
-  payout_cents: { type: Number, default: 5000, required: true }, // KSH 50
-  duration_minutes: { type: Number, default: 5, required: true }, // 5 minutes
+  topics: [{ type: String }],
+  payout_cents: { type: Number, default: 5000, required: true },
+  duration_minutes: { type: Number, default: 5, required: true },
   questions: [{
     question_text: { type: String, required: true },
     question_type: {
@@ -1135,58 +1182,52 @@ const SurveySchema = new Schema({
       text: { type: String, required: true },
       is_correct: { type: Boolean, default: false }
     }],
-    correct_answer_index: { type: Number, required: true }, // Index of correct option
+    correct_answer_index: { type: Number, required: true },
     required: { type: Boolean, default: true }
   }],
 
-  // Selection criteria
-  target_percentage: { type: Number, default: 15 }, // 15% of users
+  target_percentage: { type: Number, default: 15 },
   priority_new_users: { type: Boolean, default: true },
   priority_top_referrers: { type: Boolean, default: true },
 
-  // Scheduling and availability
   status: {
     type: String,
     enum: SurveyStatuses,
     default: 'draft',
     index: true
   },
-  scheduled_for: { type: Date, index: true }, // Tuesday 2100 hrs EAT
+  scheduled_for: { type: Date, index: true },
   activated_at: { type: Date },
   expires_at: { type: Date },
   
-  // Manual override for admin
   is_manually_enabled: { 
     type: Boolean, 
     default: false,
     index: true 
   },
 
-  // Stats
   max_responses: { type: Number, default: 1000 },
   current_responses: { type: Number, default: 0 },
   successful_responses: { type: Number, default: 0 },
   failed_responses: { type: Number, default: 0 },
-  completion_rate: { type: Number, default: 0 }, // Percentage of successful completions
-  average_score: { type: Number, default: 0 }, // Average score across all responses
-  average_completion_time: { type: Number, default: 0 }, // Average time in seconds
+  completion_rate: { type: Number, default: 0 },
+  average_score: { type: Number, default: 0 },
+  average_completion_time: { type: Number, default: 0 },
 
   created_by: { type: String, ref: 'Profile', required: true },
 
-  // AI generation info
   ai_generated: { type: Boolean, default: false },
   ai_prompt: { type: String },
   ai_model: { type: String },
   
-  // Metadata
   tags: [{ type: String }],
   difficulty: {
     type: String,
     enum: ['easy', 'medium', 'hard'],
     default: 'medium'
   },
-  estimated_completion_rate: { type: Number, default: 0 }, // Predicted completion rate
-  quality_score: { type: Number, default: 0 }, // Score based on user feedback and completion rates
+  estimated_completion_rate: { type: Number, default: 0 },
+  quality_score: { type: Number, default: 0 },
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
   indexes: [
@@ -1200,10 +1241,8 @@ const SurveySchema = new Schema({
   ]
 });
 
-// Pre-save middleware to update calculated fields
 SurveySchema.pre('save', function(next) {
   if (this.isModified('current_responses') || this.isModified('successful_responses')) {
-    // Update completion rate
     if (this.current_responses > 0) {
       this.completion_rate = (this.successful_responses / this.current_responses) * 100;
     }
@@ -1211,7 +1250,6 @@ SurveySchema.pre('save', function(next) {
   next();
 });
 
-// Static method to find active surveys
 SurveySchema.statics.findActiveSurveys = function() {
   const now = new Date();
   return this.find({
@@ -1227,7 +1265,6 @@ SurveySchema.statics.findActiveSurveys = function() {
   });
 };
 
-// Static method to find available surveys for a user
 SurveySchema.statics.findAvailableSurveys = function(userId: string) {
   const now = new Date();
   return this.find({
@@ -1243,7 +1280,6 @@ SurveySchema.statics.findAvailableSurveys = function(userId: string) {
   });
 };
 
-// Instance method to check if survey is available
 SurveySchema.methods.isAvailable = function() {
   const now = new Date();
   return this.status === 'active' && 
@@ -1252,7 +1288,6 @@ SurveySchema.methods.isAvailable = function() {
           (this.scheduled_for <= now && this.is_manually_enabled !== false));
 };
 
-// Instance method to enable survey manually
 SurveySchema.methods.enableManually = function(hours = 24) {
   this.is_manually_enabled = true;
   this.status = 'active';
@@ -1262,46 +1297,39 @@ SurveySchema.methods.enableManually = function(hours = 24) {
   return this.save();
 };
 
-// Instance method to disable manual enabling
 SurveySchema.methods.disableManually = function() {
   this.is_manually_enabled = false;
-  // If it was scheduled and the schedule time hasn't passed, revert to scheduled
   if (this.scheduled_for && this.scheduled_for > new Date()) {
     this.status = 'scheduled';
   }
   return this.save();
 };
 
-// Virtual for formatted payout
 SurveySchema.virtual('payout_formatted').get(function() {
   return `KES ${(this.payout_cents / 100).toFixed(2)}`;
 });
 
-// Virtual for time remaining
 SurveySchema.virtual('time_remaining').get(function() {
   const now = new Date();
   return this.expires_at ? Math.max(0, this.expires_at.getTime() - now.getTime()) : 0;
 });
 
-// Virtual for is_expired
 SurveySchema.virtual('is_expired').get(function() {
   return this.expires_at ? this.expires_at <= new Date() : false;
 });
 
-// Ensure virtual fields are serialized
 SurveySchema.set('toJSON', { virtuals: true });
 SurveySchema.set('toObject', { virtuals: true });
 
 export const Survey = getModel('Survey', SurveySchema);
 
 /**
- * 19. Survey Response Model - UPDATED
+ * 19. Survey Response Model
  */
 const SurveyResponseSchema = new Schema({
   survey_id: { type: Schema.Types.ObjectId, ref: 'Survey', required: true, index: true },
   user_id: { type: String, ref: 'Profile', required: true, index: true },
   
-  // Response tracking
   status: {
     type: String,
     enum: ['in_progress', 'completed', 'timeout', 'wrong_answer', 'abandoned'],
@@ -1310,36 +1338,31 @@ const SurveyResponseSchema = new Schema({
   },
   started_at: { type: Date, default: Date.now, required: true },
   completed_at: { type: Date },
-  time_taken_seconds: { type: Number }, // Total time taken in seconds
+  time_taken_seconds: { type: Number },
   
-  // Answers
   answers: [{
     question_index: { type: Number, required: true },
     selected_option_index: { type: Number, required: true },
     is_correct: { type: Boolean, required: true },
     answered_at: { type: Date, default: Date.now },
-    time_spent_seconds: { type: Number, default: 0 } // Time spent on this question
+    time_spent_seconds: { type: Number, default: 0 }
   }],
   
-  // Results
-  score: { type: Number }, // Percentage score
-  all_correct: { type: Boolean }, // Whether all answers were correct
+  score: { type: Number },
+  all_correct: { type: Boolean },
   correct_answers: { type: Number, default: 0 },
   total_questions: { type: Number, default: 0 },
   
-  // Payout tracking
   payout_credited: { type: Boolean, default: false },
   payout_amount_cents: { type: Number, default: 0 },
   
-  // Revocation system
   revoked: { type: Boolean, default: false },
   revoked_at: { type: Date },
   revoked_by: { type: String, ref: 'Profile' },
   revoke_reason: { type: String },
   
-  // User experience metrics
-  user_rating: { type: Number, min: 1, max: 5 }, // User rating of survey experience
-  feedback: { type: String }, // User feedback
+  user_rating: { type: Number, min: 1, max: 5 },
+  feedback: { type: String },
   difficulty_perception: { 
     type: String, 
     enum: ['too_easy', 'appropriate', 'too_hard'] 
@@ -1355,7 +1378,6 @@ const SurveyResponseSchema = new Schema({
   ]
 });
 
-// Pre-save middleware to calculate results
 SurveyResponseSchema.pre('save', function(next) {
   if (this.isModified('answers') && this.answers.length > 0) {
     this.total_questions = this.answers.length;
@@ -1364,7 +1386,6 @@ SurveyResponseSchema.pre('save', function(next) {
     this.all_correct = this.correct_answers === this.total_questions;
   }
   
-  // Calculate time taken if completed
   if (this.isModified('status') && this.status === 'completed' && this.completed_at) {
     this.time_taken_seconds = Math.floor(
       (this.completed_at.getTime() - this.started_at.getTime()) / 1000
@@ -1373,7 +1394,6 @@ SurveyResponseSchema.pre('save', function(next) {
   next();
 });
 
-// Instance method to mark as completed
 SurveyResponseSchema.methods.markCompleted = function(answers: any[]) {
   this.answers = answers;
   this.status = 'completed';
@@ -1381,7 +1401,6 @@ SurveyResponseSchema.methods.markCompleted = function(answers: any[]) {
   return this.save();
 };
 
-// Instance method to revoke response
 SurveyResponseSchema.methods.revoke = function(adminId: string, reason: string) {
   this.revoked = true;
   this.revoked_at = new Date();
@@ -1392,8 +1411,9 @@ SurveyResponseSchema.methods.revoke = function(adminId: string, reason: string) 
 };
 
 export const SurveyResponse = getModel('SurveyResponse', SurveyResponseSchema);
+
 /**
- * 20. SurveyAssignment Model - For tracking which users get which surveys
+ * 20. SurveyAssignment Model
  */
 const SurveyAssignmentSchema = new Schema({
   survey_id: {
@@ -1411,7 +1431,7 @@ const SurveyAssignmentSchema = new Schema({
   assigned_at: { type: Date, default: Date.now, index: true },
   assigned_reason: {
     type: String,
-    enum: ['new_user', 'top_referrer', 'high_accuracy', 'random'], // ADDED 'high_accuracy'
+    enum: ['new_user', 'top_referrer', 'high_accuracy', 'random'],
     required: true
   },
   notified: { type: Boolean, default: false },
@@ -1427,33 +1447,29 @@ const SurveyAssignmentSchema = new Schema({
 export const SurveyAssignment = getModel('SurveyAssignment', SurveyAssignmentSchema);
 
 /**
- * 21. VerificationToken Model (for email verification and 2FA codes) - ENHANCED
+ * 21. VerificationToken Model
  */
 const VerificationTokenSchema = new Schema({
   token: { type: String, required: true, index: true },
   user_id: { type: String, ref: 'Profile', required: true, index: true },
-  expires: { type: Date, required: true }, // Remove index: true to avoid duplicate
+  expires: { type: Date, required: true },
   
-  // Purpose of the verification token
   purpose: { 
     type: String, 
-    enum: ['email_verification', 'password_reset', 'mpesa_change', '2fa_setup', 'account_recovery'],
+    enum: ['email_verification', 'password_reset', 'mpesa_change', '2fa_setup', 'account_recovery', 'anti_phishing_setup'],
     default: 'email_verification',
     required: true,
     index: true
   },
   
-  // Metadata for storing additional information
   metadata: {
     type: Schema.Types.Mixed,
     default: {}
   },
   
-  // Track usage
   used: { type: Boolean, default: false },
   used_at: { type: Date },
   
-  // IP tracking for security
   ip_address: { type: String },
   user_agent: { type: String },
   
@@ -1467,12 +1483,12 @@ const VerificationTokenSchema = new Schema({
   ]
 });
 
-// Index to automatically delete expired tokens after 24 hours (TTL index)
 VerificationTokenSchema.index({ expires: 1 }, { expireAfterSeconds: 86400 });
 
 export const VerificationToken = getModel('VerificationToken', VerificationTokenSchema);
+
 /**
- * 22. SystemSettings Model - For storing system-wide settings
+ * 22. SystemSettings Model
  */
 const SystemSettingsSchema = new Schema({
   key: { 
@@ -1510,7 +1526,7 @@ const SystemSettingsSchema = new Schema({
 export const SystemSettings = getModel('SystemSettings', SystemSettingsSchema);
 
 /**
- * 23. FailedTransaction Model - For tracking detailed failed transaction attempts
+ * 23. FailedTransaction Model
  */
 const FailedTransactionSchema = new Schema({
   user_id: { 
@@ -1569,7 +1585,7 @@ const FailedTransactionSchema = new Schema({
 export const FailedTransaction = getModel('FailedTransaction', FailedTransactionSchema);
 
 /**
- * 24. ActivationLog Model - For tracking activation attempts and history
+ * 24. ActivationLog Model
  */
 const ActivationLogSchema = new Schema({
   user_id: { 
@@ -1625,10 +1641,8 @@ const ActivationLogSchema = new Schema({
 
 export const ActivationLog = getModel('ActivationLog', ActivationLogSchema);
 
-// --- Enhanced Spin to Win Models with Full Admin Control ---
-
 /**
- * 25. SpinPrize Model - Defines available prizes and probabilities with admin control
+ * 25. SpinPrize Model
  */
 const SpinPrizeSchema = new Schema({
   name: { type: String, required: true },
@@ -1640,9 +1654,8 @@ const SpinPrizeSchema = new Schema({
   },
   display_name: { type: String, required: true },
   description: { type: String, required: true },
-  icon: { type: String, required: true }, // Emoji or icon name
+  icon: { type: String, required: true },
   
-  // Probability settings with admin control
   base_probability: { 
     type: Number, 
     required: true,
@@ -1661,7 +1674,6 @@ const SpinPrizeSchema = new Schema({
     required: true 
   }],
   
-  // Requirements with admin control
   min_referrals: { 
     type: Number, 
     default: 0,
@@ -1670,15 +1682,13 @@ const SpinPrizeSchema = new Schema({
   requires_activation: { type: Boolean, default: true },
   min_user_level: { type: Number, default: 0 },
   
-  // Prize value with admin control
   value_cents: { 
     type: Number, 
     default: 0,
     min: 0 
   },
-  value_description: { type: String }, // e.g., "KES 100", "7 days boost"
+  value_description: { type: String },
   
-  // Prize-specific settings
   credit_type: { 
     type: String, 
     enum: ['balance', 'spins', 'airtime', 'badge', 'feature', 'voucher', 'boost'],
@@ -1688,19 +1698,16 @@ const SpinPrizeSchema = new Schema({
     type: Number, 
     default: 0,
     min: 0 
-  }, // For time-limited prizes
+  },
   
-  // Admin control flags
   is_active: { type: Boolean, default: true },
   is_featured: { type: Boolean, default: false },
   admin_notes: { type: String },
   
-  // Ad slot specific
   is_ad_slot: { type: Boolean, default: false },
   ad_provider: { type: String },
   ad_value_cents: { type: Number, default: 0 },
   
-  // Order for wheel display
   wheel_order: { 
     type: Number, 
     required: true,
@@ -1712,11 +1719,9 @@ const SpinPrizeSchema = new Schema({
     match: [/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, 'Invalid color format']
   },
   
-  // Audit fields
   created_by: { type: String, ref: 'Profile', required: true },
   updated_by: { type: String, ref: 'Profile' },
   
-  // Versioning for admin changes
   version: { type: Number, default: 1 },
   
 }, {
@@ -1735,7 +1740,7 @@ const SpinPrizeSchema = new Schema({
 export const SpinPrize = getModel('SpinPrize', SpinPrizeSchema);
 
 /**
- * 26. SpinLog Model - Tracks every spin attempt with admin visibility
+ * 26. SpinLog Model
  */
 const SpinLogSchema = new Schema({
   user_id: { 
@@ -1746,7 +1751,7 @@ const SpinLogSchema = new Schema({
   },
   spin_cost_cents: { 
     type: Number, 
-    default: 500, // 5 spins = KES 5
+    default: 500,
     required: true 
   },
   spins_used: { 
@@ -1755,7 +1760,6 @@ const SpinLogSchema = new Schema({
     required: true 
   },
   
-  // Prize information
   prize_id: { 
     type: Schema.Types.ObjectId, 
     ref: 'SpinPrize',
@@ -1769,7 +1773,6 @@ const SpinLogSchema = new Schema({
   prize_name: { type: String },
   prize_value_cents: { type: Number, default: 0 },
   
-  // Spin result
   status: { 
     type: String, 
     enum: SpinStatuses, 
@@ -1778,7 +1781,6 @@ const SpinLogSchema = new Schema({
   },
   won: { type: Boolean, default: false },
   
-  // User state at time of spin
   user_tier: { 
     type: String, 
     enum: UserTiers, 
@@ -1789,17 +1791,14 @@ const SpinLogSchema = new Schema({
   user_spins_before: { type: Number, required: true },
   user_level: { type: Number, required: true },
   
-  // Probability calculation
   calculated_probability: { type: Number, required: true },
   available_prizes_count: { type: Number, required: true },
   probability_multiplier: { type: Number, default: 1.0 },
   
-  // Cost impact tracking
   cost_impact_cents: { type: Number, default: 0 },
   revenue_impact_cents: { type: Number, default: 0 },
   net_impact_cents: { type: Number, default: 0 },
   
-  // Crediting tracking
   credited: { type: Boolean, default: false },
   credited_at: { type: Date },
   credit_transaction_id: { 
@@ -1807,24 +1806,20 @@ const SpinLogSchema = new Schema({
     ref: 'Transaction' 
   },
   
-  // Spin session info
-  spin_session_id: { type: String, index: true }, // Group spins in same session
-  spin_wheel_position: { type: Number }, // Where wheel landed
+  spin_session_id: { type: String, index: true },
+  spin_wheel_position: { type: Number },
   
-  // Eligibility checks
   tasks_completed_this_week: { 
     referral: { type: Boolean, default: false },
     writing: { type: Boolean, default: false },
     last_updated: { type: Date }
   },
   
-  // Admin review fields
   needs_review: { type: Boolean, default: false },
   reviewed_by: { type: String, ref: 'Profile' },
   reviewed_at: { type: Date },
   review_notes: { type: String },
   
-  // Technical metadata
   user_agent: { type: String },
   ip_address: { type: String },
   
@@ -1852,10 +1847,9 @@ const SpinLogSchema = new Schema({
 export const SpinLog = getModel('SpinLog', SpinLogSchema);
 
 /**
- * 27. SpinSettings Model - Complete admin controls and scheduling
+ * 27. SpinSettings Model
  */
 const SpinSettingsSchema = new Schema({
-  // Activation settings with full admin control
   is_active: { 
     type: Boolean, 
     default: false,
@@ -1868,7 +1862,6 @@ const SpinSettingsSchema = new Schema({
     index: true 
   },
   
-  // Scheduled activation with admin control
   scheduled_days: [{ 
     type: String, 
     enum: WeekDays 
@@ -1886,7 +1879,6 @@ const SpinSettingsSchema = new Schema({
     default: 'Africa/Nairobi' 
   },
   
-  // User limits with admin control
   spins_per_session: { 
     type: Number, 
     default: 3,
@@ -1901,12 +1893,11 @@ const SpinSettingsSchema = new Schema({
   },
   cooldown_minutes: { 
     type: Number, 
-    default: 1440, // 24 hours between sessions
+    default: 1440,
     min: 60,
-    max: 10080 // 1 week
+    max: 10080
   },
   
-  // Eligibility requirements with admin control
   require_tasks_completion: { type: Boolean, default: true },
   min_user_level: { 
     type: Number, 
@@ -1916,7 +1907,6 @@ const SpinSettingsSchema = new Schema({
   require_activation: { type: Boolean, default: true },
   require_email_verification: { type: Boolean, default: false },
   
-  // Probability adjustments with admin control
   probability_multipliers: {
     starter: { 
       type: Number, 
@@ -1950,7 +1940,6 @@ const SpinSettingsSchema = new Schema({
     }
   },
   
-  // Ad integration with admin control
   ad_slot_enabled: { type: Boolean, default: true },
   ad_slot_probability: { 
     type: Number, 
@@ -1964,25 +1953,21 @@ const SpinSettingsSchema = new Schema({
     min: 0 
   },
   
-  // Maintenance mode with admin control
   maintenance_mode: { type: Boolean, default: false },
   maintenance_message: { type: String },
   maintenance_start: { type: Date },
   maintenance_end: { type: Date },
   
-  // Analytics and reporting
   total_spins_today: { type: Number, default: 0 },
   total_wins_today: { type: Number, default: 0 },
   total_revenue_today_cents: { type: Number, default: 0 },
   total_payouts_today_cents: { type: Number, default: 0 },
   last_reset_date: { type: Date, default: Date.now },
   
-  // Admin audit trail
   last_activated_by: { type: String, ref: 'Profile' },
   last_activated_at: { type: Date },
   last_updated_by: { type: String, ref: 'Profile' },
   
-  // Version control
   version: { type: Number, default: 1 },
   change_history: [{
     changed_by: { type: String, ref: 'Profile' },
@@ -2010,7 +1995,7 @@ const SpinSettingsSchema = new Schema({
 export const SpinSettings = getModel('SpinSettings', SpinSettingsSchema);
 
 /**
- * 28. UserSpinEligibility Model - Track user eligibility and limits with admin visibility
+ * 28. UserSpinEligibility Model
  */
 const UserSpinEligibilitySchema = new Schema({
   user_id: { 
@@ -2021,7 +2006,6 @@ const UserSpinEligibilitySchema = new Schema({
     index: true 
   },
   
-  // Spin limits with admin visibility
   spins_used_today: { 
     type: Number, 
     default: 0,
@@ -2035,14 +2019,12 @@ const UserSpinEligibilitySchema = new Schema({
   },
   session_started_at: { type: Date },
   
-  // Task completion tracking
   tasks_completed_this_week: {
     referral: { type: Boolean, default: false },
     writing: { type: Boolean, default: false },
     last_updated: { type: Date }
   },
   
-  // Eligibility flags with admin control
   is_eligible: { type: Boolean, default: false },
   eligibility_reason: { type: String },
   last_eligibility_check: { type: Date },
@@ -2054,18 +2036,15 @@ const UserSpinEligibilitySchema = new Schema({
   override_reason: { type: String },
   override_until: { type: Date },
   
-  // Cooldown tracking
   cooldown_until: { type: Date },
   cooldown_reason: { type: String },
   
-  // Statistics for admin reporting
   total_spins: { type: Number, default: 0 },
   total_wins: { type: Number, default: 0 },
   total_prize_value_cents: { type: Number, default: 0 },
   win_streak: { type: Number, default: 0 },
   loss_streak: { type: Number, default: 0 },
   
-  // Current active prizes
   active_prizes: [{
     prize_id: { type: Schema.Types.ObjectId, ref: 'SpinPrize' },
     prize_type: { type: String, enum: SpinPrizeTypes },
@@ -2075,7 +2054,6 @@ const UserSpinEligibilitySchema = new Schema({
     metadata: { type: Schema.Types.Mixed }
   }],
   
-  // Performance metrics
   average_win_rate: { type: Number, default: 0 },
   favorite_prize: { type: String, enum: SpinPrizeTypes },
   last_win_date: { type: Date },
@@ -2100,10 +2078,9 @@ const UserSpinEligibilitySchema = new Schema({
 export const UserSpinEligibility = getModel('UserSpinEligibility', UserSpinEligibilitySchema);
 
 /**
- * 29. SpinAnalytics Model - For admin reporting and analytics
+ * 29. SpinAnalytics Model
  */
 const SpinAnalyticsSchema = new Schema({
-  // Date range
   date: { type: Date, required: true, index: true },
   period: { 
     type: String, 
@@ -2111,31 +2088,26 @@ const SpinAnalyticsSchema = new Schema({
     required: true 
   },
   
-  // Usage statistics
   total_spins: { type: Number, default: 0 },
   total_users: { type: Number, default: 0 },
   active_users: { type: Number, default: 0 },
   new_users: { type: Number, default: 0 },
   
-  // Win/loss statistics
   total_wins: { type: Number, default: 0 },
   total_losses: { type: Number, default: 0 },
   win_rate: { type: Number, default: 0 },
   
-  // Financial statistics
   total_revenue_cents: { type: Number, default: 0 },
   total_payouts_cents: { type: Number, default: 0 },
   net_revenue_cents: { type: Number, default: 0 },
   average_payout_cents: { type: Number, default: 0 },
   
-  // Prize distribution
   prize_distribution: {
     type: Map,
     of: Number,
     default: {}
   },
   
-  // Tier performance
   tier_performance: {
     starter: {
       spins: { type: Number, default: 0 },
@@ -2164,14 +2136,12 @@ const SpinAnalyticsSchema = new Schema({
     }
   },
   
-  // Time-based analytics
   peak_hours: {
     type: Map,
     of: Number,
     default: {}
   },
   
-  // User engagement
   average_spins_per_user: { type: Number, default: 0 },
   retention_rate: { type: Number, default: 0 },
   
@@ -2191,10 +2161,8 @@ const SpinAnalyticsSchema = new Schema({
 
 export const SpinAnalytics = getModel('SpinAnalytics', SpinAnalyticsSchema);
 
-// --- End Enhanced Spin to Win Models ---
-
 /**
- * 30. Company Model - Independent company entity separate from users
+ * 30. Company Model
  */
 const CompanySchema = new Schema({
   name: { 
@@ -2213,7 +2181,6 @@ const CompanySchema = new Schema({
     default: '+254700000000'
   },
   
-  // Financial tracking
   wallet_balance_cents: { 
     type: Number, 
     default: 0,
@@ -2228,7 +2195,6 @@ const CompanySchema = new Schema({
     default: 0 
   },
   
-  // Revenue breakdown
   activation_revenue_cents: { 
     type: Number, 
     default: 0 
@@ -2246,18 +2212,15 @@ const CompanySchema = new Schema({
     default: 0 
   },
   
-  // Company info
   registration_number: { type: String },
   tax_id: { type: String },
   address: { type: String },
   
-  // Settings
   is_active: { 
     type: Boolean, 
     default: true 
   },
   
-  // Metadata
   metadata: { 
     type: Schema.Types.Mixed, 
     default: {} 
@@ -2271,16 +2234,11 @@ const CompanySchema = new Schema({
   ]
 });
 
-// Export the Company model
 export const Company = getModel('Company', CompanySchema);
 
 export { mongoose, connectToDatabase };
-// Add this at the end of lib/models.ts after all existing exports
 
-// ============================================================================
-// SOKO (AFFILIATE MARKETING) MODELS - Import from Soko.ts
-// ============================================================================
-
+// Import Soko and other models
 export {
   SokoCampaign,
   UserAffiliateLink,
@@ -2298,6 +2256,3 @@ export {
 } from './models/Soko';
 
 export { UserSession } from './models/UserSession';
-
-// This allows you to import Soko models like:
-// import { SokoCampaign, UserAffiliateLink } from '@/app/lib/models';

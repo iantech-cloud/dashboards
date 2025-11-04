@@ -6,12 +6,14 @@ import mongoose, { Schema, model, models } from 'mongoose';
 // ============================================================================
 
 const CampaignStatuses = ['draft', 'active', 'paused', 'expired', 'archived'] as const;
-const CampaignTypes = ['cj_affiliate', 'amazon', 'promotional', 'custom'] as const;
+const CampaignTypes = ['cj_affiliate', 'amazon', 'promotional', 'custom', 'alibaba'] as const;
 const CommissionTypes = ['percentage', 'fixed', 'tiered'] as const;
 const ClickStatuses = ['pending', 'converted', 'rejected'] as const;
 const ConversionStatuses = ['pending', 'approved', 'rejected', 'paid'] as const;
 const PayoutStatuses = ['pending', 'processing', 'completed', 'failed', 'cancelled'] as const;
 const PayoutMethods = ['mpesa', 'paypal', 'bank_transfer', 'wallet'] as const;
+const ProductConditions = ['new', 'refurbished', 'used'] as const;
+const ProductAvailability = ['in stock', 'out of stock', 'preorder', 'backorder'] as const;
 
 // ============================================================================
 // HELPER FUNCTION
@@ -22,7 +24,302 @@ const getModel = (name: string, schema: Schema) => {
 };
 
 // ============================================================================
-// 1. SOKO CAMPAIGN MODEL (Admin creates affiliate campaigns)
+// 1. ALIBABA PRODUCT MODEL
+// ============================================================================
+
+const AlibabaProductSchema = new Schema({
+  // Basic Info
+  product_id: {
+    type: String,
+    required: true,
+    unique: true,
+    index: true
+  },
+  title: {
+    type: String,
+    required: true,
+    maxlength: 500,
+    index: true
+  },
+  description: {
+    type: String,
+    required: true
+  },
+  
+  // Category
+  category_name: {
+    type: String,
+    maxlength: 200,
+    index: true
+  },
+  google_product_category: {
+    type: String,
+    maxlength: 200
+  },
+  
+  // Pricing
+  price_usd: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  price_kes: {
+    type: Number, // Auto-calculated from USD
+    min: 0
+  },
+  currency: {
+    type: String,
+    default: 'USD',
+    maxlength: 3
+  },
+  
+  // Product Details
+  size: {
+    type: String,
+    maxlength: 100
+  },
+  condition: {
+    type: String,
+    enum: ProductConditions,
+    default: 'new'
+  },
+  availability: {
+    type: String,
+    enum: ProductAvailability,
+    default: 'in stock'
+  },
+  
+  // Identifiers
+  mpn: {
+    type: String, // Manufacturer Part Number
+    maxlength: 100
+  },
+  gtin: {
+    type: String, // Global Trade Item Number
+    maxlength: 100
+  },
+  manufacturer: {
+    type: String,
+    maxlength: 200
+  },
+  
+  // Media
+  image_url: {
+    type: String,
+    required: true
+  },
+  additional_images: [{
+    type: String
+  }],
+  
+  // Shipping & Delivery
+  shipping: {
+    type: String,
+    maxlength: 200
+  },
+  delivery_time: {
+    type: String,
+    maxlength: 100
+  },
+  
+  // Links
+  deep_link: {
+    type: String,
+    required: true // This is the Alibaba product link
+  },
+  
+  // Metadata
+  language: {
+    type: String,
+    default: 'en',
+    maxlength: 10
+  },
+  
+  // Campaign Association
+  campaign_id: {
+    type: Schema.Types.ObjectId,
+    ref: 'SokoCampaign',
+    index: true
+  },
+  
+  // Stats
+  total_clicks: {
+    type: Number,
+    default: 0
+  },
+  total_conversions: {
+    type: Number,
+    default: 0
+  },
+  total_sales: {
+    type: Number,
+    default: 0
+  },
+  
+  // Status
+  is_active: {
+    type: Boolean,
+    default: true,
+    index: true
+  },
+  is_featured: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  
+  // Admin
+  uploaded_by: {
+    type: String,
+    ref: 'Profile',
+    required: true
+  },
+  
+  // Import Info
+  import_batch_id: {
+    type: String,
+    index: true
+  },
+  imported_at: {
+    type: Date,
+    default: Date.now
+  },
+  
+  // SEO
+  slug: {
+    type: String,
+    unique: true,
+    sparse: true,
+    index: true
+  },
+  
+  // Additional metadata
+  metadata: {
+    type: Schema.Types.Mixed,
+    default: {}
+  }
+}, {
+  timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+  indexes: [
+    { fields: { product_id: 1 } },
+    { fields: { category_name: 1 } },
+    { fields: { is_active: 1, is_featured: 1 } },
+    { fields: { campaign_id: 1 } },
+    { fields: { price_usd: 1 } },
+    { fields: { import_batch_id: 1 } },
+  ]
+});
+
+// Generate slug before saving
+AlibabaProductSchema.pre('save', function(next) {
+  if (!this.slug && this.title) {
+    const baseSlug = this.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+    this.slug = `${baseSlug}-${this.product_id}`;
+  }
+  
+  // Calculate KES price (assuming 1 USD = 130 KES, can be updated)
+  if (this.price_usd && !this.price_kes) {
+    const exchangeRate = 130; // Update this based on current rate
+    this.price_kes = this.price_usd * exchangeRate;
+  }
+  
+  next();
+});
+
+export const AlibabaProduct = getModel('AlibabaProduct', AlibabaProductSchema);
+
+// ============================================================================
+// 2. CSV IMPORT LOG MODEL
+// ============================================================================
+
+const CSVImportLogSchema = new Schema({
+  batch_id: {
+    type: String,
+    required: true,
+    unique: true,
+    index: true
+  },
+  filename: {
+    type: String,
+    required: true
+  },
+  uploaded_by: {
+    type: String,
+    ref: 'Profile',
+    required: true
+  },
+  
+  // Stats
+  total_rows: {
+    type: Number,
+    default: 0
+  },
+  processed_rows: {
+    type: Number,
+    default: 0
+  },
+  successful_imports: {
+    type: Number,
+    default: 0
+  },
+  failed_imports: {
+    type: Number,
+    default: 0
+  },
+  skipped_rows: {
+    type: Number,
+    default: 0
+  },
+  
+  // Status
+  status: {
+    type: String,
+    enum: ['pending', 'processing', 'completed', 'failed', 'cancelled'],
+    default: 'pending',
+    index: true
+  },
+  
+  // Processing
+  started_at: {
+    type: Date
+  },
+  completed_at: {
+    type: Date
+  },
+  
+  // Campaign association
+  campaign_id: {
+    type: Schema.Types.ObjectId,
+    ref: 'SokoCampaign'
+  },
+  
+  // Error tracking
+  errorMessage: [{
+    row: Number,
+    error: String,
+    data: Schema.Types.Mixed
+  }],
+  
+  // Additional info
+  notes: {
+    type: String
+  },
+  
+  metadata: {
+    type: Schema.Types.Mixed,
+    default: {}
+  }
+}, {
+  timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
+});
+
+export const CSVImportLog = getModel('CSVImportLog', CSVImportLogSchema);
+
+// ============================================================================
+// 3. SOKO CAMPAIGN MODEL (Updated)
 // ============================================================================
 
 const SokoCampaignSchema = new Schema({
@@ -58,12 +355,12 @@ const SokoCampaignSchema = new Schema({
     index: true
   },
   affiliate_network: {
-    type: String, // 'CJ', 'Amazon Associates', 'ShareASale', etc.
+    type: String,
     maxlength: 100
   },
   base_affiliate_link: {
     type: String,
-    required: true // The original affiliate link from CJ/Amazon
+    required: true
   },
   
   // Visual Assets
@@ -88,14 +385,14 @@ const SokoCampaignSchema = new Schema({
     type: Number,
     required: true,
     min: 0,
-    max: 100 // For percentage
+    max: 100
   },
   commission_fixed_amount: {
-    type: Number, // For fixed commission
+    type: Number,
     default: 0
   },
   
-  // Tiered Commission (optional)
+  // Tiered Commission
   commission_tiers: [{
     min_sales: { type: Number, required: true },
     max_sales: { type: Number },
@@ -158,6 +455,12 @@ const SokoCampaignSchema = new Schema({
     default: 0
   },
   
+  // Product Count (for Alibaba campaigns)
+  product_count: {
+    type: Number,
+    default: 0
+  },
+  
   // Eligibility & Requirements
   min_user_level: {
     type: Number,
@@ -178,7 +481,7 @@ const SokoCampaignSchema = new Schema({
   
   // Limits
   max_participants: {
-    type: Number // Maximum affiliates who can promote
+    type: Number
   },
   current_participants: {
     type: Number,
@@ -227,6 +530,26 @@ const SokoCampaignSchema = new Schema({
     type: String
   },
   
+  // Network-specific fields
+  cj_advertiser_id: {
+    type: String
+  },
+  cj_publisher_id: {
+    type: String
+  },
+  cj_site_id: {
+    type: String
+  },
+  cj_campaign_id: {
+    type: String
+  },
+  cj_api_key: {
+    type: String
+  },
+  cj_access_token: {
+    type: String
+  },
+  
   // Metadata
   metadata: {
     type: Schema.Types.Mixed,
@@ -258,7 +581,7 @@ SokoCampaignSchema.set('toObject', { virtuals: true });
 export const SokoCampaign = getModel('SokoCampaign', SokoCampaignSchema);
 
 // ============================================================================
-// 2. USER AFFILIATE LINK MODEL (User's personalized tracking links)
+// 4. USER AFFILIATE LINK MODEL (Updated)
 // ============================================================================
 
 const UserAffiliateLinkSchema = new Schema({
@@ -272,6 +595,13 @@ const UserAffiliateLinkSchema = new Schema({
     type: Schema.Types.ObjectId,
     ref: 'SokoCampaign',
     required: true,
+    index: true
+  },
+  
+  // Product-specific link (for Alibaba products)
+  product_id: {
+    type: Schema.Types.ObjectId,
+    ref: 'AlibabaProduct',
     index: true
   },
   
@@ -293,6 +623,17 @@ const UserAffiliateLinkSchema = new Schema({
   full_tracking_url: {
     type: String,
     required: true
+  },
+  short_tracking_url: {
+    type: String
+  },
+  merchant_affiliate_url: {
+    type: String // The actual merchant/product URL
+  },
+  
+  // Campaign info (for easy access)
+  campaign_name: {
+    type: String
   },
   
   // Performance Metrics
@@ -346,7 +687,7 @@ const UserAffiliateLinkSchema = new Schema({
     type: Date
   },
   
-  // Sub-Affiliate Tracking (Optional)
+  // Sub-Affiliate Tracking
   sub_affiliates: [{
     user_id: { type: String, ref: 'Profile' },
     joined_at: { type: Date, default: Date.now },
@@ -361,7 +702,8 @@ const UserAffiliateLinkSchema = new Schema({
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
   indexes: [
-    { fields: { user_id: 1, campaign_id: 1 }, unique: true },
+    { fields: { user_id: 1, campaign_id: 1 } },
+    { fields: { user_id: 1, product_id: 1 }, unique: true, sparse: true },
     { fields: { tracking_code: 1 } },
     { fields: { short_slug: 1 } },
     { fields: { is_active: 1 } },
@@ -371,7 +713,7 @@ const UserAffiliateLinkSchema = new Schema({
 export const UserAffiliateLink = getModel('UserAffiliateLink', UserAffiliateLinkSchema);
 
 // ============================================================================
-// 3. CLICK TRACKING MODEL
+// 5. CLICK TRACKING MODEL (Unchanged)
 // ============================================================================
 
 const ClickTrackingSchema = new Schema({
@@ -391,6 +733,11 @@ const ClickTrackingSchema = new Schema({
     type: Schema.Types.ObjectId,
     ref: 'SokoCampaign',
     required: true,
+    index: true
+  },
+  product_id: {
+    type: Schema.Types.ObjectId,
+    ref: 'AlibabaProduct',
     index: true
   },
   
@@ -472,6 +819,7 @@ const ClickTrackingSchema = new Schema({
     { fields: { affiliate_link_id: 1, clicked_at: -1 } },
     { fields: { user_id: 1, clicked_at: -1 } },
     { fields: { campaign_id: 1, clicked_at: -1 } },
+    { fields: { product_id: 1 } },
     { fields: { status: 1 } },
     { fields: { session_id: 1 } },
   ]
@@ -480,7 +828,7 @@ const ClickTrackingSchema = new Schema({
 export const ClickTracking = getModel('ClickTracking', ClickTrackingSchema);
 
 // ============================================================================
-// 4. AFFILIATE CONVERSION MODEL
+// 6-8. REMAINING MODELS (Unchanged)
 // ============================================================================
 
 const AffiliateConversionSchema = new Schema({
@@ -500,6 +848,11 @@ const AffiliateConversionSchema = new Schema({
     type: Schema.Types.ObjectId,
     ref: 'SokoCampaign',
     required: true,
+    index: true
+  },
+  product_id: {
+    type: Schema.Types.ObjectId,
+    ref: 'AlibabaProduct',
     index: true
   },
   click_id: {
@@ -566,7 +919,7 @@ const AffiliateConversionSchema = new Schema({
     type: Date
   },
   
-  // External Reference (from affiliate network)
+  // External Reference
   external_conversion_id: {
     type: String,
     index: true
@@ -581,7 +934,7 @@ const AffiliateConversionSchema = new Schema({
     ref: 'AffiliatePayout'
   },
   
-  // Sub-Affiliate Commission (if applicable)
+  // Sub-Affiliate Commission
   sub_affiliate_commission: {
     user_id: { type: String, ref: 'Profile' },
     commission_amount: { type: Number, default: 0 },
@@ -598,16 +951,13 @@ const AffiliateConversionSchema = new Schema({
   indexes: [
     { fields: { user_id: 1, conversion_date: -1 } },
     { fields: { campaign_id: 1, status: 1 } },
+    { fields: { product_id: 1 } },
     { fields: { status: 1, conversion_date: -1 } },
     { fields: { order_id: 1 } },
   ]
 });
 
 export const AffiliateConversion = getModel('AffiliateConversion', AffiliateConversionSchema);
-
-// ============================================================================
-// 5. AFFILIATE PAYOUT MODEL
-// ============================================================================
 
 const AffiliatePayoutSchema = new Schema({
   user_id: {
@@ -652,7 +1002,7 @@ const AffiliatePayoutSchema = new Schema({
     index: true
   },
   
-  // Conversions included in this payout
+  // Conversions included
   conversion_ids: [{
     type: Schema.Types.ObjectId,
     ref: 'AffiliateConversion'
@@ -717,10 +1067,6 @@ const AffiliatePayoutSchema = new Schema({
 
 export const AffiliatePayout = getModel('AffiliatePayout', AffiliatePayoutSchema);
 
-// ============================================================================
-// 6. AFFILIATE NOTIFICATION MODEL
-// ============================================================================
-
 const AffiliateNotificationSchema = new Schema({
   user_id: {
     type: String,
@@ -741,7 +1087,8 @@ const AffiliateNotificationSchema = new Schema({
       'payout_completed',
       'milestone_reached',
       'policy_update',
-      'performance_alert'
+      'performance_alert',
+      'new_product'
     ],
     required: true,
     index: true
@@ -762,6 +1109,10 @@ const AffiliateNotificationSchema = new Schema({
   campaign_id: {
     type: Schema.Types.ObjectId,
     ref: 'SokoCampaign'
+  },
+  product_id: {
+    type: Schema.Types.ObjectId,
+    ref: 'AlibabaProduct'
   },
   conversion_id: {
     type: Schema.Types.ObjectId,
@@ -821,5 +1172,7 @@ export {
   ClickStatuses,
   ConversionStatuses,
   PayoutStatuses,
-  PayoutMethods
+  PayoutMethods,
+  ProductConditions,
+  ProductAvailability
 };

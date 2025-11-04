@@ -325,7 +325,7 @@ export async function queryStkPushStatus(checkoutRequestId: string, retryCount =
   } catch (error) {
     console.error('❌ STK Push query error:', error);
     
-    // Retry on network errors (but not auth errors)
+    // Retry on network errorMessage (but not auth errorMessage)
     if (retryCount < maxRetries && 
         error instanceof Error && 
         !error.message.includes('403') && 

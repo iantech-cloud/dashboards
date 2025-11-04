@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth';
 import { connectToDatabase, Profile, Referral, Earning, Transaction } from '@/app/lib/models';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     // Authentication check
     if (!session?.user?.email) {
@@ -77,13 +76,12 @@ export async function GET(request: NextRequest) {
         }));
 
         // Admin summary - get counts by status
-        const activeCount = await Referral.countDocuments()
-          .populate('referred_id', 'status')
-          .then(refs => refs.filter(ref => ref.referred_id?.status === 'active').length);
+        // NOTE: This approach is inefficient for large datasets. A better approach would be to use $lookup in an aggregation pipeline.
+        // For the sake of minimizing changes and focusing on auth, we'll keep the current logic structure.
+        const allReferrals = await Referral.find({}).populate('referred_id', 'status').lean();
         
-        const pendingCount = await Referral.countDocuments()
-          .populate('referred_id', 'status')
-          .then(refs => refs.filter(ref => ref.referred_id?.status === 'pending').length);
+        const activeCount = allReferrals.filter(ref => ref.referred_id?.status === 'active').length;
+        const pendingCount = allReferrals.filter(ref => ref.referred_id?.status === 'pending').length;
 
         const totalEarningsResult = await Referral.aggregate([
           {
@@ -176,6 +174,7 @@ export async function GET(request: NextRequest) {
 
         referrals = userReferrals.map(ref => {
           const referredUserId = ref.referred_id?._id.toString();
+          // Prefer transaction earnings if available, otherwise fallback to earning_cents on the referral document
           const transactionEarnings = earningsMap.get(referredUserId) || 0;
           const totalEarnings = transactionEarnings > 0 ? transactionEarnings : ref.earning_cents;
 
@@ -240,7 +239,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user?.email) {
       return NextResponse.json(
@@ -354,3 +353,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

@@ -43,25 +43,63 @@ export async function connectToDatabase(): Promise<Connection> {
   if (!cached.promise) {
     const opts = {
       bufferCommands: false, // Disable Mongoose buffering
+      serverSelectionTimeoutMS: 30000, // Increased to 30 seconds
+      socketTimeoutMS: 45000, // Increased socket timeout
+      maxPoolSize: 10, // Maximum number of sockets in the connection pool
+      minPoolSize: 1, // Minimum number of sockets in the connection pool
+      maxIdleTimeMS: 30000, // How long a socket can stay idle before being closed
+      connectTimeoutMS: 30000, // How long to wait for initial connection
+      family: 4, // Use IPv4, skip trying IPv6
+      retryWrites: true,
+      retryReads: true,
     }
 
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then((m) => {
-      return m
-    })
+    console.log('🔗 Attempting to connect to MongoDB...');
+    
+    cached.promise = mongoose.connect(MONGODB_URI, opts)
+      .then((mongooseInstance) => {
+        console.log('✅ MongoDB connected successfully');
+        
+        // Set up connection event handlers
+        mongooseInstance.connection.on('error', (err) => {
+          console.error('❌ MongoDB connection error:', err);
+        });
+
+        mongooseInstance.connection.on('disconnected', () => {
+          console.log('⚠️ MongoDB disconnected');
+        });
+
+        mongooseInstance.connection.on('reconnected', () => {
+          console.log('🔁 MongoDB reconnected');
+        });
+
+        return mongooseInstance;
+      })
+      .catch((error) => {
+        console.error('❌ MongoDB connection failed:', error);
+        cached.promise = null;
+        throw error;
+      });
   }
 
   try {
-    const mongooseInstance = await cached.promise
-    cached.conn = mongooseInstance.connection
+    const mongooseInstance = await cached.promise;
+    cached.conn = mongooseInstance.connection;
+    
+    // Check if connection is ready
+    if (cached.conn.readyState !== 1) {
+      console.warn('⚠️ MongoDB connection is not ready. State:', cached.conn.readyState);
+    }
+    
   } catch (e) {
-    cached.promise = null
-    throw new Error(`Failed to connect to MongoDB: ${e instanceof Error ? e.message : "Unknown error"}`)
+    cached.promise = null;
+    console.error('💥 MongoDB connection error:', e);
+    throw new Error(`Failed to connect to MongoDB: ${e instanceof Error ? e.message : "Unknown error"}`);
   }
 
-  return cached.conn as Connection
+  return cached.conn as Connection;
 }
 
 // Re-export Mongoose to allow access to its types and utilities
 export { mongoose }
 export type { Connection, Mongoose } from "mongoose"
-

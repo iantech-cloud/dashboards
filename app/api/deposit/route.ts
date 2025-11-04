@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Transaction, Profile, connectToDatabase } from '@/app/lib/models';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth';
 
 // M-Pesa Daraja API configuration
 const MPESA_CONFIG = {
@@ -88,9 +87,9 @@ export async function POST(request: NextRequest) {
     await connectToDatabase();
 
     // Get the current user session
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
-    if (!session || !session.user) {
+    if (!session?.user) {
       return NextResponse.json(
         { success: false, message: 'Unauthorized. Please log in.' },
         { status: 401 }
@@ -211,4 +210,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

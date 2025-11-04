@@ -1,12 +1,11 @@
 // app/admin/surveys/page.tsx
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { connectToDatabase, Profile } from '@/app/lib/models';
 import SurveysManagement from './SurveysManagement';
 
 export default async function AdminSurveysPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
 
   if (!session?.user?.email) {
     redirect('/auth/login');

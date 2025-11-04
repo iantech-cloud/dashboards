@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth';
 import { connectToDatabase } from '@/app/lib/mongoose';
 import { UserSession } from '@/app/lib/models/UserSession';
 
 export async function POST() {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (session?.user?.id) {
       console.log('User logging out:', session.user.email);

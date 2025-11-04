@@ -11,7 +11,7 @@ const ProfileSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: true,
+    required: false, // Changed from true to false for OAuth users
     select: false,
   },
   username: {
@@ -22,23 +22,39 @@ const ProfileSchema = new mongoose.Schema({
   },
   phone_number: {
     type: String,
-    required: true,
-    unique: true,
+    required: false, // Changed from true to false for OAuth users
+    default: null, // Added default null
+    unique: true, // Index defined here
+    sparse: true, // Added sparse to allow multiple nulls
     trim: true,
+    // Only validate if provided
+    validate: {
+      validator: function(v: string | null) {
+        // Allow null for OAuth users
+        if (v === null || v === undefined) return true;
+        // If provided, must match Kenyan format
+        return /^\+254[0-9]{9}$/.test(v);
+      },
+      message: 'Phone number must be in format +254XXXXXXXXX'
+    }
+  },
+
+  // Profile completion tracking
+  profile_completed: {
+    type: Boolean,
+    default: false,
   },
 
   // OAuth Integration
   oauth_provider: {
     type: String,
-    enum: ['email', 'google', 'magic-link'],
-    default: 'email',
-    index: true,
+    enum: ['email', 'google', 'magic-link', 'credentials', null], // Added credentials and null
+    default: null,
   },
   oauth_id: {
     type: String,
     sparse: true,
-    unique: true,
-    index: true,
+    unique: true, // Index defined here
   },
   oauth_verified: {
     type: Boolean,
@@ -81,6 +97,31 @@ const ProfileSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+
+  // ===== 🔐 ANTI-PHISHING CODE FIELDS =====
+  antiPhishingCode: {
+    type: String,
+    default: null,
+    select: false, // Don't return in queries by default for security
+  },
+  antiPhishingEncryptedCode: { // NEW FIELD
+    type: String,
+    default: null,
+    select: false,
+  },
+  antiPhishingCodeSet: {
+    type: Boolean,
+    default: false, // CRITICAL: Must have default value!
+  },
+  antiPhishingSetAt: {
+    type: Date,
+    default: null,
+  },
+  antiPhishingLastUpdated: {
+    type: Date,
+    default: null,
+  },
+  // ===== END ANTI-PHISHING CODE FIELDS =====
 
   // Account Status & Verification
   is_verified: {
@@ -211,15 +252,34 @@ const ProfileSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+}, {
+  // IMPORTANT: Set strict to false to allow saving new fields to existing documents
+  strict: false,
+  // This allows the schema to save fields even if they weren't in the original document
 });
 
-// Update the updated_at field before saving
+// Update the updated_at field and profile_completed before saving
 ProfileSchema.pre('save', function(next) {
   this.updated_at = new Date();
   
   // Set 2FA setup date when 2FA is enabled
   if (this.isModified('twoFAEnabled') && this.twoFAEnabled) {
     this.twoFASetupDate = new Date();
+  }
+  
+  // Auto-set profile_completed when phone number is provided
+  if (this.isModified('phone_number') && this.phone_number && !this.profile_completed) {
+    this.profile_completed = true;
+  }
+  
+  // Auto-set profile_completed to false if phone number is removed
+  if (this.isModified('phone_number') && !this.phone_number && this.profile_completed) {
+    this.profile_completed = false;
+  }
+  
+  // Update antiPhishingLastUpdated when antiPhishingCode or antiPhishingCodeSet is modified
+  if (this.isModified('antiPhishingCode') || this.isModified('antiPhishingCodeSet')) {
+    this.antiPhishingLastUpdated = new Date();
   }
   
   next();
@@ -233,6 +293,21 @@ ProfileSchema.virtual('twoFASetupInProgress').get(function() {
 // Virtual for checking if account requires 2FA
 ProfileSchema.virtual('requires2FA').get(function() {
   return this.twoFAEnabled && !!this.twoFASecret;
+});
+
+// Virtual for checking if profile needs completion (OAuth users)
+ProfileSchema.virtual('needsProfileCompletion').get(function() {
+  return !this.profile_completed && (this.oauth_provider === 'google' || this.oauth_provider === 'email');
+});
+
+// Virtual for checking if user is OAuth user
+ProfileSchema.virtual('isOAuthUser').get(function() {
+  return this.oauth_provider && this.oauth_provider !== 'credentials';
+});
+
+// Virtual for checking if user has anti-phishing code
+ProfileSchema.virtual('hasAntiPhishingCode').get(function() {
+  return this.antiPhishingCodeSet === true && !!this.antiPhishingCode;
 });
 
 // Method to enable 2FA
@@ -258,6 +333,45 @@ ProfileSchema.methods.verify2FAToken = function(token: string) {
   // The actual verification logic is in the API route
   this.twoFALastUsed = new Date();
   return this.save();
+};
+
+// Method to set anti-phishing code
+ProfileSchema.methods.setAntiPhishingCode = function(hashedCode: string) {
+  this.antiPhishingCode = hashedCode;
+  this.antiPhishingCodeSet = true;
+  this.antiPhishingSetAt = this.antiPhishingSetAt || new Date();
+  this.antiPhishingLastUpdated = new Date();
+  return this.save();
+};
+
+// Method to remove anti-phishing code
+ProfileSchema.methods.removeAntiPhishingCode = function() {
+  this.antiPhishingCode = null;
+  this.antiPhishingCodeSet = false;
+  this.antiPhishingLastUpdated = new Date();
+  return this.save();
+};
+
+// Method to get anti-phishing code (returns the hashed code)
+ProfileSchema.methods.getAntiPhishingCode = async function() {
+  if (!this.antiPhishingCodeSet || !this.antiPhishingCode) {
+    return null;
+  }
+  // This will need to select the field explicitly since it's marked as select: false
+  const user = await mongoose.model('Profile').findById(this._id).select('+antiPhishingCode');
+  return user?.antiPhishingCode || null;
+};
+
+// Method to complete profile (for OAuth users)
+ProfileSchema.methods.completeProfile = function(phoneNumber: string) {
+  this.phone_number = phoneNumber;
+  this.profile_completed = true;
+  return this.save();
+};
+
+// Method to check if profile can be activated
+ProfileSchema.methods.canActivate = function() {
+  return this.profile_completed && this.phone_number && this.is_verified;
 };
 
 // Method to generate backup codes (optional enhancement)
@@ -300,22 +414,51 @@ ProfileSchema.statics.has2FAEnabled = function(email: string) {
   return this.findOne({ email, twoFAEnabled: true }).select('twoFAEnabled twoFASecret');
 };
 
-// REMOVED DUPLICATE INDEXES
-// The following fields already have unique: true which automatically creates indexes:
-// - email (line 8)
-// - username (line 17)
-// - phone_number (line 23)
-// - referral_id (line 155, with sparse: true)
-// - oauth_provider (line 31)
-// - oauth_id (line 37)
+// Static method to find OAuth users with incomplete profiles
+ProfileSchema.statics.findIncompleteOAuthProfiles = function() {
+  return this.find({
+    $or: [
+      { profile_completed: false },
+      { phone_number: null }
+    ],
+    oauth_provider: { $in: ['google', 'email'] }
+  });
+};
 
-// Only add indexes for fields that DON'T have unique: true
+// Static method to find by OAuth provider and ID
+ProfileSchema.statics.findByOAuth = function(provider: string, oauthId: string) {
+  return this.findOne({ oauth_provider: provider, oauth_id: oauthId });
+};
+
+// INDEX DEFINITIONS
+// Fields that already have automatic indexes (via unique: true): email, username, phone_number, oauth_id, referral_id
+
+// Only add indexes for fields that DON'T have unique: true or other automatic indexes
+
 ProfileSchema.index({ twoFAEnabled: 1 });
 ProfileSchema.index({ 'twoFABackupCodes.createdAt': 1 });
 ProfileSchema.index({ role: 1, status: 1 }); // Compound index for admin queries
 ProfileSchema.index({ created_at: -1 }); // For sorting by registration date
+
+// Indexes for profile completion and OAuth
+ProfileSchema.index({ profile_completed: 1 });
+ProfileSchema.index({ oauth_provider: 1, profile_completed: 1 });
+// REMOVED DUPLICATE: ProfileSchema.index({ phone_number: 1 }, { sparse: true }); 
+
+// OAuth indexes - these are now defined in field definition using unique: true
+// REMOVED DUPLICATE: ProfileSchema.index({ oauth_id: 1 });
 ProfileSchema.index({ oauth_provider: 1 });
-ProfileSchema.index({ oauth_id: 1 });
+
+
+// Compound index for OAuth queries (optional but recommended for performance)
+ProfileSchema.index({ oauth_provider: 1, oauth_id: 1 });
+
+// Compound index for incomplete profile queries
+ProfileSchema.index({ profile_completed: 1, oauth_provider: 1 });
+
+// Indexes for anti-phishing code
+ProfileSchema.index({ antiPhishingCodeSet: 1 });
+ProfileSchema.index({ antiPhishingSetAt: 1 });
 
 // Ensure virtual fields are serialized
 ProfileSchema.set('toJSON', {
@@ -325,6 +468,8 @@ ProfileSchema.set('toJSON', {
     delete ret.twoFASecret;
     delete ret.twoFABackupCodes;
     delete ret.password;
+    delete ret.antiPhishingCode; // CRITICAL: Never expose hashed code
+    delete ret.antiPhishingEncryptedCode; // Added new field to be removed
     return ret;
   }
 });
@@ -336,6 +481,8 @@ ProfileSchema.set('toObject', {
     delete ret.twoFASecret;
     delete ret.twoFABackupCodes;
     delete ret.password;
+    delete ret.antiPhishingCode; // CRITICAL: Never expose hashed code
+    delete ret.antiPhishingEncryptedCode; // Added new field to be removed
     return ret;
   }
 });
@@ -344,3 +491,4 @@ ProfileSchema.set('toObject', {
 const Profile = mongoose.models.Profile || mongoose.model('Profile', ProfileSchema);
 
 export { Profile };
+

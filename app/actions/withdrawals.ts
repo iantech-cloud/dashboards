@@ -9,9 +9,7 @@ import {
   Transaction, 
   AdminAuditLog
 } from '../lib/models';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/auth';
-import type { AuthOptions } from 'next-auth';
+import { auth } from '@/auth';
 
 // ===========================
 // TYPES & INTERFACES
@@ -63,7 +61,7 @@ interface BulkApprovalResponse {
   message: string;
   approved: number;
   failed: number;
-  errors?: string[];
+  errorMessage?: string[];
 }
 
 // ===========================
@@ -74,7 +72,7 @@ interface BulkApprovalResponse {
  * Get current admin user with proper authorization check
  */
 async function getCurrentAdmin() {
-  const session = await getServerSession(authOptions as AuthOptions);
+  const session = await auth();
   
   if (!session?.user?.email) {
     throw new Error('Unauthorized - No session');
@@ -886,7 +884,7 @@ export async function bulkApproveWithdrawals(
 
     let approved = 0;
     let failed = 0;
-    const errors: string[] = [];
+    const errorMessages: string[] = [];
 
     // Process withdrawals sequentially to avoid race conditions
     for (const id of withdrawalIds) {
@@ -894,20 +892,20 @@ export async function bulkApproveWithdrawals(
         const withdrawal = await Withdrawal.findById(id);
         
         if (!withdrawal) {
-          errors.push(`Withdrawal ${id} not found`);
+          errorMessage.push(`Withdrawal ${id} not found`);
           failed++;
           continue;
         }
 
         if (withdrawal.status !== 'pending') {
-          errors.push(`Withdrawal ${id} has status: ${withdrawal.status}`);
+          errorMessage.push(`Withdrawal ${id} has status: ${withdrawal.status}`);
           failed++;
           continue;
         }
 
         // Validate M-Pesa number
         if (!isValidMpesaNumber(withdrawal.mpesa_number)) {
-          errors.push(`Withdrawal ${id} has invalid M-Pesa number`);
+          errorMessage.push(`Withdrawal ${id} has invalid M-Pesa number`);
           failed++;
           continue;
         }
@@ -940,7 +938,7 @@ export async function bulkApproveWithdrawals(
         approved++;
       } catch (error: any) {
         console.error(`Error processing withdrawal ${id}:`, error);
-        errors.push(`Failed to process withdrawal ${id}: ${error.message}`);
+        errorMessage.push(`Failed to process withdrawal ${id}: ${error.message}`);
         failed++;
       }
     }
@@ -954,7 +952,7 @@ export async function bulkApproveWithdrawals(
       message: `Processed ${withdrawalIds.length} withdrawals: ${approved} approved, ${failed} failed`,
       approved,
       failed,
-      errors: errors.length > 0 ? errors : undefined
+      errorMessage: errorMessage.length > 0 ? errorMessage : undefined
     };
 
   } catch (error: any) {
@@ -964,7 +962,7 @@ export async function bulkApproveWithdrawals(
       message: error.message || 'Failed to bulk approve withdrawals',
       approved: 0,
       failed: withdrawalIds.length,
-      errors: ['System error during bulk operation']
+      errorMessage: ['System error during bulk operation']
     };
   }
 }
@@ -1584,7 +1582,7 @@ export async function bulkRejectWithdrawals(
 
     let rejected = 0;
     let failed = 0;
-    const errors: string[] = [];
+    const errorMessages: string[] = [];
 
     // Process withdrawals sequentially
     for (const id of withdrawalIds) {
@@ -1594,12 +1592,12 @@ export async function bulkRejectWithdrawals(
         if (result.success) {
           rejected++;
         } else {
-          errors.push(`${id}: ${result.message}`);
+          errorMessage.push(`${id}: ${result.message}`);
           failed++;
         }
       } catch (error: any) {
         console.error(`Error rejecting withdrawal ${id}:`, error);
-        errors.push(`Failed to reject withdrawal ${id}: ${error.message}`);
+        errorMessage.push(`Failed to reject withdrawal ${id}: ${error.message}`);
         failed++;
       }
     }
@@ -1613,7 +1611,7 @@ export async function bulkRejectWithdrawals(
       message: `Processed ${withdrawalIds.length} withdrawals: ${rejected} rejected, ${failed} failed`,
       approved: rejected,
       failed,
-      errors: errors.length > 0 ? errors : undefined
+      errorMessage: errorMessage.length > 0 ? errorMessage : undefined
     };
 
   } catch (error: any) {
@@ -1623,7 +1621,7 @@ export async function bulkRejectWithdrawals(
       message: error.message || 'Failed to bulk reject withdrawals',
       approved: 0,
       failed: withdrawalIds.length,
-      errors: ['System error during bulk operation']
+      errorMessage: ['System error during bulk operation']
     };
   }
 }

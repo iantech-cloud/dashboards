@@ -19,15 +19,17 @@ import {
   PieChart,
   FileSearch,
   LogOut,
-  ChevronLeft
+  ChevronLeft,
+  ShoppingBag,
+  Building,
+  MessageCircle
 } from 'lucide-react';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
-  user: any; // User data passed from server component
 }
 
-export default function AdminLayout({ children, user }: AdminLayoutProps) {
+export default function AdminLayout({ children }: AdminLayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -51,6 +53,9 @@ export default function AdminLayout({ children, user }: AdminLayoutProps) {
     { href: '/admin/transactions', label: 'Transactions', icon: CreditCard },
     { href: '/admin/reports', label: 'Financial Reports', icon: PieChart },
     { href: '/admin/audit-logs', label: 'Audit Logs', icon: FileSearch },
+    { href: '/admin/soko', label: 'Affiliate Marketing Management', icon: ShoppingBag },
+    { href: '/admin/company', label: 'Company Dashboard', icon: Building },
+    { href: '/admin/chat', label: 'Chat Management', icon: MessageCircle },
   ];
 
   const handleSignOut = async () => {
@@ -113,7 +118,7 @@ export default function AdminLayout({ children, user }: AdminLayoutProps) {
             <div className="mt-2 text-sm text-gray-600">
               <span>Welcome, 
                 <strong className="text-gray-800 ml-1">
-                  {user?.username || user?.email}
+                  {session?.user?.username || session?.user?.email}
                 </strong>
               </span>
             </div>

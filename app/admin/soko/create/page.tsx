@@ -14,7 +14,7 @@ export default function CreateCampaignPage() {
     name: '',
     description: '',
     short_description: '',
-    campaign_type: 'promotional' as 'cj_affiliate' | 'amazon' | 'promotional' | 'custom',
+    campaign_type: 'promotional' as 'cj_affiliate' | 'amazon' | 'promotional' | 'custom' | 'alibaba',
     affiliate_network: '',
     base_affiliate_link: '',
     featured_image: '',
@@ -89,6 +89,7 @@ export default function CreateCampaignPage() {
     { value: '', label: 'Select Network' },
     { value: 'CJ Affiliate', label: 'CJ Affiliate' },
     { value: 'Amazon Associates', label: 'Amazon Associates' },
+    { value: 'Alibaba', label: 'Alibaba' },
     { value: 'ShareASale', label: 'ShareASale' },
     { value: 'Impact', label: 'Impact' },
     { value: 'Rakuten Advertising', label: 'Rakuten Advertising' },
@@ -168,6 +169,7 @@ export default function CreateCampaignPage() {
                 <option value="promotional">Promotional</option>
                 <option value="cj_affiliate">CJ Affiliate</option>
                 <option value="amazon">Amazon Associates</option>
+                <option value="alibaba">Alibaba Products</option>
                 <option value="custom">Custom</option>
               </select>
             </div>
@@ -266,9 +268,54 @@ export default function CreateCampaignPage() {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="https://example.com/affiliate-link"
               />
+              {formData.campaign_type === 'alibaba' && (
+                <p className="mt-2 text-sm text-gray-500">
+                  💡 For Alibaba campaigns, this is your base tracking URL. Individual product links will be uploaded via CSV.
+                </p>
+              )}
             </div>
           </div>
         </div>
+
+        {/* Alibaba Campaign Notice */}
+        {formData.campaign_type === 'alibaba' && (
+          <div className="bg-purple-50 border-l-4 border-purple-500 rounded-xl p-6">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-purple-900 mb-2">Alibaba Products Campaign</h3>
+                <p className="text-sm text-purple-800 mb-3">
+                  This campaign type is designed for bulk product imports from Alibaba. After creating this campaign, you'll be able to:
+                </p>
+                <ul className="text-sm text-purple-800 space-y-2 ml-4">
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-600 font-bold">•</span>
+                    <span>Upload CSV files with product data (ID, title, price, images, links, etc.)</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-600 font-bold">•</span>
+                    <span>Products will be automatically imported and associated with this campaign</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-600 font-bold">•</span>
+                    <span>Users can browse products and generate individual affiliate links</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-600 font-bold">•</span>
+                    <span>Track performance per product (clicks, conversions, commissions)</span>
+                  </li>
+                </ul>
+                <p className="text-xs text-purple-700 mt-3 font-medium">
+                  📁 After saving, go to Admin Dashboard → Products tab → Upload CSV
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* CJ Affiliate Specific Fields */}
         {formData.affiliate_network === 'CJ Affiliate' && (
@@ -382,8 +429,8 @@ export default function CreateCampaignPage() {
                 </label>
                 <input
                   type="text"
-                  name="amazon_tracking_id"
-                  value={formData.cj_advertiser_id} // Reusing field for Amazon
+                  name="cj_advertiser_id"
+                  value={formData.cj_advertiser_id}
                   onChange={handleChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
                   placeholder="Amazon Tracking ID (e.g., yourstore-20)"

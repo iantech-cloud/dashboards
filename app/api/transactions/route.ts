@@ -1,12 +1,10 @@
-// app/api/transactions/route.ts - COMPLETELY FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server';
 import { Transaction, MpesaTransaction, Profile, connectToDatabase } from '@/app/lib/models';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json(
         { success: false, message: 'Unauthorized' },
@@ -33,10 +31,10 @@ export async function GET(request: NextRequest) {
     const endDate = searchParams.get('endDate');
     const includeMpesaDetails = searchParams.get('includeMpesaDetails') === 'true';
 
-    // ✅ FIXED: Get user's transactions with backward compatibility
+    // Get user's transactions with backward compatibility
     const filter: any = { 
       user_id: currentUser._id.toString(),
-      // ✅ CRITICAL FIX: Support both old (no target_type) and new (with target_type) transactions
+      // CRITICAL FIX: Support both old (no target_type) and new (with target_type) transactions
       $or: [
         { target_type: 'user' },
         { target_type: { $exists: false } } // Include old transactions without target_type
@@ -97,7 +95,7 @@ export async function GET(request: NextRequest) {
         }
 
         const mpesaReceiptNumber = transaction.metadata?.mpesaReceiptNumber || 
-                                    transaction.transaction_code;
+                                     transaction.transaction_code;
 
         return {
           id: transaction._id?.toString(),
@@ -109,7 +107,7 @@ export async function GET(request: NextRequest) {
           transaction_code: transaction.transaction_code,
           mpesa_receipt_number: mpesaReceiptNumber,
           user_id: transaction.user_id,
-          // ✅ FIXED: Provide default for old transactions
+          // FIXED: Provide default for old transactions
           target_type: transaction.target_type || 'user',
           target_id: transaction.target_id?.toString() || transaction.user_id?.toString(),
           metadata: transaction.metadata || {},
@@ -151,7 +149,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json(
         { success: false, message: 'Unauthorized' },
@@ -260,10 +258,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ✅ CRITICAL FIX: Add target_type and target_id
+    // CRITICAL FIX: Add target_type and target_id
     const newTransaction = await Transaction.create({
-      target_type: 'user', // ✅ FIXED: Always 'user' for API-created transactions
-      target_id: currentUser._id.toString(), // ✅ FIXED: Set target_id
+      target_type: 'user', // FIXED: Always 'user' for API-created transactions
+      target_id: currentUser._id.toString(), // FIXED: Set target_id
       user_id: currentUser._id.toString(),
       amount_cents: amountCents,
       type,
@@ -341,7 +339,7 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * ✅ FIXED: Update user balance helper with proper error handling
+ * FIXED: Update user balance helper with proper error handling
  */
 async function updateUserBalance(userId: string, type: string, amountCents: number) {
   try {
@@ -395,7 +393,7 @@ async function updateUserBalance(userId: string, type: string, amountCents: numb
 
 export async function PATCH(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json(
         { success: false, message: 'Unauthorized' },
@@ -450,7 +448,7 @@ export async function PATCH(request: NextRequest) {
       updateData.metadata = { ...transaction.metadata, ...metadata };
     }
 
-    // ✅ FIXED: Ensure target fields are preserved if missing
+    // FIXED: Ensure target fields are preserved if missing
     if (!transaction.target_type) {
       updateData.target_type = 'user';
     }
@@ -527,3 +525,4 @@ export async function PATCH(request: NextRequest) {
     );
   }
 }
+

@@ -1,13 +1,10 @@
-// app/api/admin/transactions/route.ts - COMPLETE FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth'; 
 import { connectToDatabase, Profile, Transaction } from '@/app/lib/models';
 
 export async function GET(request: NextRequest) {
   try {
-    // 1. Check admin authentication
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user?.email) {
       return NextResponse.json(
@@ -18,7 +15,6 @@ export async function GET(request: NextRequest) {
 
     await connectToDatabase();
 
-    // 2. Verify admin role
     const user = await Profile.findOne({ email: session.user.email });
     if (!user || user.role !== 'admin') {
       return NextResponse.json(
@@ -27,7 +23,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 3. Get query parameters
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '1000');
     const type = searchParams.get('type') || 'all';
@@ -35,7 +30,6 @@ export async function GET(request: NextRequest) {
     const dateFrom = searchParams.get('dateFrom') || '';
     const dateTo = searchParams.get('dateTo') || '';
 
-    // 4. Build query
     let query: any = {};
     
     if (type && type !== 'all') {
@@ -56,7 +50,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 5. Fetch transactions with user and M-Pesa details
     const transactions = await Transaction.find(query)
       .populate('user_id', 'username email')
       .populate('mpesa_transaction_id', 'mpesa_receipt_number phone_number')
@@ -64,7 +57,6 @@ export async function GET(request: NextRequest) {
       .limit(limit)
       .lean();
 
-    // 6. Transform transactions - CRITICAL: Include target_type and target_id
     const transformedTransactions = transactions.map((txn: any) => ({
       id: txn._id.toString(),
       user_id: txn.user_id?._id?.toString() || null,
@@ -80,16 +72,13 @@ export async function GET(request: NextRequest) {
       phone_number: txn.mpesa_transaction_id?.phone_number,
       metadata: txn.metadata,
       
-      // CRITICAL: These fields are required for proper company/user separation
-      target_type: txn.target_type || 'user', // Default to 'user' for backward compatibility
+      target_type: txn.target_type || 'user', 
       target_id: txn.target_id?.toString() || txn.user_id?._id?.toString() || null,
       
-      // Additional fields
       source: txn.source || 'wallet',
       reconciled: txn.reconciled || false
     }));
 
-    // 7. Return response
     return NextResponse.json({
       success: true,
       data: { 
@@ -111,3 +100,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
