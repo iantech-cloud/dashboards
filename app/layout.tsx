@@ -11,34 +11,28 @@ import { auth } from '@/auth';
 export const metadata: Metadata = {
   metadataBase: new URL('https://hustlehubafrica.com'),
   title: {
-    template: '%s | Hustle Hub Africa - Earn Money Online in Kenya',
-    default: 'HustleHub Africa - Ways to Make Money Online in Kenya | Earn for Life Referral Program',
+    template: '%s | Hustle Hub Africa',
+    default: 'Hustle Hub Africa - Earn Money Online in Kenya',
   },
-  description: 'Discover multiple ways to make money online in Kenya with HustleHub Africa. Join our earn for life referral program, complete paid surveys, academic writing jobs, and more. Easy way to make money online in Kenya with instant M-Pesa withdrawals. Start earning today!',
+  description: 'Discover multiple ways to make money online in Kenya with Hustle Hub Africa. Join our referral program, complete paid surveys, academic writing jobs, and more. Instant M-Pesa withdrawals. Start earning today!',
   keywords: [
-    'earn for life referral program',
     'earn money online in kenya',
-    'easy way to make money online in kenya',
-    'how can i make money online in kenya',
-    'how to make money online kenya',
-    'hustle hub',
-    'hustlehub',
     'make money online kenya',
-    'ways of making money in kenya',
-    'ways to make money in kenya',
-    'ways to make money online in kenya',
     'online jobs in kenya',
     'work from home kenya',
     'freelance jobs kenya',
     'paid surveys kenya',
     'academic writing jobs kenya',
+    'referral program kenya',
     'm-pesa withdrawals',
     'content writing jobs kenya',
-    'airtime reselling kenya'
+    'airtime reselling kenya',
+    'hustle hub africa',
+    'kenya online jobs'
   ],
-  authors: [{ name: 'HustleHub Africa Team' }],
-  creator: 'HustleHub Africa',
-  publisher: 'HustleHub Africa',
+  authors: [{ name: 'Hustle Hub Africa Team' }],
+  creator: 'Hustle Hub Africa',
+  publisher: 'Hustle Hub Africa',
   formatDetection: {
     email: false,
     address: false,
@@ -72,22 +66,16 @@ export const metadata: Metadata = {
     type: 'website',
     locale: 'en_KE',
     url: 'https://hustlehubafrica.com',
-    siteName: 'HustleHub Africa',
-    title: 'HustleHub Africa - Ways to Make Money Online in Kenya',
-    description: 'Join 10,000+ Kenyans earning through our platform. Multiple income streams including referral program, surveys, academic writing & more. Instant M-Pesa withdrawals.',
+    siteName: 'Hustle Hub Africa',
+    title: 'Hustle Hub Africa - Earn Money Online in Kenya',
+    description: 'Join Kenyans earning through our platform. Multiple income streams including referral program, surveys, academic writing & more. Instant M-Pesa withdrawals.',
     images: [
       {
         url: '/og-image.png',
         width: 1200,
         height: 630,
-        alt: 'HustleHub Africa - Earn Money Online in Kenya',
+        alt: 'Hustle Hub Africa - Earn Money Online in Kenya',
         type: 'image/png',
-      },
-      {
-        url: '/hero-desktop.png',
-        width: 1000,
-        height: 760,
-        alt: 'HustleHub Africa Dashboard',
       },
     ],
   },
@@ -97,8 +85,8 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     site: '@HustleHubAfrica',
     creator: '@HustleHubAfrica',
-    title: 'HustleHub Africa - Ways to Make Money Online in Kenya',
-    description: 'Join 10,000+ Kenyans earning through surveys, writing, referrals & more. Instant M-Pesa withdrawals. Start earning today!',
+    title: 'Hustle Hub Africa - Earn Money Online',
+    description: 'Join Kenyans earning through surveys, writing, referrals & more. Instant M-Pesa withdrawals.',
     images: ['/og-image.png'],
   },
   
@@ -119,7 +107,6 @@ export const metadata: Metadata = {
   verification: {
     google: 'your-google-verification-code',
     yandex: 'your-yandex-verification-code',
-    // Add other verification codes as needed
   },
   
   // Alternate Languages (if applicable)
@@ -133,14 +120,6 @@ export const metadata: Metadata = {
   
   // Category
   category: 'Business',
-  
-  // Additional metadata
-  other: {
-    'mobile-web-app-capable': 'yes',
-    'apple-mobile-web-app-capable': 'yes',
-    'apple-mobile-web-app-status-bar-style': 'default',
-    'apple-mobile-web-app-title': 'HustleHub',
-  },
 };
 
 export const viewport: Viewport = {
@@ -177,8 +156,7 @@ export default async function RootLayout({
   const organizationSchema = {
     '@context': 'https://schema.org',
     '@type': 'Organization',
-    name: 'HustleHub Africa',
-    alternateName: 'Hustle Hub',
+    name: 'Hustle Hub Africa',
     url: 'https://hustlehubafrica.com',
     logo: 'https://hustlehubafrica.com/logo.png',
     description: 'Leading platform for earning money online in Kenya through multiple income streams',
@@ -197,7 +175,6 @@ export default async function RootLayout({
     sameAs: [
       'https://www.facebook.com/HustleHubAfrica',
       'https://twitter.com/HustleHubAfrica',
-      'https://www.linkedin.com/company/hustlehubafrica',
       'https://www.instagram.com/hustlehubafrica',
     ],
   };
@@ -206,7 +183,7 @@ export default async function RootLayout({
   const websiteSchema = {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
-    name: 'HustleHub Africa',
+    name: 'Hustle Hub Africa',
     url: 'https://hustlehubafrica.com',
     description: 'Earn money online in Kenya through multiple income streams',
     potentialAction: {
@@ -226,7 +203,7 @@ export default async function RootLayout({
     serviceType: 'Online Income Platform',
     provider: {
       '@type': 'Organization',
-      name: 'HustleHub Africa',
+      name: 'Hustle Hub Africa',
     },
     areaServed: {
       '@type': 'Country',
@@ -241,7 +218,7 @@ export default async function RootLayout({
           itemOffered: {
             '@type': 'Service',
             name: 'Referral Program',
-            description: 'Earn for life referral program with recurring commissions',
+            description: 'Referral program with recurring commissions',
           },
         },
         {
@@ -257,23 +234,7 @@ export default async function RootLayout({
           itemOffered: {
             '@type': 'Service',
             name: 'Academic Writing',
-            description: 'Write academic papers and essays for students',
-          },
-        },
-        {
-          '@type': 'Offer',
-          itemOffered: {
-            '@type': 'Service',
-            name: 'Content Writing',
-            description: 'Create blog posts and articles for businesses',
-          },
-        },
-        {
-          '@type': 'Offer',
-          itemOffered: {
-            '@type': 'Service',
-            name: 'Airtime Reselling',
-            description: 'Become an airtime vendor and earn profit margins',
+            description: 'Write academic papers and essays',
           },
         },
       ],
@@ -290,15 +251,15 @@ export default async function RootLayout({
         name: 'How can I make money online in Kenya?',
         acceptedAnswer: {
           '@type': 'Answer',
-          text: 'You can make money online in Kenya through HustleHub Africa by completing paid surveys, academic writing, content writing, airtime reselling, participating in our referral program, and more. We offer 9 different income streams on one platform.',
+          text: 'You can make money online in Kenya through Hustle Hub Africa by completing paid surveys, academic writing, content writing, airtime reselling, and participating in our referral program.',
         },
       },
       {
         '@type': 'Question',
-        name: 'What is the earn for life referral program?',
+        name: 'What is the referral program?',
         acceptedAnswer: {
           '@type': 'Answer',
-          text: 'Our earn for life referral program allows you to earn recurring commissions from your referrals activities. Unlike one-time bonuses, you build a sustainable passive income stream by referring friends and family to HustleHub Africa.',
+          text: 'Our referral program allows you to earn commissions from your referrals activities and build passive income streams.',
         },
       },
       {
@@ -306,30 +267,8 @@ export default async function RootLayout({
         name: 'How do I withdraw my earnings?',
         acceptedAnswer: {
           '@type': 'Answer',
-          text: 'Withdrawals are instant via M-Pesa. Request a withdrawal anytime and receive your money within minutes directly to your M-Pesa account.',
+          text: 'Withdrawals are instant via M-Pesa. Request a withdrawal and receive your money within minutes.',
         },
-      },
-      {
-        '@type': 'Question',
-        name: 'What is the registration fee?',
-        acceptedAnswer: {
-          '@type': 'Answer',
-          text: 'There is a one-time registration fee of Ksh 1000 to join HustleHub Africa. This gives you lifetime access to all earning methods on the platform.',
-        },
-      },
-    ],
-  };
-
-  // Structured Data - BreadcrumbList Schema
-  const breadcrumbSchema = {
-    '@context': 'https://schema.org',
-    '@type': 'BreadcrumbList',
-    itemListElement: [
-      {
-        '@type': 'ListItem',
-        position: 1,
-        name: 'Home',
-        item: 'https://hustlehubafrica.com',
       },
     ],
   };
@@ -364,13 +303,6 @@ export default async function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify(faqSchema),
-          }}
-        />
-        <Script
-          id="breadcrumb-schema"
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify(breadcrumbSchema),
           }}
         />
 
@@ -413,16 +345,13 @@ export default async function RootLayout({
           strategy="afterInteractive"
         />
 
-        {/* Preconnect to External Domains (Performance Optimization) */}
+        {/* Preconnect to External Domains */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://cdn.jsdelivr.net" />
         
         {/* DNS Prefetch for Performance */}
         <link rel="dns-prefetch" href="https://www.google-analytics.com" />
-        
-        {/* Canonical URL */}
-        <link rel="canonical" href="https://hustlehubafrica.com" />
       </head>
       <body className={`${timesNewRoman.className} antialiased`}>
         {/* Pass the session to SessionProvider */}
