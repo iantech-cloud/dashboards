@@ -648,21 +648,19 @@ export async function activateUserAccount(userId: string): Promise<{
     // 6. Calculate final balances for logging
     const totalBonusesPaid = (directReferralBonus?.amount_cents || 0) + (level1ReferralBonus?.amount_cents || 0);
     const finalCompanyBalance = company.wallet_balance_cents;
+    const netCompanyRevenue = ACTIVATION_FEE_CENTS - totalBonusesPaid;
     
     console.log(`\n💰 ACTIVATION SUMMARY for ${user.username}:`);
     console.log(`   Initial Company Credit: +KES 1,000`);
     console.log(`   Direct Bonus Paid: -KES ${(directReferralBonus?.amount_cents || 0) / 100}`);
     console.log(`   Level 1 Bonus Paid: -KES ${(level1ReferralBonus?.amount_cents || 0) / 100}`);
     console.log(`   Final Company Balance: KES ${finalCompanyBalance / 100}`);
-    console.log(`   Company Net from this activation: KES ${(ACTIVATION_FEE_CENTS - totalBonusesPaid) / 100}\n`);
+    console.log(`   Company Net from this activation: KES ${netCompanyRevenue / 100}\n`);
 
     // Save user changes
     await user.save({ session });
 
     // Log the activation
-    const totalBonusesPaid = (directReferralBonus?.amount_cents || 0) + (level1ReferralBonus?.amount_cents || 0);
-    const netCompanyRevenue = ACTIVATION_FEE_CENTS - totalBonusesPaid;
-
     const auditLog = new AdminAuditLog({
       actor_id: admin._id,
       action: 'ACTIVATE_USER',
