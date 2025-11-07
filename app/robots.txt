@@ -1,0 +1,54 @@
+# HustleHub Africa - Robots.txt
+# https://hustlehubafrica.com/robots.txt
+
+# Allow all search engines
+User-agent: *
+Allow: /
+
+# Disallow admin and private areas
+Disallow: /admin/
+Disallow: /api/
+Disallow: /dashboard/private/
+Disallow: /_next/
+Disallow: /auth/
+
+# Allow specific public pages
+Allow: /auth/sign-up
+Allow: /auth/login
+
+# Crawl delay (optional, adjust based on server capacity)
+Crawl-delay: 0.5
+
+# Sitemap location
+Sitemap: https://hustlehubafrica.com/sitemap.xml
+Sitemap: https://hustlehubafrica.com/sitemap-0.xml
+
+# Specific search engine rules
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 0.2
+
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 0.5
+
+User-agent: Slurp
+Allow: /
+Crawl-delay: 1
+
+# Block bad bots
+User-agent: AhrefsBot
+Crawl-delay: 2
+
+User-agent: SemrushBot
+Crawl-delay: 2
+
+# Block spam bots
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: dotbot
+Disallow: /
+
+User-agent: SeznamBot
+Disallow: /

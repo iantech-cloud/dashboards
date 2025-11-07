@@ -21,11 +21,14 @@ const TransactionTypes = [
   'SPIN_WIN',
   'REFERRAL',
   'SURVEY',
+  'SURVEY_REVOKE',
   'ACTIVATION_FEE',
   'COMPANY_REVENUE',
   'ACCOUNT_ACTIVATION',
   'SPIN_COST',
-  'SPIN_PRIZE'
+  'SPIN_PRIZE',
+  'ADMIN_CREDIT',
+  'ADMIN_DEBIT'
 ] as const;
 const InvoiceStatuses = ['pending', 'paid'] as const;
 const BlogPostStatuses = ['draft', 'published', 'archived'] as const;

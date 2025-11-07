@@ -538,9 +538,11 @@ export async function submitSurveyAnswers(
         }
       )
 
-      // Create transaction record
+      // FIXED: Create transaction record with required target_type and target_id fields
       const transaction = new Transaction({
         user_id: userId,
+        target_type: 'user',
+        target_id: userId,
         amount_cents: survey.payout_cents,
         type: "SURVEY",
         description: `Survey completion: ${survey.title}`,
@@ -1246,6 +1248,7 @@ export async function revokeSurveyResponse(
       if (response.payout_credited) {
         const survey = response.survey_id as any
         
+        // Deduct from user balance
         await Profile.updateOne(
           { _id: response.user_id },
           {
@@ -1257,9 +1260,11 @@ export async function revokeSurveyResponse(
           { session: sessionMongo }
         )
 
-        // Create reversal transaction
-        const transaction = new Transaction({
+        // Create user debit transaction (red/negative for user)
+        const userTransaction = new Transaction({
           user_id: response.user_id,
+          target_type: 'user',
+          target_id: response.user_id,
           amount_cents: -survey.payout_cents,
           type: "SURVEY_REVOKE",
           description: `Survey payment revoked: ${survey.title}`,
@@ -1268,9 +1273,48 @@ export async function revokeSurveyResponse(
             survey_id: survey._id.toString(),
             survey_response_id: responseObjectId.toString(),
             revoke_reason: reason,
+            revoked_by: adminUser._id,
           },
         })
-        await transaction.save({ session: sessionMongo })
+        await userTransaction.save({ session: sessionMongo })
+
+        // ============================================================================
+        // CREDIT COMPANY - Money comes back to company when survey is revoked
+        // ============================================================================
+        const Company = (await import('@/app/lib/models')).Company;
+        const company = await Company.findOne({ email: 'company@hustlehubafrica.com' }).session(sessionMongo);
+        
+        if (company) {
+          // Credit company balance
+          company.wallet_balance_cents += survey.payout_cents;
+          company.total_expenses_cents -= survey.payout_cents; // Reverse the expense
+          await company.save({ session: sessionMongo });
+
+          // Create company credit transaction (green/positive for company)
+          const companyTransaction = new Transaction({
+            target_type: 'company',
+            target_id: company._id.toString(),
+            user_id: company._id.toString(),
+            amount_cents: survey.payout_cents, // Positive amount for company
+            type: 'SURVEY_REVOKE',
+            description: `Survey payment recovered from ${response.user_id} - ${survey.title}`,
+            status: 'completed',
+            source: 'activation',
+            balance_before_cents: company.wallet_balance_cents - survey.payout_cents,
+            balance_after_cents: company.wallet_balance_cents,
+            metadata: {
+              survey_id: survey._id.toString(),
+              survey_response_id: responseObjectId.toString(),
+              revoke_reason: reason,
+              revoked_by: adminUser._id,
+              user_id: response.user_id,
+              transaction_purpose: 'SURVEY_PAYMENT_RECOVERY'
+            },
+          });
+          await companyTransaction.save({ session: sessionMongo });
+
+          console.log(`✅ Survey revoked: User debited KES ${survey.payout_cents / 100}, Company credited KES ${survey.payout_cents / 100}`);
+        }
       }
 
       // Mark response as revoked

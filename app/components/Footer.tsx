@@ -41,7 +41,7 @@ const Footer: React.FC = () => (
         <h4 className="text-white font-semibold mb-3">Contact Us</h4>
         <ul className="space-y-2 text-sm">
           <li><a href="mailto:support@hustlehubafrica.com" className="hover:text-indigo-400 transition-colors">support@hustlehubafrica.com</a></li>
-          <li>+254 700 000 000</li>
+          <li>+254 748 264 231</li>
           <li>Nairobi, Kenya</li>
         </ul>
       </div>
