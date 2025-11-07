@@ -121,12 +121,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [hasAttemptedFetch, setHasAttemptedFetch] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [shouldCheckStatus, setShouldCheckStatus] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
     
   const { data: session, status, update } = useSession();
 
+  // Fix: Ensure component is mounted before any state updates that might trigger navigation
   useEffect(() => {
+    setIsMounted(true);
+    return () => setIsMounted(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isMounted) return;
+    
     console.log('🔐 DASHBOARD LAYOUT - Session changed:', {
       status,
       hasSession: !!session,
@@ -135,7 +144,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       userEmail: session?.user?.email,
       fullSession: session
     });
-  }, [session, status]);
+  }, [session, status, isMounted]);
 
   const getCurrentSection = () => {
     if (pathname?.includes('/dashboard/content')) return 'content';
@@ -150,12 +159,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   const externalApiToken = useMemo(() => {
+    if (!isMounted) return null;
+    
     console.log('🔄 External API Token update:', { 
       hasToken: !!(session as any)?.accessToken,
       sessionKeys: session ? Object.keys(session) : 'no session'
     });
     return (session as any)?.accessToken || null; 
-  }, [session]);
+  }, [session, isMounted]);
 
   const authenticatedApiFetch = useCallback(
     <T,>(endpoint: string, method: 'GET' | 'POST', data?: any) => 
@@ -164,6 +175,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
 
   const fetchUser = useCallback(async () => {
+    if (!isMounted) return false;
+    
     console.log('🔄 fetchUser called:', { 
       status, 
       hasUserId: !!session?.user?.id,
@@ -192,6 +205,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       console.log('📊 fetchUser: Profile result:', profileResult);
       
       if (!profileResult.success || !profileResult.data) {
+        // Don't throw error for unauthorized - just handle gracefully
+        if (profileResult.message?.includes('Unauthorized') || profileResult.message?.includes('401')) {
+          console.log('🔐 fetchUser: Unauthorized - likely logged out');
+          setError('Session expired. Please log in again.');
+          setLoadingApp(false);
+          return false;
+        }
         throw new Error(profileResult.message || 'Failed to fetch user data');
       }
 
@@ -234,15 +254,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       setHasAttemptedFetch(false);
       return false;
     }
-  }, [status, session, hasAttemptedFetch]);
+  }, [status, session, hasAttemptedFetch, isMounted]);
 
   const checkUserStatus = useCallback(async (userToCheck: User) => {
+    if (!isMounted) return;
+    
     console.log('👤 User status check:', userToCheck);
 
     if (userToCheck.status === 'banned') {
       await signOut({ redirect: false });
       console.log('Redirecting to /auth/login (banned)');
-      router.push(`/auth/login?status=banned&reason=${encodeURIComponent(userToCheck.banReason || 'Your account has been permanently banned.')}`);
+      // Use setTimeout to avoid React state update during render
+      setTimeout(() => {
+        router.push(`/auth/login?status=banned&reason=${encodeURIComponent(userToCheck.banReason || 'Your account has been permanently banned.')}`);
+      }, 0);
       return;
     }
 
@@ -254,7 +279,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         let message = `Your account has been suspended. Until: ${new Date(userToCheck.suspendedAt).toLocaleString()}.`;
         if (userToCheck.suspensionReason) message += ` Reason: ${userToCheck.suspensionReason}`;
         console.log('Redirecting to /auth/login (suspended)');
-        router.push(`/auth/login?status=suspended&message=${encodeURIComponent(message)}`);
+        setTimeout(() => {
+          router.push(`/auth/login?status=suspended&message=${encodeURIComponent(message)}`);
+        }, 0);
       } else {
         const unsuspendResult = await authenticatedApiFetch('/api/unsuspend', 'POST', { userId: userToCheck.id });
         console.log('Unsuspend result (API call):', unsuspendResult);
@@ -268,25 +295,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (!userToCheck.isVerified) {
       await signOut({ redirect: false });
       console.log('Redirecting to /auth/login (unverified)');
-      router.push(`/auth/login?status=unverified_email&email=${encodeURIComponent(userToCheck.email || '')}`);
+      setTimeout(() => {
+        router.push(`/auth/login?status=unverified_email&email=${encodeURIComponent(userToCheck.email || '')}`);
+      }, 0);
       return;
     }
 
     if (!userToCheck.isActive) {
       console.log('Redirecting to /activate');
-      router.push('/activate');
+      setTimeout(() => {
+        router.push('/activate');
+      }, 0);
       return;
     }
 
     if (!userToCheck.isApproved) {
       console.log('Redirecting to /pending-approval');
-      router.push('/pending-approval');
+      setTimeout(() => {
+        router.push('/pending-approval');
+      }, 0);
       return;
     }
-  }, [authenticatedApiFetch, router]);
+  }, [authenticatedApiFetch, router, isMounted]);
 
   const fetchMpesaChangeRequests = useCallback(async () => {
-    if (!user) return;
+    if (!user || !isMounted) return;
     
     const result = await authenticatedApiFetch<any[]>('/api/mpesa-change-requests', 'GET');
     console.log('fetchMpesaChangeRequests result:', result);
@@ -305,9 +338,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
       }
     }
-  }, [user, authenticatedApiFetch]);
+  }, [user, authenticatedApiFetch, isMounted]);
 
+  // Main auth effect - fixed to prevent state updates during render
   useEffect(() => {
+    if (!isMounted) return;
+    
     console.log('🎯 Auth useEffect:', { 
       status, 
       hasSession: !!session, 
@@ -325,7 +361,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (status === 'unauthenticated') {
       console.log('🚫 Unauthenticated - redirecting to login');
       setLoadingApp(false);
-      router.push('/auth/login');
+      setTimeout(() => {
+        router.push('/auth/login');
+      }, 0);
       return;
     }
 
@@ -344,39 +382,62 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         return () => clearTimeout(timer);
       } else {
         console.log('⚠️ Session authenticated but user.id not available yet - waiting...');
-        update();
+        // Don't call update during render - use timeout
+        setTimeout(() => {
+          update();
+        }, 0);
       }
     }
-  }, [status, session, user, fetchUser, router, update, hasAttemptedFetch]);
+  }, [status, session, user, fetchUser, router, update, hasAttemptedFetch, isMounted]);
 
   useEffect(() => {
+    if (!isMounted) return;
+    
     if (shouldCheckStatus && user) {
       console.log('👤 User data loaded, running status checks');
       checkUserStatus(user);
       fetchMpesaChangeRequests();
       setShouldCheckStatus(false);
     }
-  }, [shouldCheckStatus, user, checkUserStatus, fetchMpesaChangeRequests]);
+  }, [shouldCheckStatus, user, checkUserStatus, fetchMpesaChangeRequests, isMounted]);
 
   const handleLogout = useCallback(async () => {
-    if (isLoggingOut) return;
+    if (isLoggingOut || !isMounted) return;
     
     setIsLoggingOut(true);
     try {
-      await authenticatedApiFetch('/api/auth/logout', 'POST'); 
-    } catch(e) {
-      console.warn("Custom logout API call failed, proceeding with NextAuth signOut.", e);
+      // Clear local state first to prevent any further API calls
+      setUser(null);
+      setError(null);
+      setLoadingApp(false);
+      setHasAttemptedFetch(false);
+      
+      // Then call logout APIs
+      try {
+        await authenticatedApiFetch('/api/auth/logout', 'POST'); 
+      } catch(e) {
+        console.warn("Custom logout API call failed, proceeding with NextAuth signOut.", e);
+      }
+      
+      await signOut({ redirect: false });
+      console.log('Logging out, redirecting to /auth/login');
+      
+      // Use setTimeout to avoid React state updates during render
+      setTimeout(() => {
+        router.push('/auth/login');
+      }, 0);
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Even if there's an error, still redirect to login
+      setTimeout(() => {
+        router.push('/auth/login');
+      }, 0);
+    } finally {
+      if (isMounted) {
+        setIsLoggingOut(false);
+      }
     }
-    
-    setUser(null);
-    setError(null);
-    setLoadingApp(false);
-    setHasAttemptedFetch(false);
-    await signOut({ redirect: false });
-    console.log('Logging out, redirecting to /auth/login');
-    
-    router.push('/auth/login');
-  }, [authenticatedApiFetch, router, isLoggingOut]);
+  }, [authenticatedApiFetch, router, isLoggingOut, isMounted]);
 
   const isOverallLoading = 
     status === 'loading' || 
@@ -391,6 +452,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     hasUser: !!user,
     userId: session?.user?.id
   });
+
+  // Don't render anything until component is mounted to avoid hydration issues
+  if (!isMounted) {
+    return (
+      <div className="flex justify-center items-center h-full min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-cyan-50/30">
+        <div className="text-center">
+          <div className="relative inline-flex">
+            <Loader2 className="animate-spin text-blue-600 w-12 h-12" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isOverallLoading) {
     console.log('⏳ Layout: Loading - status:', status, 'hasUserId:', !!session?.user?.id, 'loadingApp:', loadingApp, 'hasUser:', !!user);
@@ -437,7 +511,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (status === 'authenticated' && session?.user?.id && !user && !loadingApp) {
     console.log('🔄 Layout: Should have user but none found - attempting refetch');
     if (!hasAttemptedFetch) {
-      fetchUser();
+      // Use timeout to avoid state update during render
+      setTimeout(() => {
+        fetchUser();
+      }, 0);
     }
     return (
       <div className="flex justify-center items-center h-full min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-cyan-50/30">

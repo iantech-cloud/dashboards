@@ -3,7 +3,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
-import { connectToDatabase, Profile, Transaction, Referral, AdminAuditLog } from '../lib/models';
+import { connectToDatabase, Profile, Transaction, Referral, AdminAuditLog, Company } from '../lib/models';
 import { Types } from 'mongoose';
 
 // Helper to check admin access
@@ -26,6 +26,33 @@ async function checkAdminAccess() {
   }
 
   return user;
+}
+
+// Helper to get or create company
+async function getOrCreateCompany() {
+  await connectToDatabase();
+  
+  let company = await Company.findOne({ email: 'company@hustlehubafrica.com' });
+  
+  if (!company) {
+    company = await Company.create({
+      name: 'HustleHub Africa Ltd',
+      email: 'company@hustlehubafrica.com',
+      phone_number: '+254700000000',
+      wallet_balance_cents: 0,
+      total_revenue_cents: 0,
+      total_expenses_cents: 0,
+      activation_revenue_cents: 0,
+      unclaimed_referral_revenue_cents: 0,
+      content_payment_revenue_cents: 0,
+      other_revenue_cents: 0,
+      is_active: true
+    });
+    
+    console.log('✅ Company profile created:', company._id);
+  }
+  
+  return company;
 }
 
 // Helper to serialize data
@@ -295,7 +322,7 @@ export async function rejectUserAccount(userId: string, rejectionReason: string)
   }
 }
 
-// Activate user account with financial logic (KSH 1,000 activation fee)
+// Activate user account with NEW TIERED financial logic (KSH 1,000 activation fee)
 export async function activateUserAccount(userId: string): Promise<{
   success: boolean;
   message: string;
@@ -325,8 +352,6 @@ export async function activateUserAccount(userId: string): Promise<{
 
     // Constants for activation fee split
     const ACTIVATION_FEE_CENTS = 100000; // KSH 1,000
-    const COMPANY_REVENUE_CENTS = 30000;  // KSH 300
-    const REFERRAL_BONUS_CENTS = 70000;   // KSH 700
 
     // 1. Check if user has sufficient balance for activation fee
     let feeDeducted = false;
@@ -340,7 +365,7 @@ export async function activateUserAccount(userId: string): Promise<{
       activationTransaction = new Transaction({
         user_id: userId,
         target_type: 'user',
-  	target_id: userId, 
+        target_id: userId, 
         amount_cents: -ACTIVATION_FEE_CENTS,
         type: 'ACTIVATION_FEE',
         description: 'Account activation fee deduction',
@@ -355,22 +380,26 @@ export async function activateUserAccount(userId: string): Promise<{
       });
       await activationTransaction.save({ session });
     } else {
-      // Create record for admin-activated without deduction
+      // CRITICAL FIX: Even if user doesn't pay, record KES 1,000 as activation transaction
+      // This represents the value of the activation that company is providing
+      feeDeducted = false;
+
       activationTransaction = new Transaction({
         user_id: userId,
         target_type: 'user', 
-	target_id: userId,
-        amount_cents: 0,
-        type: 'BONUS',
-        description: 'Account activated by admin (activation fee waived)',
+        target_id: userId,
+        amount_cents: ACTIVATION_FEE_CENTS, // CHANGED: Record full amount, not 0
+        type: 'BONUS', // This is a bonus/gift from company
+        description: 'Account activated by admin - activation fee credited as bonus',
         status: 'completed',
         metadata: {
           activation_fee: ACTIVATION_FEE_CENTS,
           processed_by: admin._id,
           fee_deducted: false,
           admin_override: true,
-          reason: 'Automatic payment failed or admin override',
-          transaction_purpose: 'ACCOUNT_ACTIVATION'
+          reason: 'Admin activated - user receives KES 1,000 value as activation bonus',
+          transaction_purpose: 'ACCOUNT_ACTIVATION',
+          is_gift_activation: true
         },
       });
       await activationTransaction.save({ session });
@@ -381,7 +410,8 @@ export async function activateUserAccount(userId: string): Promise<{
     user.status = 'active';
     user.activation_paid_at = new Date();
     user.activation_transaction_id = activationTransaction._id;
-    user.activation_method = 'manual'; // Since admin is activating manually
+    user.activation_method = 'manual';
+    user.activation_status = 'activated'; // NEW FIELD
 
     // 3. Auto-approve user if not already approved
     if (user.approval_status !== 'approved') {
@@ -391,116 +421,248 @@ export async function activateUserAccount(userId: string): Promise<{
       user.approval_at = new Date();
     }
 
-    // 4. Credit company revenue to the designated company account
-    const companyUser = await Profile.findOne({ email: 'lesylvanuss@gmail.com' }).session(session);
-    if (!companyUser) {
-      await session.abortTransaction();
-      return { success: false, message: 'Company account not found' };
-    }
+    // 4. Get or create company account
+    const company = await getOrCreateCompany();
 
-    // Always credit company - this is revenue regardless of user payment
-    companyUser.balance_cents += COMPANY_REVENUE_CENTS;
-    companyUser.total_earnings_cents += COMPANY_REVENUE_CENTS;
-    await companyUser.save({ session });
+    // ============================================================================
+    // CRITICAL FIX: Always credit company with full KES 1,000 activation fee first
+    // This ensures company balance is never negative, regardless of who pays
+    // ============================================================================
+    company.wallet_balance_cents += ACTIVATION_FEE_CENTS;
+    company.total_revenue_cents += ACTIVATION_FEE_CENTS;
+    company.activation_revenue_cents += ACTIVATION_FEE_CENTS;
+    await company.save({ session });
 
-    // Create company revenue transaction
-    const companyTransaction = new Transaction({
-      user_id: companyUser._id,
-      target_type: 'company',        // ADD THIS
-      target_id: companyUser._id,    // ADD THIS
-      amount_cents: COMPANY_REVENUE_CENTS,
-      type: 'COMPANY_REVENUE',
-      description: `Activation fee revenue share from ${user.username}`,
+    // Create company revenue transaction for the FULL activation fee
+    const initialCompanyTransaction = new Transaction({
+      target_type: 'company',
+      target_id: company._id.toString(),
+      user_id: userId,
+      amount_cents: ACTIVATION_FEE_CENTS,
+      type: 'ACTIVATION_FEE',
+      description: `Activation fee received from ${user.username} ${feeDeducted ? '(paid by user)' : '(admin activated)'}`,
       status: 'completed',
+      source: 'activation',
+      balance_before_cents: company.wallet_balance_cents - ACTIVATION_FEE_CENTS,
+      balance_after_cents: company.wallet_balance_cents,
       metadata: {
         source_user_id: userId,
         activation_fee: ACTIVATION_FEE_CENTS,
-        revenue_share: COMPANY_REVENUE_CENTS,
-        user_fee_deducted: feeDeducted,
+        user_paid: feeDeducted,
+        admin_activated: !feeDeducted,
         admin_processed: admin._id,
-        transaction_purpose: 'COMPANY_REVENUE'
+        transaction_purpose: 'ACTIVATION_FEE_RECEIVED'
       },
     });
-    await companyTransaction.save({ session });
+    await initialCompanyTransaction.save({ session });
 
-    // 5. Award referral bonus (KSH 700) if referrer exists AND is active
-    let referralBonusAwarded = false;
-    let referrerUsername = '';
-    let referrerId = null;
-    
+    console.log(`✅ Company credited with KES 1,000 activation fee from ${user.username}`);
+
+    // 5. Process referral bonuses with NEW TIERED STRUCTURE
+    // NOTE: These will be DEDUCTED from company balance
+    let directReferralBonus = null;
+    let level1ReferralBonus = null;
+
     const referral = await Referral.findOne({ referred_id: userId }).session(session);
+    
     if (referral) {
       const referrer = await Profile.findById(referral.referrer_id).session(session);
+      
       if (referrer && referrer.is_active) {
+        // ===== DIRECT REFERRAL BONUS (TIERED) =====
+        // Count how many direct referrals this referrer has already had activated
+        const activatedDirectReferrals = await Referral.countDocuments({
+          referrer_id: referrer._id,
+          referral_bonus_paid: true,
+          'metadata.level': 0
+        }).session(session);
+
+        // Determine bonus amount: First 2 get 60,000 cents (KES 600), subsequent get 70,000 cents (KES 700)
+        const isFirst2 = activatedDirectReferrals < 2;
+        const DIRECT_BONUS_CENTS = isFirst2 ? 60000 : 70000;
+        const bonusTier = isFirst2 ? 'first_2' : 'subsequent';
+
+        // DEDUCT from company balance as expense
+        company.wallet_balance_cents -= DIRECT_BONUS_CENTS;
+        company.total_expenses_cents += DIRECT_BONUS_CENTS;
+        await company.save({ session });
+
+        // Create company expense transaction
+        const companyExpenseTransaction = new Transaction({
+          target_type: 'company',
+          target_id: company._id.toString(),
+          user_id: company._id.toString(),
+          amount_cents: -DIRECT_BONUS_CENTS,
+          type: 'REFERRAL',
+          description: `Direct referral bonus paid to ${referrer.username} for ${user.username}'s activation (${bonusTier})`,
+          status: 'completed',
+          source: 'activation',
+          balance_before_cents: company.wallet_balance_cents + DIRECT_BONUS_CENTS,
+          balance_after_cents: company.wallet_balance_cents,
+          metadata: {
+            beneficiary_user_id: referrer._id,
+            beneficiary_username: referrer.username,
+            referred_user_id: userId,
+            referred_username: user.username,
+            bonus_tier: bonusTier,
+            level: 0,
+            transaction_purpose: 'REFERRAL_BONUS_PAYMENT'
+          },
+        });
+        await companyExpenseTransaction.save({ session });
+
         // Update referrer's balance and earnings
-        referrer.balance_cents += REFERRAL_BONUS_CENTS;
-        referrer.total_earnings_cents += REFERRAL_BONUS_CENTS;
+        referrer.balance_cents += DIRECT_BONUS_CENTS;
+        referrer.total_earnings_cents += DIRECT_BONUS_CENTS;
         await referrer.save({ session });
 
         // Update referral record
-        referral.earning_cents += REFERRAL_BONUS_CENTS;
+        referral.earning_cents = DIRECT_BONUS_CENTS;
+        referral.referral_bonus_paid = true;
+        referral.referral_bonus_amount_cents = DIRECT_BONUS_CENTS;
+        referral.bonus_paid_at = new Date();
+        referral.status = 'bonus_paid';
         referral.referred_user_activated = true;
         referral.referred_user_activated_at = new Date();
+        referral.metadata = {
+          level: 0,
+          bonus_tier: bonusTier,
+          referrer_activated_count: activatedDirectReferrals
+        };
         await referral.save({ session });
 
         // Create credit transaction for referrer
         const referralTransaction = new Transaction({
           user_id: referrer._id,
-          target_type: 'user',           // ADD THIS
- 	  target_id: referrer._id,       // ADD THIS
-          amount_cents: REFERRAL_BONUS_CENTS,
+          target_type: 'user',
+          target_id: referrer._id,
+          amount_cents: DIRECT_BONUS_CENTS,
           type: 'REFERRAL',
-          description: `Referral bonus from ${user.username}'s account activation`,
+          description: `Direct referral bonus for ${user.username}'s activation (${isFirst2 ? 'First 2' : 'Subsequent'})`,
           status: 'completed',
+          source: 'activation',
+          balance_before_cents: referrer.balance_cents - DIRECT_BONUS_CENTS,
+          balance_after_cents: referrer.balance_cents,
           metadata: {
             referred_user_id: userId,
             referred_username: user.username,
-            activation_fee: ACTIVATION_FEE_CENTS,
-            referral_bonus: REFERRAL_BONUS_CENTS,
-            admin_processed: admin._id,
+            activation_payment_id: activationTransaction._id,
+            referral_id: referral._id,
+            level: 0,
+            bonus_tier: bonusTier,
+            referrer_activated_count: activatedDirectReferrals
           },
         });
         await referralTransaction.save({ session });
 
-        referralBonusAwarded = true;
-        referrerUsername = referrer.username;
-        referrerId = referrer._id;
+        directReferralBonus = {
+          referrer_id: referrer._id,
+          referrer_username: referrer.username,
+          amount_cents: DIRECT_BONUS_CENTS,
+          transaction_id: referralTransaction._id,
+          bonus_tier: bonusTier
+        };
+
+        console.log(`✅ Direct referral bonus paid: ${referrer.username} earned KES ${DIRECT_BONUS_CENTS / 100} (${bonusTier})`);
+        console.log(`   Company balance after bonus: KES ${company.wallet_balance_cents / 100}`);
+
+        // ===== LEVEL 1 DOWNLINE BONUS (KES 100) =====
+        if (referrer.referred_by) {
+          const level1Referrer = await Profile.findById(referrer.referred_by).session(session);
+          
+          if (level1Referrer && level1Referrer.is_active) {
+            const LEVEL1_BONUS_CENTS = 10000; // KES 100
+
+            // DEDUCT from company balance as expense
+            company.wallet_balance_cents -= LEVEL1_BONUS_CENTS;
+            company.total_expenses_cents += LEVEL1_BONUS_CENTS;
+            await company.save({ session });
+
+            // Create company expense transaction for level 1
+            const companyLevel1ExpenseTransaction = new Transaction({
+              target_type: 'company',
+              target_id: company._id.toString(),
+              user_id: company._id.toString(),
+              amount_cents: -LEVEL1_BONUS_CENTS,
+              type: 'REFERRAL',
+              description: `Level 1 downline bonus paid to ${level1Referrer.username} for ${user.username}'s activation`,
+              status: 'completed',
+              source: 'activation',
+              balance_before_cents: company.wallet_balance_cents + LEVEL1_BONUS_CENTS,
+              balance_after_cents: company.wallet_balance_cents,
+              metadata: {
+                beneficiary_user_id: level1Referrer._id,
+                beneficiary_username: level1Referrer.username,
+                referred_user_id: userId,
+                referred_username: user.username,
+                direct_referrer_id: referrer._id,
+                direct_referrer_username: referrer.username,
+                level: 1,
+                transaction_purpose: 'LEVEL1_BONUS_PAYMENT'
+              },
+            });
+            await companyLevel1ExpenseTransaction.save({ session });
+
+            // Update level 1 referrer's balance
+            level1Referrer.balance_cents += LEVEL1_BONUS_CENTS;
+            level1Referrer.total_earnings_cents += LEVEL1_BONUS_CENTS;
+            await level1Referrer.save({ session });
+
+            // Create transaction for level 1 referrer
+            const level1Transaction = new Transaction({
+              user_id: level1Referrer._id,
+              target_type: 'user',
+              target_id: level1Referrer._id,
+              amount_cents: LEVEL1_BONUS_CENTS,
+              type: 'REFERRAL',
+              description: `Level 1 downline bonus for ${user.username}'s activation (via ${referrer.username})`,
+              status: 'completed',
+              source: 'activation',
+              balance_before_cents: level1Referrer.balance_cents - LEVEL1_BONUS_CENTS,
+              balance_after_cents: level1Referrer.balance_cents,
+              metadata: {
+                referred_user_id: userId,
+                referred_username: user.username,
+                direct_referrer_id: referrer._id,
+                direct_referrer_username: referrer.username,
+                activation_payment_id: activationTransaction._id,
+                level: 1
+              },
+            });
+            await level1Transaction.save({ session });
+
+            level1ReferralBonus = {
+              referrer_id: level1Referrer._id,
+              referrer_username: level1Referrer.username,
+              amount_cents: LEVEL1_BONUS_CENTS,
+              transaction_id: level1Transaction._id
+            };
+
+            console.log(`✅ Level 1 downline bonus paid: ${level1Referrer.username} earned KES 100`);
+            console.log(`   Company balance after level 1 bonus: KES ${company.wallet_balance_cents / 100}`);
+          }
+        }
       }
     }
 
-    // If no referrer found or referrer inactive, company gets the remaining amount
-    if (!referralBonusAwarded) {
-      // Credit the remaining amount to company (referral bonus portion)
-      companyUser.balance_cents += REFERRAL_BONUS_CENTS;
-      companyUser.total_earnings_cents += REFERRAL_BONUS_CENTS;
-      await companyUser.save({ session });
-
-      // Create additional company revenue transaction for referral portion
-      const additionalCompanyTransaction = new Transaction({
-        user_id: companyUser._id,
-        target_type: 'company',        // ADD THIS
-  	target_id: companyUser._id,    // ADD THIS
-        amount_cents: REFERRAL_BONUS_CENTS,
-        type: 'COMPANY_REVENUE',
-        description: `Activation fee (unclaimed referral portion) from ${user.username}`,
-        status: 'completed',
-        metadata: {
-          source_user_id: userId,
-          activation_fee: ACTIVATION_FEE_CENTS,
-          revenue_share: REFERRAL_BONUS_CENTS,
-          reason: 'No active referrer found',
-          user_fee_deducted: feeDeducted,
-          admin_processed: admin._id,
-          transaction_purpose: 'COMPANY_REVENUE_REFERRAL_PORTION'
-        },
-      });
-      await additionalCompanyTransaction.save({ session });
-    }
+    // 6. Calculate final balances for logging
+    const totalBonusesPaid = (directReferralBonus?.amount_cents || 0) + (level1ReferralBonus?.amount_cents || 0);
+    const finalCompanyBalance = company.wallet_balance_cents;
+    
+    console.log(`\n💰 ACTIVATION SUMMARY for ${user.username}:`);
+    console.log(`   Initial Company Credit: +KES 1,000`);
+    console.log(`   Direct Bonus Paid: -KES ${(directReferralBonus?.amount_cents || 0) / 100}`);
+    console.log(`   Level 1 Bonus Paid: -KES ${(level1ReferralBonus?.amount_cents || 0) / 100}`);
+    console.log(`   Final Company Balance: KES ${finalCompanyBalance / 100}`);
+    console.log(`   Company Net from this activation: KES ${(ACTIVATION_FEE_CENTS - totalBonusesPaid) / 100}\n`);
 
     // Save user changes
     await user.save({ session });
 
     // Log the activation
+    const totalBonusesPaid = (directReferralBonus?.amount_cents || 0) + (level1ReferralBonus?.amount_cents || 0);
+    const netCompanyRevenue = ACTIVATION_FEE_CENTS - totalBonusesPaid;
+
     const auditLog = new AdminAuditLog({
       actor_id: admin._id,
       action: 'ACTIVATE_USER',
@@ -512,6 +674,7 @@ export async function activateUserAccount(userId: string): Promise<{
       changes: {
         is_active: true,
         status: 'active',
+        activation_status: 'activated',
         activation_paid_at: new Date(),
         activation_transaction_id: activationTransaction._id,
         activation_method: 'manual',
@@ -519,19 +682,21 @@ export async function activateUserAccount(userId: string): Promise<{
         is_approved: user.is_approved,
         fee_deducted: feeDeducted,
         activation_fee: ACTIVATION_FEE_CENTS,
-        company_revenue: COMPANY_REVENUE_CENTS,
-        referral_bonus_awarded: referralBonusAwarded,
-        referral_bonus_amount: referralBonusAwarded ? REFERRAL_BONUS_CENTS : 0,
-        referrer_username: referrerUsername,
-        referrer_id: referrerId,
-        admin_override: !feeDeducted,
-        company_account_credited: companyUser._id,
+        total_bonuses_paid: totalBonusesPaid,
+        company_net_revenue: netCompanyRevenue,
+        direct_bonus: directReferralBonus?.amount_cents || 0,
+        level1_bonus: level1ReferralBonus?.amount_cents || 0,
+        bonus_tier: directReferralBonus?.bonus_tier || 'none',
       },
       metadata: {
         activation_details: {
           fee_deducted: feeDeducted,
-          referral_bonus_awarded: referralBonusAwarded,
-          referrer: referrerUsername || 'None'
+          direct_referral_bonus: directReferralBonus,
+          level1_referral_bonus: level1ReferralBonus,
+          initial_company_credit: ACTIVATION_FEE_CENTS / 100,
+          total_bonuses_paid: totalBonusesPaid / 100,
+          company_net_revenue: netCompanyRevenue / 100,
+          final_company_balance: company.wallet_balance_cents / 100
         }
       },
       ip_address: 'server-action',
@@ -551,9 +716,13 @@ export async function activateUserAccount(userId: string): Promise<{
     } else {
       message += `Activation fee of KSH ${ACTIVATION_FEE_CENTS / 100} deducted. `;
     }
-    if (referralBonusAwarded) {
-      message += `Referral bonus of KSH ${REFERRAL_BONUS_CENTS / 100} awarded to ${referrerUsername}.`;
-    } else {
+    if (directReferralBonus) {
+      message += `Direct referral bonus of KSH ${directReferralBonus.amount_cents / 100} (${directReferralBonus.bonus_tier}) awarded to ${directReferralBonus.referrer_username}. `;
+    }
+    if (level1ReferralBonus) {
+      message += `Level 1 bonus of KSH ${level1ReferralBonus.amount_cents / 100} awarded to ${level1ReferralBonus.referrer_username}.`;
+    }
+    if (!directReferralBonus && !level1ReferralBonus) {
       message += `No active referrer found - full amount credited to company.`;
     }
 
@@ -730,7 +899,7 @@ export async function getUserDetails(userId: string): Promise<{
 
     // Get users referred by this user
     const referrals = await Referral.find({ referrer_id: userId })
-      .populate('referred_id', 'username email is_active')
+      .populate('referred_id', 'username email is_active activation_status')
       .lean();
 
     const serializedUser = serializeDocument(user);
@@ -1117,6 +1286,8 @@ export async function adjustUserBalance(
     // Create transaction record
     const transaction = new Transaction({
       user_id: userId,
+      target_type: 'user',
+      target_id: userId,
       amount_cents: adjustmentAmount,
       type: type === 'credit' ? 'ADMIN_CREDIT' : 'ADMIN_DEBIT',
       description: `Admin balance adjustment: ${reason}`,

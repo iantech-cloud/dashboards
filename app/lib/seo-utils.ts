@@ -59,7 +59,7 @@ export function analyzeKeywords(
   if (primaryKeyword) {
     const keyword = primaryKeyword.toLowerCase();
     const count = countOccurrences(text, keyword);
-    const density = (count / wordCount) * 100;
+    const density = wordCount > 0 ? (count / wordCount) * 100 : 0;
     
     results.push({
       keyword: primaryKeyword,
@@ -79,7 +79,7 @@ export function analyzeKeywords(
     if (kw.trim()) {
       const keyword = kw.toLowerCase();
       const count = countOccurrences(text, keyword);
-      const density = (count / wordCount) * 100;
+      const density = wordCount > 0 ? (count / wordCount) * 100 : 0;
       
       results.push({
         keyword: kw,
@@ -99,7 +99,8 @@ export function analyzeKeywords(
 }
 
 function countOccurrences(text: string, keyword: string): number {
-  const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
+  if (!keyword.trim()) return 0;
+  const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
   return (text.match(regex) || []).length;
 }
 
@@ -111,6 +112,19 @@ export function analyzeReadability(content: string): ReadabilityScore {
   const text = stripHtml(content);
   const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
   const words = text.split(/\s+/).filter(w => w.length > 0);
+  
+  // Handle empty content
+  if (words.length === 0 || sentences.length === 0) {
+    return {
+      fleschScore: 0,
+      grade: 'N/A',
+      averageSentenceLength: 0,
+      longSentences: 0,
+      passiveVoiceCount: 0,
+      complexWords: []
+    };
+  }
+  
   const syllables = countSyllables(text);
   
   // Flesch Reading Ease
@@ -177,6 +191,18 @@ function detectPassiveVoice(sentences: string[]): number {
 // ============================================================================
 
 export function analyzeStructure(htmlContent: string): ContentStructure {
+  // Handle empty content
+  if (!htmlContent || htmlContent.trim() === '') {
+    return {
+      h1Count: 0,
+      h2Count: 0,
+      h3Count: 0,
+      properNesting: false,
+      issues: ['No content found'],
+      outline: []
+    };
+  }
+
   const parser = new DOMParser();
   const doc = parser.parseFromString(htmlContent, 'text/html');
   
@@ -186,11 +212,17 @@ export function analyzeStructure(htmlContent: string): ContentStructure {
   
   const issues: string[] = [];
   
-  // Check H1 count
+  // Check H1 count - now properly counts the title as H1
   if (h1s.length === 0) {
     issues.push('Missing H1 heading - add a main title');
   } else if (h1s.length > 1) {
     issues.push('Multiple H1 headings found - use only one H1');
+  }
+  
+  // Check if first heading is H1 (best practice)
+  const firstHeading = getFirstHeading(doc);
+  if (firstHeading && firstHeading.tagName !== 'H1') {
+    issues.push('First heading should be H1 - consider starting with main title');
   }
   
   // Check heading hierarchy
@@ -199,23 +231,36 @@ export function analyzeStructure(htmlContent: string): ContentStructure {
     ...h2s.map(h => ({ level: 2, element: h })),
     ...h3s.map(h => ({ level: 3, element: h }))
   ].sort((a, b) => {
-    const aPos = Array.from(doc.body.childNodes).indexOf(a.element as ChildNode);
-    const bPos = Array.from(doc.body.childNodes).indexOf(b.element as ChildNode);
+    const aPos = getElementPosition(a.element);
+    const bPos = getElementPosition(b.element);
     return aPos - bPos;
   });
   
   let properNesting = true;
-  for (let i = 1; i < allHeadings.length; i++) {
-    if (allHeadings[i].level - allHeadings[i - 1].level > 1) {
-      properNesting = false;
-      issues.push(`Heading hierarchy skip: H${allHeadings[i - 1].level} → H${allHeadings[i].level}`);
+  let currentLevel = 0;
+  
+  for (let i = 0; i < allHeadings.length; i++) {
+    const heading = allHeadings[i];
+    
+    // For first heading, just set current level
+    if (i === 0) {
+      currentLevel = heading.level;
+      continue;
     }
+    
+    // Check for hierarchy skips
+    if (heading.level - currentLevel > 1) {
+      properNesting = false;
+      issues.push(`Heading hierarchy skip: H${currentLevel} → H${heading.level} - "${heading.element.textContent?.substring(0, 50)}..."`);
+    }
+    
+    currentLevel = heading.level;
   }
   
   // Generate outline
   const outline: HeadingNode[] = allHeadings.map((h, i) => ({
     level: h.level,
-    text: h.element.textContent || '',
+    text: h.element.textContent?.trim() || `Heading ${i + 1}`,
     id: `heading-${i}`
   }));
   
@@ -227,6 +272,18 @@ export function analyzeStructure(htmlContent: string): ContentStructure {
     issues,
     outline
   };
+}
+
+// Helper function to get element position in document flow
+function getElementPosition(element: Element): number {
+  const allElements = Array.from(element.ownerDocument.body.getElementsByTagName('*'));
+  return allElements.indexOf(element);
+}
+
+// Helper function to get first heading in document
+function getFirstHeading(doc: Document): Element | null {
+  const headings = doc.querySelectorAll('h1, h2, h3, h4, h5, h6');
+  return headings.length > 0 ? headings[0] : null;
 }
 
 // ============================================================================
@@ -245,20 +302,40 @@ export function calculateSEOScore(
   const structure = analyzeStructure(content);
   
   // Keyword score (40 points)
-  const keywordScore = keywordAnalysis[0]?.isOptimal ? 40 : 
-    keywordAnalysis[0]?.density < 0.8 ? 20 : 10;
+  let keywordScore = 0;
+  const primaryKeywordAnalysis = keywordAnalysis.find(k => k.keyword === primaryKeyword);
+  if (primaryKeywordAnalysis) {
+    keywordScore = primaryKeywordAnalysis.isOptimal ? 40 : 
+      primaryKeywordAnalysis.density < 0.8 ? 20 : 10;
+  }
   
   // Readability score (20 points)
-  const readabilityScore = readability.fleschScore >= 60 ? 20 :
-    readability.fleschScore >= 50 ? 15 : 10;
+  let readabilityScore = 0;
+  if (readability.fleschScore >= 60) {
+    readabilityScore = 20;
+  } else if (readability.fleschScore >= 50) {
+    readabilityScore = 15;
+  } else if (readability.fleschScore > 0) {
+    readabilityScore = 10;
+  }
   
   // Structure score (20 points)
-  const structureScore = structure.h1Count === 1 && structure.properNesting ? 20 : 10;
+  let structureScore = 0;
+  if (structure.h1Count === 1 && structure.properNesting && structure.issues.length === 0) {
+    structureScore = 20;
+  } else if (structure.h1Count === 1) {
+    structureScore = 15;
+  } else {
+    structureScore = 5;
+  }
   
   // Meta score (20 points)
   let metaScore = 0;
   if (metaTitle.length >= 50 && metaTitle.length <= 60) metaScore += 10;
+  else if (metaTitle.length > 0) metaScore += 5;
+  
   if (metaDescription.length >= 150 && metaDescription.length <= 160) metaScore += 10;
+  else if (metaDescription.length > 0) metaScore += 5;
   
   const overall = keywordScore + readabilityScore + structureScore + metaScore;
   
@@ -277,18 +354,21 @@ export function calculateSEOScore(
 // ============================================================================
 
 export function stripHtml(html: string): string {
+  if (!html) return '';
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 export function countWords(text: string): number {
-  return stripHtml(text).split(/\s+/).filter(w => w.length > 0).length;
+  const cleanText = stripHtml(text);
+  return cleanText ? cleanText.split(/\s+/).filter(w => w.length > 0).length : 0;
 }
 
 export function estimateReadingTime(wordCount: number): number {
-  return Math.ceil(wordCount / 200); // 200 words per minute
+  return Math.max(1, Math.ceil(wordCount / 200)); // 200 words per minute, minimum 1 min
 }
 
 export function generateSlug(title: string): string {
+  if (!title) return '';
   return title
     .toLowerCase()
     .replace(/[^\w\s-]/g, '')
@@ -297,10 +377,24 @@ export function generateSlug(title: string): string {
     .trim();
 }
 
+// Enhanced structure analysis that considers title as H1
+export function analyzeStructureWithTitle(
+  content: string, 
+  contentTitle?: string
+): ContentStructure {
+  // Combine title as H1 with content for structure analysis
+  const contentWithTitle = contentTitle 
+    ? `<h1>${contentTitle}</h1>${content}`
+    : content;
+  
+  return analyzeStructure(contentWithTitle);
+}
+
 // For client-side use
 export const clientSideUtils = {
   stripHtml,
   countWords,
   estimateReadingTime,
-  generateSlug
+  generateSlug,
+  analyzeStructureWithTitle
 };

@@ -41,7 +41,8 @@ export async function GET(request: NextRequest) {
       total: 0,
       active: 0,
       pending: 0,
-      totalEarnings: 0
+      totalEarnings: 0,
+      activated: 0
     };
 
     // Role-based data fetching
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
         // Admin: Get all referrals with detailed information
         const adminReferrals = await Referral.find({})
           .populate('referrer_id', 'username email referral_id status')
-          .populate('referred_id', 'username email referral_id status created_at level rank')
+          .populate('referred_id', 'username email referral_id status created_at level rank activation_status')
           .sort({ created_at: -1 })
           .skip(startIndex)
           .limit(limit)
@@ -58,36 +59,44 @@ export async function GET(request: NextRequest) {
 
         totalCount = await Referral.countDocuments();
 
-        referrals = adminReferrals.map(ref => ({
-          id: ref._id.toString(),
-          referrer: ref.referrer_id?.username || 'Unknown',
-          referred: ref.referred_id?.username || 'Unknown',
-          referrerEmail: ref.referrer_id?.email,
-          referredEmail: ref.referred_id?.email,
-          referrerId: ref.referrer_id?.referral_id,
-          referredId: ref.referred_id?.referral_id,
-          date: ref.created_at,
-          status: ref.referred_id?.status || 'active',
-          commission: ref.earning_cents / 100,
-          tier: 1,
-          referredJoinDate: ref.referred_id?.created_at,
-          level: ref.referred_id?.level,
-          rank: ref.referred_id?.rank
+        referrals = await Promise.all(adminReferrals.map(async (ref) => {
+          // Count referrals for each user
+          const referralCount = await Referral.countDocuments({
+            referrer_id: ref.referred_id?._id
+          });
+
+          return {
+            id: ref._id.toString(),
+            referrer: ref.referrer_id?.username || 'Unknown',
+            referred: ref.referred_id?.username || 'Unknown',
+            referrerEmail: ref.referrer_id?.email,
+            referredEmail: ref.referred_id?.email,
+            referrerId: ref.referrer_id?.referral_id,
+            referredId: ref.referred_id?.referral_id,
+            date: ref.created_at,
+            status: ref.referred_id?.status || 'active',
+            commission: (ref.referral_bonus_amount_cents || 0) / 100,
+            tier: ref.metadata?.bonus_tier || 'unknown',
+            referredJoinDate: ref.referred_id?.created_at,
+            level: ref.referred_id?.level,
+            rank: ref.referred_id?.rank,
+            activationStatus: ref.referred_id?.activation_status || 'pending',
+            referralCount: referralCount
+          };
         }));
 
-        // Admin summary - get counts by status
-        // NOTE: This approach is inefficient for large datasets. A better approach would be to use $lookup in an aggregation pipeline.
-        // For the sake of minimizing changes and focusing on auth, we'll keep the current logic structure.
-        const allReferrals = await Referral.find({}).populate('referred_id', 'status').lean();
+        // Admin summary
+        const allReferrals = await Referral.find({}).populate('referred_id', 'status activation_status').lean();
         
         const activeCount = allReferrals.filter(ref => ref.referred_id?.status === 'active').length;
         const pendingCount = allReferrals.filter(ref => ref.referred_id?.status === 'pending').length;
+        const activatedCount = allReferrals.filter(ref => ref.referred_id?.activation_status === 'activated').length;
 
         const totalEarningsResult = await Referral.aggregate([
           {
             $group: {
               _id: null,
-              total: { $sum: '$earning_cents' }
+              total: { $sum: '$referral_bonus_amount_cents' }
             }
           }
         ]);
@@ -96,6 +105,7 @@ export async function GET(request: NextRequest) {
           total: totalCount,
           active: activeCount,
           pending: pendingCount,
+          activated: activatedCount,
           totalEarnings: (totalEarningsResult[0]?.total || 0) / 100
         };
         break;
@@ -110,7 +120,7 @@ export async function GET(request: NextRequest) {
         };
 
         const supportUsers = await Profile.find(supportQuery)
-          .select('username email referral_id status approval_status created_at')
+          .select('username email referral_id status approval_status created_at activation_status')
           .sort({ created_at: -1 })
           .skip(startIndex)
           .limit(limit)
@@ -118,17 +128,25 @@ export async function GET(request: NextRequest) {
 
         totalCount = await Profile.countDocuments(supportQuery);
 
-        referrals = supportUsers.map(user => ({
-          id: user._id.toString(),
-          ticketId: `TKT-${user._id.toString().slice(-4).toUpperCase()}`,
-          user: user.username,
-          userEmail: user.email,
-          issue: user.approval_status === 'pending' ? 'Account approval pending' : `User ${user.status}`,
-          status: user.approval_status === 'pending' ? 'open' : 'in_progress',
-          date: user.created_at,
-          priority: user.approval_status === 'pending' ? 'high' : 'medium',
-          email: user.email,
-          joinDate: user.created_at
+        referrals = await Promise.all(supportUsers.map(async (user) => {
+          const referralCount = await Referral.countDocuments({
+            referrer_id: user._id
+          });
+
+          return {
+            id: user._id.toString(),
+            ticketId: `TKT-${user._id.toString().slice(-4).toUpperCase()}`,
+            user: user.username,
+            userEmail: user.email,
+            issue: user.approval_status === 'pending' ? 'Account approval pending' : `User ${user.status}`,
+            status: user.approval_status === 'pending' ? 'open' : 'in_progress',
+            date: user.created_at,
+            priority: user.approval_status === 'pending' ? 'high' : 'medium',
+            email: user.email,
+            joinDate: user.created_at,
+            activationStatus: user.activation_status || 'pending',
+            referralCount: referralCount
+          };
         }));
 
         // Support summary
@@ -138,8 +156,9 @@ export async function GET(request: NextRequest) {
 
         summary = {
           total: pendingApprovals + suspendedUsers + bannedUsers,
-          active: 0, // Not applicable for support view
+          active: 0,
           pending: pendingApprovals,
+          activated: 0,
           totalEarnings: 0
         };
         break;
@@ -148,7 +167,7 @@ export async function GET(request: NextRequest) {
       default:
         // Regular user: Get their own referrals
         const userReferrals = await Referral.find({ referrer_id: currentUser._id })
-          .populate('referred_id', 'username email status created_at level rank total_earnings_cents balance_cents tasks_completed')
+          .populate('referred_id', 'username email status created_at level rank total_earnings_cents balance_cents tasks_completed activation_status')
           .sort({ created_at: -1 })
           .skip(startIndex)
           .limit(limit)
@@ -165,18 +184,22 @@ export async function GET(request: NextRequest) {
         // Create a map of referred user ID to total earnings
         const earningsMap = new Map();
         referralTransactions.forEach(transaction => {
-          const referredId = transaction.metadata?.referredUser;
+          const referredId = transaction.metadata?.referred_user_id;
           if (referredId) {
-            const current = earningsMap.get(referredId) || 0;
-            earningsMap.set(referredId, current + transaction.amount_cents);
+            const current = earningsMap.get(referredId.toString()) || 0;
+            earningsMap.set(referredId.toString(), current + transaction.amount_cents);
           }
         });
 
-        referrals = userReferrals.map(ref => {
+        referrals = await Promise.all(userReferrals.map(async (ref) => {
           const referredUserId = ref.referred_id?._id.toString();
-          // Prefer transaction earnings if available, otherwise fallback to earning_cents on the referral document
           const transactionEarnings = earningsMap.get(referredUserId) || 0;
-          const totalEarnings = transactionEarnings > 0 ? transactionEarnings : ref.earning_cents;
+          const totalEarnings = transactionEarnings > 0 ? transactionEarnings : (ref.referral_bonus_amount_cents || 0);
+
+          // Count how many people this referred user has referred
+          const referralCount = await Referral.countDocuments({
+            referrer_id: ref.referred_id?._id
+          });
 
           return {
             id: ref._id.toString(),
@@ -188,16 +211,19 @@ export async function GET(request: NextRequest) {
             level: ref.referred_id?.level || 1,
             rank: ref.referred_id?.rank || 'Bronze',
             tasksCompleted: ref.referred_id?.tasks_completed || 0,
-            totalEarnings: (ref.referred_id?.total_earnings_cents || 0) / 100
+            totalEarnings: (ref.referred_id?.total_earnings_cents || 0) / 100,
+            activationStatus: ref.referred_id?.activation_status || 'pending',
+            referralCount: referralCount
           };
-        });
+        }));
 
         // User summary
         const allUserReferrals = await Referral.find({ referrer_id: currentUser._id })
-          .populate('referred_id', 'status');
+          .populate('referred_id', 'status activation_status');
         
         const activeReferrals = allUserReferrals.filter(ref => ref.referred_id?.status === 'active').length;
         const pendingReferrals = allUserReferrals.filter(ref => ref.referred_id?.status === 'pending').length;
+        const activatedReferrals = allUserReferrals.filter(ref => ref.referred_id?.activation_status === 'activated').length;
         
         const totalUserEarnings = referralTransactions.reduce((sum, transaction) => sum + transaction.amount_cents, 0);
 
@@ -205,6 +231,7 @@ export async function GET(request: NextRequest) {
           total: allUserReferrals.length,
           active: activeReferrals,
           pending: pendingReferrals,
+          activated: activatedReferrals,
           totalEarnings: totalUserEarnings / 100
         };
         break;
@@ -290,7 +317,13 @@ export async function POST(request: NextRequest) {
       const newReferral = await Referral.create({
         referrer_id: currentUser._id,
         referred_id: existingUser._id,
-        earning_cents: 0 // Initial earning, will be updated when user becomes active
+        referral_bonus_amount_cents: 0,
+        referral_bonus_paid: false
+      });
+
+      // Count referrals
+      const referralCount = await Referral.countDocuments({
+        referrer_id: existingUser._id
       });
 
       return NextResponse.json(
@@ -304,7 +337,9 @@ export async function POST(request: NextRequest) {
             status: existingUser.status,
             earnings: 0,
             level: existingUser.level,
-            rank: existingUser.rank
+            rank: existingUser.rank,
+            activationStatus: existingUser.activation_status || 'pending',
+            referralCount: referralCount
           },
           message: 'Referral recorded successfully'
         },
@@ -313,9 +348,6 @@ export async function POST(request: NextRequest) {
     }
 
     // If user doesn't exist, create a pending referral invitation
-    // In a real application, you would send an email invitation
-    // and create a pending referral record
-
     const pendingReferral = {
       id: `pending_${Date.now()}`,
       name: referredName || 'Pending User',
@@ -327,10 +359,11 @@ export async function POST(request: NextRequest) {
       rank: 'Bronze',
       notes: notes || '',
       referredBy: currentUser.username,
-      isInvitation: true
+      isInvitation: true,
+      activationStatus: 'pending',
+      referralCount: 0
     };
 
-    // Log the invitation (you might want to create a PendingInvitation model)
     console.log('Referral invitation created by:', currentUser.email, 'for:', referredEmail);
 
     return NextResponse.json(
@@ -353,4 +386,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

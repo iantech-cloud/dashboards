@@ -1,4 +1,4 @@
-// app/actions/activation.ts - UPDATED FOR NEXTAUTH V5
+// app/actions/activation.ts - UPDATED FOR NEXTAUTH V5 AND CORRECT SCHEMA
 'use server';
 
 import { auth } from '@/auth'; // NextAuth v5 auth import
@@ -13,11 +13,11 @@ import {
   Referral,
   Earning,
   AdminAuditLog,
-  Company // ✅ FIXED: Import Company model
+  Company
 } from '@/app/lib/models';
 
 // Import company helper function
-import { createCompanyRevenueTransaction } from './company'; // ✅ FIXED: Import helper
+import { createCompanyRevenueTransaction } from './company';
 
 // =============================================================================
 // TYPE DEFINITIONS
@@ -32,7 +32,8 @@ interface ApiResponse<T = void> {
 
 interface ActivationStatusData {
   activation_paid: boolean;
-  activation_paid_at?: Date;
+  approval_status: string;
+  rank: string;
   is_active: boolean;
   status: string;
   username: string;
@@ -86,6 +87,8 @@ interface StatusMapping {
 interface ActivationCompletionData {
   username: string;
   activationDate: Date;
+  rank: string;
+  approval_status: string;
 }
 
 // =============================================================================
@@ -251,7 +254,7 @@ async function initiateMpesaSTKPush(
       TransactionDesc: description.substring(0, 13),
     };
 
-    console.log('📦 STK Push Payload with URL Registration:', JSON.stringify(stkPushPayload, null, 2));
+    console.log('📦 STK Push Payload:', JSON.stringify(stkPushPayload, null, 2));
     console.log('🌐 Callback URL Being Registered:', CallbackUrl);
     console.log('⚙️ Environment:', Environment);
 
@@ -260,7 +263,6 @@ async function initiateMpesaSTKPush(
       : 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
 
     console.log('🌐 M-Pesa API Endpoint:', mpesaApiUrl);
-    console.log('🔑 Access Token (first 20 chars):', accessToken.substring(0, 20) + '...');
 
     const startTime = Date.now();
     const response = await fetch(mpesaApiUrl, {
@@ -293,12 +295,6 @@ async function initiateMpesaSTKPush(
         } else if (errorData.ResultDesc) {
           errorMessage = errorData.ResultDesc;
         }
-        
-        console.error('📋 Error Details:', {
-          requestId: errorData.requestId,
-          errorCode: errorData.errorCode,
-          conversationId: errorData.conversationId
-        });
       } catch (e) {
         errorMessage = errorText || errorMessage;
       }
@@ -312,16 +308,11 @@ async function initiateMpesaSTKPush(
 
     const data = await response.json();
     console.log('📨 M-Pesa API Success Response:', JSON.stringify(data, null, 2));
-    console.log('⏱️ Total Request Time:', responseTime, 'ms');
 
     if (data.ResponseCode === '0') {
       console.log('✅ M-Pesa STK Push initiated successfully');
       console.log('🔗 CheckoutRequestID:', data.CheckoutRequestID);
       console.log('🔗 MerchantRequestID:', data.MerchantRequestID);
-      console.log('📝 ResponseDescription:', data.ResponseDescription);
-      console.log('💬 CustomerMessage:', data.CustomerMessage);
-      console.log('🌐 Callback URL Successfully Registered:', CallbackUrl);
-      console.log('🎯 Activation Payment ID:', activationPaymentId);
 
       return {
         success: true,
@@ -334,32 +325,10 @@ async function initiateMpesaSTKPush(
       };
     } else {
       console.error('❌ M-Pesa STK Push failed with code:', data.ResponseCode);
-      console.error('📋 Error Description:', data.ResponseDescription);
-      
-      let errorMessage = data.ResponseDescription || 'M-Pesa request failed';
-      
-      const errorMap: { [key: string]: string } = {
-        '1': 'Insufficient balance - Customer has insufficient funds',
-        '1032': 'Request cancelled by user - Customer cancelled the STK prompt',
-        '1037': 'Request timeout - No response from customer',
-        '2001': 'Invalid phone number format',
-        '2006': 'Callback URL not accessible - check MPESA_CALLBACK_URL',
-        '2007': 'Callback URL not responding - ensure endpoint is live',
-        '2008': 'Invalid callback URL format',
-        '2009': 'Callback URL SSL certificate issue',
-        '1019': 'Transaction has expired',
-        '1001': 'Unable to lock subscriber - transaction already in process',
-        '1025': 'Error sending push request - system error',
-        '9999': 'Error sending push request'
-      };
-      
-      if (errorMap[data.ResponseCode]) {
-        errorMessage = `${errorMessage} - ${errorMap[data.ResponseCode]}`;
-      }
       
       return {
         success: false,
-        error: errorMessage,
+        error: data.ResponseDescription || 'M-Pesa request failed',
         responseTime
       };
     }
@@ -369,15 +338,7 @@ async function initiateMpesaSTKPush(
     let errorMessage = 'Failed to connect to M-Pesa service';
     
     if (error instanceof Error) {
-      if (error.message.includes('fetch failed') || error.message.includes('ENOTFOUND')) {
-        errorMessage = 'Cannot connect to M-Pesa service. Please check your internet connection and API endpoints.';
-      } else if (error.message.includes('Unexpected token')) {
-        errorMessage = 'Invalid response from M-Pesa service. Possible API endpoint issue.';
-      } else if (error.message.includes('SSL')) {
-        errorMessage = 'SSL certificate issue. Ensure your callback URL uses valid HTTPS.';
-      } else {
-        errorMessage = error.message;
-      }
+      errorMessage = error.message;
     }
     
     return {
@@ -388,7 +349,7 @@ async function initiateMpesaSTKPush(
 }
 
 /**
- * Query M-Pesa transaction status directly from API with proper enum mapping
+ * Query M-Pesa transaction status directly from API
  */
 async function queryMpesaTransactionStatus(checkoutRequestId: string): Promise<ApiResponse<MpesaStatusData>> {
   try {
@@ -414,8 +375,6 @@ async function queryMpesaTransactionStatus(checkoutRequestId: string): Promise<A
       CheckoutRequestID: checkoutRequestId
     };
 
-    console.log('📦 M-Pesa Query Payload:', JSON.stringify(queryPayload, null, 2));
-
     const mpesaApiUrl = Environment === 'production' 
       ? 'https://api.safaricom.co.ke/mpesa/stkpushquery/v1/query'
       : 'https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query';
@@ -429,8 +388,6 @@ async function queryMpesaTransactionStatus(checkoutRequestId: string): Promise<A
       body: JSON.stringify(queryPayload)
     });
 
-    console.log('📡 M-Pesa Query Response Status:', response.status, response.statusText);
-
     if (!response.ok) {
       const errorText = await response.text();
       console.error('❌ M-Pesa Query API Error:', errorText);
@@ -442,13 +399,6 @@ async function queryMpesaTransactionStatus(checkoutRequestId: string): Promise<A
 
     const mappedStatus = mapMpesaStatusToDatabase(data.ResultCode, data.ResultDesc);
     const mappedResultCode = mapMpesaResultCodeToDatabase(data.ResultCode);
-
-    console.log('🔄 Status Mapping:', {
-      originalCode: data.ResultCode,
-      originalDesc: data.ResultDesc,
-      mappedStatus: mappedStatus.status,
-      mappedResultCode: mappedResultCode
-    });
 
     return {
       success: true,
@@ -472,7 +422,7 @@ async function queryMpesaTransactionStatus(checkoutRequestId: string): Promise<A
 }
 
 /**
- * ✅ FIXED: Get or create company profile
+ * Get or create company profile
  */
 async function getOrCreateCompany() {
   let company = await Company.findOne({ email: 'company@hustlehubafrica.com' });
@@ -503,13 +453,12 @@ async function getOrCreateCompany() {
 // =============================================================================
 
 /**
- * Check user activation status
+ * ✅ FIXED: Check user activation status using correct schema fields
  */
 export async function checkActivationStatus(): Promise<ApiResponse<ActivationStatusData>> {
   try {
     await connectToDatabase();
     
-    // NextAuth v5: Use auth() instead of getServerSession()
     const session = await auth();
     if (!session?.user?.email) {
       return { success: false, message: 'User not authenticated' };
@@ -520,13 +469,17 @@ export async function checkActivationStatus(): Promise<ApiResponse<ActivationSta
       return { success: false, message: 'User profile not found' };
     }
 
+    // ✅ FIXED: Check activation based on approval_status and rank
+    const isActivationPaid = userProfile.approval_status !== 'pending' || userProfile.rank !== 'Unactivated';
+
     return {
       success: true,
       data: {
-        activation_paid: !!userProfile.activation_paid_at,
-        activation_paid_at: userProfile.activation_paid_at,
-        is_active: userProfile.is_active,
-        status: userProfile.status,
+        activation_paid: isActivationPaid,
+        approval_status: userProfile.approval_status || 'pending',
+        rank: userProfile.rank || 'Unactivated',
+        is_active: userProfile.is_active || false,
+        status: userProfile.status || 'inactive',
         username: userProfile.username,
         email: userProfile.email
       }
@@ -546,10 +499,10 @@ export async function registerMpesaUrls(): Promise<ApiResponse<UrlRegistrationDa
 
     const BusinessShortCode = process.env.MPESA_SHORTCODE;
     const Environment = process.env.MPESA_ENVIRONMENT || 'sandbox';
-    const baseUrl = process.env.NEXTAUTH_URL || process.env.MPESA_CALLBACK_URL?.replace('/api/mpesa/callback', '') || 'https://70f15f56538a.ngrok-free.app';
+    const baseUrl = process.env.NEXTAUTH_URL || process.env.MPESA_CALLBACK_URL?.replace('/api/mpesa/callback', '');
 
-    if (!BusinessShortCode) {
-      throw new Error('MPESA_SHORTCODE not found');
+    if (!BusinessShortCode || !baseUrl) {
+      throw new Error('MPESA_SHORTCODE or base URL not found');
     }
 
     const accessToken = await getMpesaAccessToken();
@@ -560,8 +513,6 @@ export async function registerMpesaUrls(): Promise<ApiResponse<UrlRegistrationDa
       ConfirmationURL: `${baseUrl}/api/mpesa/confirmation`,
       ValidationURL: `${baseUrl}/api/mpesa/validation`
     };
-
-    console.log('📦 C2B URL Registration Payload:', JSON.stringify(c2bPayload, null, 2));
 
     const c2bApiUrl = Environment === 'production' 
       ? 'https://api.safaricom.co.ke/mpesa/c2b/v1/registerurl'
@@ -580,9 +531,6 @@ export async function registerMpesaUrls(): Promise<ApiResponse<UrlRegistrationDa
 
     if (data.ResponseCode === '0') {
       console.log('✅ M-Pesa URLs registered successfully');
-      console.log('🌐 Confirmation URL:', c2bPayload.ConfirmationURL);
-      console.log('🌐 Validation URL:', c2bPayload.ValidationURL);
-      console.log('🌐 Callback URL (for STK):', `${baseUrl}/api/mpesa/callback`);
       
       return { 
         success: true, 
@@ -610,13 +558,12 @@ export async function registerMpesaUrls(): Promise<ApiResponse<UrlRegistrationDa
 }
 
 /**
- * Initiate activation payment via M-Pesa with proper URL registration
+ * ✅ FIXED: Initiate activation payment - check correct fields
  */
 export async function initiateActivationPayment(phoneNumber: string): Promise<ApiResponse<ActivationPaymentData>> {
   try {
     await connectToDatabase();
 
-    // NextAuth v5: Use auth() instead of getServerSession()
     const session = await auth();
     if (!session?.user?.email) {
       return { success: false, message: 'User not authenticated' };
@@ -627,7 +574,9 @@ export async function initiateActivationPayment(phoneNumber: string): Promise<Ap
       return { success: false, message: 'User profile not found' };
     }
 
-    if (userProfile.activation_paid_at) {
+    // ✅ FIXED: Check if already activated using correct fields
+    const isActivationPaid = userProfile.approval_status !== 'pending' || userProfile.rank !== 'Unactivated';
+    if (isActivationPaid) {
       return { success: false, message: 'Account is already activated' };
     }
 
@@ -686,8 +635,6 @@ export async function initiateActivationPayment(phoneNumber: string): Promise<Ap
       activationPayment._id.toString()
     );
 
-    console.log('📡 M-Pesa STK Push Result:', mpesaResult);
-
     if (mpesaResult.success && mpesaResult.checkoutRequestId && mpesaResult.merchantRequestId) {
       activationPayment.checkout_request_id = mpesaResult.checkoutRequestId;
       activationPayment.provider_reference = mpesaResult.merchantRequestId;
@@ -729,8 +676,6 @@ export async function initiateActivationPayment(phoneNumber: string): Promise<Ap
       await activationLog.save();
 
       console.log('✅ M-Pesa STK Push initiated successfully');
-      console.log('🔗 CheckoutRequestID:', mpesaResult.checkoutRequestId);
-      console.log('🌐 Callback URL Registered:', mpesaResult.callbackUrl);
 
       return {
         success: true,
@@ -746,22 +691,11 @@ export async function initiateActivationPayment(phoneNumber: string): Promise<Ap
     } else {
       activationPayment.status = 'failed';
       activationPayment.error_message = mpesaResult.error;
-      activationPayment.metadata = {
-        ...activationPayment.metadata,
-        failed_at: new Date().toISOString(),
-        error_details: mpesaResult.error
-      };
       await activationPayment.save();
 
       activationLog.status = 'failed';
       activationLog.error_message = mpesaResult.error;
-      activationLog.metadata = {
-        ...activationLog.metadata,
-        failed_at: new Date().toISOString()
-      };
       await activationLog.save();
-
-      console.error('❌ M-Pesa STK Push failed:', mpesaResult.error);
 
       return { 
         success: false, 
@@ -775,13 +709,12 @@ export async function initiateActivationPayment(phoneNumber: string): Promise<Ap
 }
 
 /**
- * Enhanced M-Pesa payment status check with proper enum mapping
+ * Enhanced M-Pesa payment status check
  */
 export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promise<ApiResponse<MpesaStatusData>> {
   try {
     await connectToDatabase();
 
-    // NextAuth v5: Use auth() instead of getServerSession()
     const session = await auth();
     if (!session?.user?.email) {
       return { success: false, message: 'User not authenticated' };
@@ -792,7 +725,6 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
     });
 
     if (mpesaTransaction && ['completed', 'failed'].includes(mpesaTransaction.status)) {
-      console.log('📊 Using database status:', mpesaTransaction.status);
       return {
         success: true,
         data: {
@@ -804,8 +736,7 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
           isActivationPayment: mpesaTransaction.is_activation_payment,
           completedAt: mpesaTransaction.completed_at,
           failedAt: mpesaTransaction.failed_at,
-          source: 'database',
-          callbackUrl: mpesaTransaction.metadata?.callback_url
+          source: 'database'
         }
       };
     }
@@ -814,43 +745,33 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
     const apiStatus = await queryMpesaTransactionStatus(checkoutRequestId);
     
     if (apiStatus.success && apiStatus.data) {
-      console.log('📡 M-Pesa API returned status:', apiStatus.data.status);
-      
       if (mpesaTransaction) {
-        try {
-          const updateData: any = {
-            status: apiStatus.data.status,
-            result_code: apiStatus.data.resultCode,
-            result_desc: apiStatus.data.resultDesc,
-          };
+        const updateData: any = {
+          status: apiStatus.data.status,
+          result_code: apiStatus.data.resultCode,
+          result_desc: apiStatus.data.resultDesc,
+        };
 
-          if (apiStatus.data.status === 'completed' && apiStatus.data.mpesaReceiptNumber && apiStatus.data.mpesaReceiptNumber !== 'N/A') {
-            updateData.mpesa_receipt_number = apiStatus.data.mpesaReceiptNumber;
-            updateData.completed_at = new Date();
-          } else if (apiStatus.data.status === 'failed') {
-            updateData.failed_at = new Date();
-          }
-
-          await (MpesaTransaction as any).updateOne(
-            { _id: mpesaTransaction._id },
-            { $set: updateData }
-          );
-          console.log('💾 Updated database with M-Pesa API status');
-        } catch (saveError) {
-          console.error('❌ Failed to save M-Pesa transaction:', saveError);
+        if (apiStatus.data.status === 'completed' && apiStatus.data.mpesaReceiptNumber && apiStatus.data.mpesaReceiptNumber !== 'N/A') {
+          updateData.mpesa_receipt_number = apiStatus.data.mpesaReceiptNumber;
+          updateData.completed_at = new Date();
+        } else if (apiStatus.data.status === 'failed') {
+          updateData.failed_at = new Date();
         }
+
+        await (MpesaTransaction as any).updateOne(
+          { _id: mpesaTransaction._id },
+          { $set: updateData }
+        );
       }
 
       return {
         success: true,
         data: {
           ...apiStatus.data,
-          source: 'api',
-          callbackUrl: mpesaTransaction?.metadata?.callback_url
+          source: 'api'
         }
       };
-    } else {
-      console.log('❌ M-Pesa API query failed, using database status');
     }
 
     if (mpesaTransaction) {
@@ -863,10 +784,7 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
           mpesaReceiptNumber: mpesaTransaction.mpesa_receipt_number,
           amount: mpesaTransaction.amount_cents,
           isActivationPayment: mpesaTransaction.is_activation_payment,
-          completedAt: mpesaTransaction.completed_at,
-          failedAt: mpesaTransaction.failed_at,
-          source: 'database_fallback',
-          callbackUrl: mpesaTransaction.metadata?.callback_url
+          source: 'database_fallback'
         }
       };
     }
@@ -883,14 +801,12 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
 }
 
 /**
- * ✅ FULLY FIXED: Complete activation after successful payment
- * Properly splits activation fee into company revenue and referral bonus
+ * ✅ FIXED: Complete activation after successful payment - Update correct schema fields
  */
 export async function completeActivationAfterPayment(activationPaymentId: string): Promise<ApiResponse<ActivationCompletionData>> {
   try {
     await connectToDatabase();
 
-    // NextAuth v5: Use auth() instead of getServerSession()
     const session = await auth();
     if (!session?.user?.email) {
       return { success: false, message: 'User not authenticated' };
@@ -903,23 +819,33 @@ export async function completeActivationAfterPayment(activationPaymentId: string
       return { success: false, message: 'User or activation payment not found' };
     }
 
-    if (userProfile.activation_paid_at) {
-      return { success: true, message: 'Account already activated' };
+    // ✅ FIXED: Check if already activated using correct fields
+    const isActivationPaid = userProfile.approval_status !== 'pending' || userProfile.rank !== 'Unactivated';
+    if (isActivationPaid) {
+      return { 
+        success: true, 
+        message: 'Account already activated',
+        data: {
+          username: userProfile.username,
+          activationDate: new Date(),
+          rank: userProfile.rank,
+          approval_status: userProfile.approval_status
+        }
+      };
     }
 
     if (activationPayment.status !== 'completed') {
       return { success: false, message: 'Payment not completed yet' };
     }
 
-    // ✅ FIXED: Get or create company
     const company = await getOrCreateCompany();
 
     // =============================================================================
-    // STEP 1: ✅ FIXED - Record User's Activation Fee Payment (Expense for User)
+    // STEP 1: Record User's Activation Fee Payment
     // =============================================================================
     const activationFeeTransaction = new (Transaction as any)({
-      target_type: 'user', // ✅ FIXED: Added target_type
-      target_id: userProfile._id.toString(), // ✅ FIXED: Added target_id
+      target_type: 'user',
+      target_id: userProfile._id.toString(),
       user_id: userProfile._id,
       amount_cents: activationPayment.amount_cents,
       type: 'ACTIVATION_FEE',
@@ -939,151 +865,246 @@ export async function completeActivationAfterPayment(activationPaymentId: string
     await activationFeeTransaction.save();
 
     // =============================================================================
-    // STEP 2: ✅ FIXED - Process Referral Bonus (if user was referred)
-    // =============================================================================
-    let referralBonus = null;
-    const REFERRAL_BONUS_CENTS = 70000; // KES 700
+// STEP 2: Process Referral Bonus with Tiered Structure
+// =============================================================================
+let referralBonus = null;
+
+if (userProfile.referred_by) {
+  try {
+    const referrer = await (Profile as any).findById(userProfile.referred_by);
     
-    if (userProfile.referred_by) {
-      try {
-        const referrer = await (Profile as any).findById(userProfile.referred_by);
-        
-        if (referrer) {
-          const referralRecord = await (Referral as any).findOne({
-            referrer_id: referrer._id,
-            referred_id: userProfile._id
-          });
+    if (referrer) {
+      const referralRecord = await (Referral as any).findOne({
+        referrer_id: referrer._id,
+        referred_id: userProfile._id
+      });
 
-          if (referralRecord && !referralRecord.referral_bonus_paid) {
-            // ✅ FIXED: Create REFERRAL transaction for the referrer
-            const referralTransaction = new (Transaction as any)({
-              target_type: 'user', // ✅ FIXED: Added target_type
-              target_id: referrer._id.toString(), // ✅ FIXED: Added target_id
-              user_id: referrer._id,
-              amount_cents: REFERRAL_BONUS_CENTS,
-              type: 'REFERRAL',
-              description: `Referral bonus for ${userProfile.username}'s activation`,
-              status: 'completed',
-              source: 'activation',
-              balance_before_cents: referrer.balance_cents,
-              balance_after_cents: referrer.balance_cents + REFERRAL_BONUS_CENTS,
-              metadata: {
-                referred_user_id: userProfile._id,
-                referred_username: userProfile.username,
-                activation_payment_id: activationPayment._id,
-                referral_id: referralRecord._id
-              }
-            });
-            await referralTransaction.save();
+      if (referralRecord && !referralRecord.referral_bonus_paid) {
+        // Count how many direct referrals have been activated by this referrer
+        const activatedDirectReferrals = await (Referral as any).countDocuments({
+          referrer_id: referrer._id,
+          referral_bonus_paid: true,
+          'metadata.level': 0 // Direct referrals only
+        });
 
-            referrer.balance_cents += REFERRAL_BONUS_CENTS;
-            referrer.total_earnings_cents += REFERRAL_BONUS_CENTS;
-            await referrer.save();
+        // Determine bonus amount: First 2 get 60,000 cents (KES 600), subsequent get 70,000 cents (KES 700)
+        const REFERRAL_BONUS_CENTS = activatedDirectReferrals < 2 ? 60000 : 70000;
+        const referralLevel = 0; // Direct referral
 
-            referralRecord.referral_bonus_paid = true;
-            referralRecord.referral_bonus_amount_cents = REFERRAL_BONUS_CENTS;
-            referralRecord.bonus_paid_at = new Date();
-            referralRecord.status = 'bonus_paid';
-            referralRecord.referred_user_activated = true;
-            referralRecord.referred_user_activated_at = new Date();
-            await referralRecord.save();
+        // Create transaction for direct referral bonus
+        const referralTransaction = new (Transaction as any)({
+          target_type: 'user',
+          target_id: referrer._id.toString(),
+          user_id: referrer._id,
+          amount_cents: REFERRAL_BONUS_CENTS,
+          type: 'REFERRAL',
+          description: `Referral bonus for ${userProfile.username}'s activation (${activatedDirectReferrals < 2 ? 'First 2' : 'Subsequent'})`,
+          status: 'completed',
+          source: 'activation',
+          balance_before_cents: referrer.balance_cents,
+          balance_after_cents: referrer.balance_cents + REFERRAL_BONUS_CENTS,
+          metadata: {
+            referred_user_id: userProfile._id,
+            referred_username: userProfile.username,
+            activation_payment_id: activationPayment._id,
+            referral_id: referralRecord._id,
+            level: referralLevel,
+            bonus_tier: activatedDirectReferrals < 2 ? 'first_2' : 'subsequent',
+            referrer_activated_count: activatedDirectReferrals
+          }
+        });
+        await referralTransaction.save();
 
-            const earning = new (Earning as any)({
-              user_id: referrer._id,
-              amount_cents: REFERRAL_BONUS_CENTS,
-              type: 'REFERRAL',
-              description: `Referral bonus for ${userProfile.username}`,
-              source_id: referralRecord._id,
-              source_type: 'referral',
-              transaction_id: referralTransaction._id,
-              processed: true,
-              processed_at: new Date()
-            });
-            await earning.save();
+        // Update referrer balance
+        referrer.balance_cents += REFERRAL_BONUS_CENTS;
+        referrer.total_earnings_cents += REFERRAL_BONUS_CENTS;
+        await referrer.save();
 
-            referralBonus = {
-              referrer_id: referrer._id,
-              referrer_username: referrer.username,
-              amount_cents: REFERRAL_BONUS_CENTS,
-              transaction_id: referralTransaction._id
-            };
+        // Update referral record
+        referralRecord.referral_bonus_paid = true;
+        referralRecord.referral_bonus_amount_cents = REFERRAL_BONUS_CENTS;
+        referralRecord.bonus_paid_at = new Date();
+        referralRecord.status = 'bonus_paid';
+        referralRecord.referred_user_activated = true;
+        referralRecord.referred_user_activated_at = new Date();
+        referralRecord.metadata = {
+          level: referralLevel,
+          bonus_tier: activatedDirectReferrals < 2 ? 'first_2' : 'subsequent'
+        };
+        await referralRecord.save();
 
-            console.log('✅ Referral bonus paid:', {
-              referrer: referrer.username,
-              amount: REFERRAL_BONUS_CENTS,
-              newUser: userProfile.username
-            });
+        // Create earning record
+        const earning = new (Earning as any)({
+          user_id: referrer._id,
+          amount_cents: REFERRAL_BONUS_CENTS,
+          type: 'REFERRAL',
+          description: `Referral bonus for ${userProfile.username}`,
+          source_id: referralRecord._id,
+          source_type: 'referral',
+          transaction_id: referralTransaction._id,
+          processed: true,
+          processed_at: new Date(),
+          metadata: {
+            level: referralLevel,
+            bonus_tier: activatedDirectReferrals < 2 ? 'first_2' : 'subsequent'
+          }
+        });
+        await earning.save();
+
+        referralBonus = {
+          referrer_id: referrer._id,
+          referrer_username: referrer.username,
+          amount_cents: REFERRAL_BONUS_CENTS,
+          transaction_id: referralTransaction._id,
+          level: referralLevel,
+          bonus_tier: activatedDirectReferrals < 2 ? 'first_2' : 'subsequent'
+        };
+
+        console.log(`✅ Direct referral bonus paid: KES ${REFERRAL_BONUS_CENTS / 100} (${activatedDirectReferrals < 2 ? 'First 2' : 'Subsequent'})`);
+
+        // =============================================================================
+        // STEP 2.1: Process Level 1 Bonus (If referrer has a referrer)
+        // =============================================================================
+        if (referrer.referred_by) {
+          try {
+            const level1Referrer = await (Profile as any).findById(referrer.referred_by);
+            
+            if (level1Referrer) {
+              const LEVEL1_BONUS_CENTS = 10000; // KES 100 for level 1
+              const level1ReferralLevel = 1;
+
+              // Create transaction for level 1 bonus
+              const level1Transaction = new (Transaction as any)({
+                target_type: 'user',
+                target_id: level1Referrer._id.toString(),
+                user_id: level1Referrer._id,
+                amount_cents: LEVEL1_BONUS_CENTS,
+                type: 'REFERRAL',
+                description: `Level 1 downline bonus for ${userProfile.username}'s activation (via ${referrer.username})`,
+                status: 'completed',
+                source: 'activation',
+                balance_before_cents: level1Referrer.balance_cents,
+                balance_after_cents: level1Referrer.balance_cents + LEVEL1_BONUS_CENTS,
+                metadata: {
+                  referred_user_id: userProfile._id,
+                  referred_username: userProfile.username,
+                  direct_referrer_id: referrer._id,
+                  direct_referrer_username: referrer.username,
+                  activation_payment_id: activationPayment._id,
+                  level: level1ReferralLevel
+                }
+              });
+              await level1Transaction.save();
+
+              // Update level 1 referrer balance
+              level1Referrer.balance_cents += LEVEL1_BONUS_CENTS;
+              level1Referrer.total_earnings_cents += LEVEL1_BONUS_CENTS;
+              await level1Referrer.save();
+
+              // Create earning record for level 1
+              const level1Earning = new (Earning as any)({
+                user_id: level1Referrer._id,
+                amount_cents: LEVEL1_BONUS_CENTS,
+                type: 'REFERRAL',
+                description: `Level 1 downline bonus for ${userProfile.username}`,
+                source_id: referralRecord._id,
+                source_type: 'referral_downline',
+                transaction_id: level1Transaction._id,
+                processed: true,
+                processed_at: new Date(),
+                metadata: {
+                  level: level1ReferralLevel,
+                  direct_referrer_id: referrer._id
+                }
+              });
+              await level1Earning.save();
+
+              console.log('✅ Level 1 downline bonus paid: KES 100');
+            }
+          } catch (level1Error) {
+            console.error('⚠️ Error processing level 1 bonus:', level1Error);
           }
         }
-      } catch (referralError) {
-        console.error('⚠️ Error processing referral bonus:', referralError);
       }
     }
+  } catch (referralError) {
+    console.error('⚠️ Error processing referral bonus:', referralError);
+  }
+}
 
-    // =============================================================================
-    // STEP 3: ✅ FIXED - Record Company Revenue Using Helper Function
-    // =============================================================================
-    const companyRevenueCents = userProfile.referred_by ? 30000 : 100000;
-    
-    // ✅ FIXED: Use the helper function from company.ts
-    const companyRevenueResult = await createCompanyRevenueTransaction(
-      companyRevenueCents,
-      userProfile.referred_by ? 'COMPANY_REVENUE' : 'COMPANY_REVENUE',
-      userProfile.referred_by 
-        ? `Company revenue from ${userProfile.username}'s activation (after referral bonus)`
-        : `Company revenue from ${userProfile.username}'s activation (no referral)`,
-      {
-        total_activation_fee: activationPayment.amount_cents,
-        referral_bonus_paid: userProfile.referred_by ? REFERRAL_BONUS_CENTS : 0,
-        net_company_revenue: companyRevenueCents,
-        has_referrer: !!userProfile.referred_by,
-        referrer_id: userProfile.referred_by || null,
-        activation_payment_id: activationPayment._id,
-        user_id: userProfile._id,
-        user_username: userProfile.username
-      },
-      userProfile._id.toString()
-    );
+// =============================================================================
+// STEP 3: Record Company Revenue (Updated calculation)
+// =============================================================================
+let companyRevenueCents;
 
-    if (!companyRevenueResult.success) {
-      console.error('❌ Failed to create company revenue transaction:', companyRevenueResult.error);
-      return { success: false, message: 'Failed to record company revenue' };
-    }
+if (userProfile.referred_by) {
+  // User has referrer - check if they are among first 2 or subsequent
+  const activatedDirectReferrals = await (Referral as any).countDocuments({
+    referrer_id: userProfile.referred_by,
+    referral_bonus_paid: true,
+    'metadata.level': 0
+  });
+  
+  const directBonus = activatedDirectReferrals < 2 ? 60000 : 70000;
+  const level1Bonus = 10000; // KES 100 for level 1
+  
+  // Total activation fee (100000) - direct bonus - level 1 bonus
+  companyRevenueCents = 100000 - directBonus - level1Bonus;
+} else {
+  // No referrer - company gets full amount
+  companyRevenueCents = 100000;
+}
 
-    const companyRevenueTransactionId = companyRevenueResult.data?.transaction_id;
+const companyRevenueResult = await createCompanyRevenueTransaction(
+  companyRevenueCents,
+  'COMPANY_REVENUE',
+  userProfile.referred_by 
+    ? `Company revenue from ${userProfile.username}'s activation (after bonuses)`
+    : `Company revenue from ${userProfile.username}'s activation (no referrer)`,
+  {
+    total_activation_fee: activationPayment.amount_cents,
+    referral_bonus_paid: referralBonus ? referralBonus.amount_cents : 0,
+    level1_bonus_paid: referralBonus && userProfile.referred_by ? 10000 : 0,
+    net_company_revenue: companyRevenueCents,
+    has_referrer: !!userProfile.referred_by,
+    activation_payment_id: activationPayment._id,
+    user_id: userProfile._id
+  },
+  userProfile._id.toString()
+);
 
-    // =============================================================================
-    // STEP 4: Record Unclaimed Referral Revenue (if no referrer)
-    // =============================================================================
-    if (!userProfile.referred_by) {
-      const unclaimedResult = await createCompanyRevenueTransaction(
-        REFERRAL_BONUS_CENTS,
-        'UNCLAIMED_REFERRAL',
-        `Unclaimed referral bonus from ${userProfile.username}'s activation (no referrer)`,
-        {
-          activation_payment_id: activationPayment._id,
-          user_id: userProfile._id,
-          user_username: userProfile.username,
-          reason: 'no_referrer'
-        },
-        userProfile._id.toString()
-      );
+if (!companyRevenueResult.success) {
+  console.error('❌ Failed to create company revenue transaction');
+  return { success: false, message: 'Failed to record company revenue' };
+}
 
-      if (!unclaimedResult.success) {
-        console.error('⚠️ Failed to record unclaimed referral:', unclaimedResult.error);
-      }
-    }
-
+// =============================================================================
+// STEP 4: Record Unclaimed Referral Revenue (if no referrer)
+// =============================================================================
+if (!userProfile.referred_by) {
+  // If no referrer, the potential bonuses go to company
+  await createCompanyRevenueTransaction(
+    70000, // Maximum potential direct bonus
+    'UNCLAIMED_REFERRAL',
+    `Unclaimed referral bonus from ${userProfile.username}'s activation (no referrer)`,
+    {
+      activation_payment_id: activationPayment._id,
+      user_id: userProfile._id,
+      reason: 'no_referrer'
+    },
+    userProfile._id.toString()
+  );
+}
     // =============================================================================
-    // STEP 5: Activate User Account
+    // STEP 5: ✅ FIXED - Activate User Account with Correct Fields
     // =============================================================================
-    userProfile.activation_paid_at = new Date();
     userProfile.is_active = true;
     userProfile.status = 'active';
     userProfile.is_verified = true;
-    userProfile.approval_status = 'approved';
+    userProfile.approval_status = 'approved'; // ✅ FIXED: Set approval_status to 'approved'
+    userProfile.is_approved = true;
     userProfile.level = 1;
-    userProfile.rank = 'Bronze';
+    userProfile.rank = 'Bronze'; // ✅ FIXED: Change rank from 'Unactivated' to 'Bronze'
     userProfile.activation_transaction_id = activationFeeTransaction._id;
     await userProfile.save();
 
@@ -1095,10 +1116,8 @@ export async function completeActivationAfterPayment(activationPaymentId: string
     activationPayment.metadata = {
       ...activationPayment.metadata,
       activation_transaction_id: activationFeeTransaction._id,
-      company_revenue_transaction_id: companyRevenueTransactionId,
-      referral_bonus_transaction_id: referralBonus?.transaction_id || null,
-      referral_bonus_paid: !!referralBonus,
-      company_net_revenue_cents: companyRevenueCents
+      company_revenue_transaction_id: companyRevenueResult.data?.transaction_id,
+      referral_bonus_paid: !!referralBonus
     };
     await activationPayment.save();
 
@@ -1113,13 +1132,8 @@ export async function completeActivationAfterPayment(activationPaymentId: string
       status: 'success',
       metadata: {
         activation_payment_id: activationPayment._id,
-        activation_fee_transaction_id: activationFeeTransaction._id,
-        company_revenue_transaction_id: companyRevenueTransactionId,
-        referral_bonus_transaction_id: referralBonus?.transaction_id || null,
-        mpesa_receipt_number: activationPayment.mpesa_receipt_number,
-        referred_by: userProfile.referred_by || null,
-        referral_bonus_paid: !!referralBonus,
-        company_revenue_cents: companyRevenueCents
+        rank: 'Bronze',
+        approval_status: 'approved'
       }
     });
     await activationLog.save();
@@ -1136,22 +1150,14 @@ export async function completeActivationAfterPayment(activationPaymentId: string
       resource_id: userProfile._id,
       action_type: 'activate',
       changes: {
-        activation_paid_at: new Date(),
+        approval_status: 'approved',
+        rank: 'Bronze',
         is_active: true,
-        status: 'active',
-        activation_fee_paid: activationPayment.amount_cents,
-        referral_bonus_paid: referralBonus ? REFERRAL_BONUS_CENTS : 0,
-        company_revenue: companyRevenueCents
+        status: 'active'
       },
       metadata: {
         activation_payment_id: activationPayment._id,
-        has_referrer: !!userProfile.referred_by,
-        referrer_id: userProfile.referred_by || null,
-        transactions_created: {
-          activation_fee: activationFeeTransaction._id,
-          company_revenue: companyRevenueTransactionId,
-          referral_bonus: referralBonus?.transaction_id || null
-        }
+        has_referrer: !!userProfile.referred_by
       }
     });
     await auditLog.save();
@@ -1159,22 +1165,17 @@ export async function completeActivationAfterPayment(activationPaymentId: string
     revalidatePath('/dashboard');
     revalidatePath('/admin/users');
     revalidatePath('/admin/transactions');
-    revalidatePath('/admin/company');
 
-    console.log('🎉 Activation completed successfully:', {
-      user: userProfile.username,
-      activationFee: activationPayment.amount_cents,
-      companyRevenue: companyRevenueCents,
-      referralBonus: referralBonus ? REFERRAL_BONUS_CENTS : 0,
-      hasReferrer: !!userProfile.referred_by
-    });
+    console.log('🎉 Activation completed successfully');
 
     return { 
       success: true, 
       message: 'Account activated successfully',
       data: {
         username: userProfile.username,
-        activationDate: userProfile.activation_paid_at
+        activationDate: new Date(),
+        rank: 'Bronze',
+        approval_status: 'approved'
       }
     };
 
@@ -1185,12 +1186,10 @@ export async function completeActivationAfterPayment(activationPaymentId: string
 }
 
 /**
- * Verify URL registration status (utility function)
+ * Verify URL registration status
  */
 export async function verifyUrlRegistration(): Promise<ApiResponse<UrlRegistrationData>> {
   try {
-    console.log('🔍 Verifying M-Pesa URL registration...');
-    
     const result = await registerMpesaUrls();
     
     if (result.success && result.data) {

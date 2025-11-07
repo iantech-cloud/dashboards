@@ -14,6 +14,7 @@ interface SideNavProps {
 export default function SideNav({ userName, onLogout }: SideNavProps) {
   const pathname = usePathname();
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     // Check system preference on mount
@@ -24,6 +25,19 @@ export default function SideNav({ userName, onLogout }: SideNavProps) {
   const toggleDarkMode = () => {
     setIsDarkMode(!isDarkMode);
     // You can implement actual dark mode toggle here
+  };
+
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+    
+    setIsLoggingOut(true);
+    try {
+      await onLogout();
+    } catch (error) {
+      console.error('Logout error in SideNav:', error);
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   const links = [
@@ -138,12 +152,25 @@ export default function SideNav({ userName, onLogout }: SideNavProps) {
 
           {/* Logout Button */}
           <button
-            onClick={onLogout}
-            className="w-full flex items-center p-3.5 rounded-xl transition-all duration-250 font-medium text-red-400 hover:bg-red-500/10 hover:text-red-300 group relative overflow-hidden"
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+            className="w-full flex items-center p-3.5 rounded-xl transition-all duration-250 font-medium text-red-400 hover:bg-red-500/10 hover:text-red-300 group relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/0 to-red-500/0 group-hover:from-red-500/5 group-hover:via-red-500/10 group-hover:to-red-500/5 transition-all duration-300"></div>
-            <LogOut size={20} className="mr-3 relative z-10 group-hover:rotate-12 transition-transform duration-250" />
-            <span className="relative z-10">Logout</span>
+            <LogOut 
+              size={20} 
+              className={`mr-3 relative z-10 transition-transform duration-250 ${
+                isLoggingOut ? 'animate-spin' : 'group-hover:rotate-12'
+              }`} 
+            />
+            <span className="relative z-10">
+              {isLoggingOut ? 'Logging Out...' : 'Logout'}
+            </span>
+            
+            {/* Loading indicator */}
+            {isLoggingOut && (
+              <div className="absolute inset-0 bg-red-500/5 rounded-xl"></div>
+            )}
           </button>
         </div>
       </div>

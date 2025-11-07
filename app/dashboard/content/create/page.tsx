@@ -40,13 +40,14 @@ export default function EnhancedContentCreatePage() {
   const [metaDescription, setMetaDescription] = useState('');
   const [urlSlug, setUrlSlug] = useState('');
   
-  // Use the SEO analysis hook
+  // Use the SEO analysis hook - NOW PASSING TITLE
   const seoAnalysis = useSEOAnalysis(
     content,
     primaryKeyword,
     secondaryKeywords,
     metaTitle,
-    metaDescription
+    metaDescription,
+    title // Pass title as H1
   );
 
   // Auto-save functionality
@@ -139,7 +140,7 @@ export default function EnhancedContentCreatePage() {
         task_category: taskCategory,
         tags,
         word_count: seoAnalysis.wordCount,
-        attachments: [] // Will be handled separately
+        attachments: []
       });
 
       if (result.success) {
@@ -225,7 +226,7 @@ export default function EnhancedContentCreatePage() {
               {/* Title */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Content Title
+                  Content Title (This will be your H1)
                   <span className="text-red-500 ml-1">*</span>
                 </label>
                 <input
@@ -235,6 +236,9 @@ export default function EnhancedContentCreatePage() {
                   placeholder="Enter an engaging title..."
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
+                <p className="mt-1 text-xs text-gray-500">
+                  Note: Use H2 for main sections in the editor, not H1
+                </p>
               </div>
 
               {/* Content Type and Category */}
@@ -309,7 +313,7 @@ export default function EnhancedContentCreatePage() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between mb-2">
                       <label className="block text-sm font-medium text-gray-700">
-                        Content
+                        Content (Use H2 for sections, not H1)
                         <span className="text-red-500 ml-1">*</span>
                       </label>
                       <span className="text-xs text-gray-500">
@@ -319,7 +323,7 @@ export default function EnhancedContentCreatePage() {
                     <SummernoteEditor
                       value={content}
                       onChange={setContent}
-                      placeholder="Start writing your content here..."
+                      placeholder="Start writing your content here... Use H2 for main sections."
                       height={600}
                     />
                   </div>

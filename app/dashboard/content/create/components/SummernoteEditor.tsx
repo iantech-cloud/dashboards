@@ -14,7 +14,7 @@ interface SummernoteEditorProps {
   value: string;
   onChange: (content: string) => void;
   placeholder?: string;
-  height?: number; // Added height prop
+  height?: number;
 }
 
 export default function SummernoteEditor({ value, onChange, placeholder, height = 400 }: SummernoteEditorProps) {
@@ -28,7 +28,6 @@ export default function SummernoteEditor({ value, onChange, placeholder, height 
       // Clean up any existing instance
       if (isInitialized.current && window.$ && textareaRef.current) {
         try {
-          // Check if summernote is attached before trying to destroy
           if (typeof window.$(textareaRef.current).summernote === 'function') {
             window.$(textareaRef.current).summernote('destroy');
           }
@@ -38,12 +37,9 @@ export default function SummernoteEditor({ value, onChange, placeholder, height 
         isInitialized.current = false;
       }
 
-      // Check for scripts, including jQuery/Summernote, using a reliable indicator
       const summernoteScriptLoaded = document.querySelector('script[src*="summernote"]');
 
       // --- 1. Load CSS Dependencies ---
-
-      // Load Bootstrap 4 CSS
       if (!document.querySelector('link[href*="bootstrap"]')) {
         const bootstrapCSS = document.createElement('link');
         bootstrapCSS.rel = 'stylesheet';
@@ -53,7 +49,6 @@ export default function SummernoteEditor({ value, onChange, placeholder, height 
         document.head.appendChild(bootstrapCSS);
       }
 
-      // Load Summernote CSS
       if (!document.querySelector('link[href*="summernote-bs4"]')) {
         const summernoteCSS = document.createElement('link');
         summernoteCSS.rel = 'stylesheet';
@@ -62,10 +57,8 @@ export default function SummernoteEditor({ value, onChange, placeholder, height 
       }
       
       // --- 2. Load JS Dependencies Sequentially ---
-      
       if (typeof window.$ === 'undefined' || !summernoteScriptLoaded) {
           
-        // Load jQuery
         function loadJQuery() {
           const jqueryScript = document.createElement('script');
           jqueryScript.src = 'https://code.jquery.com/jquery-3.5.1.min.js';
@@ -74,7 +67,6 @@ export default function SummernoteEditor({ value, onChange, placeholder, height 
           document.body.appendChild(jqueryScript);
         }
 
-        // Load Popper
         function loadPopper() {
           const popperScript = document.createElement('script');
           popperScript.src = 'https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js';
@@ -84,7 +76,6 @@ export default function SummernoteEditor({ value, onChange, placeholder, height 
           document.body.appendChild(popperScript);
         }
 
-        // Load Bootstrap
         function loadBootstrap() {
           const bootstrapScript = document.createElement('script');
           bootstrapScript.src = 'https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js';
@@ -94,41 +85,36 @@ export default function SummernoteEditor({ value, onChange, placeholder, height 
           document.body.appendChild(bootstrapScript);
         }
 
-        // Load Summernote JS
         function loadSummernoteJS() {
           const summernoteScript = document.createElement('script');
           summernoteScript.src = 'https://cdn.jsdelivr.net/npm/summernote@0.9.0/dist/summernote-bs4.min.js';
           summernoteScript.onload = () => {
-             // Add a small delay after final script load
              setTimeout(initializeSummernote, 50);
           };
           document.body.appendChild(summernoteScript);
         }
         
-        // Initiate load sequence
         if (typeof window.$ === 'undefined') {
             loadJQuery();
         } else if (!summernoteScriptLoaded) {
-            loadPopper(); // Assuming jQuery is loaded but not Summernote/Bootstrap chain
+            loadPopper();
         } else {
-            // Should be covered by the initial check, but as a fallback
             initializeSummernote(); 
         }
 
       } else {
-        // Dependencies are already loaded, just initialize
         initializeSummernote();
       }
     };
 
     const initializeSummernote = () => {
-      // Check for dependencies before initializing
       if (textareaRef.current && typeof window.$ !== 'undefined' && typeof window.$(textareaRef.current).summernote === 'function' && !isInitialized.current) {
         
         window.$(textareaRef.current).summernote({
           placeholder: placeholder || 'Write your content here...',
           tabsize: 2,
-          height: height, // Use the passed height prop
+          height: height,
+          dialogsInBody: true, // FIX: Render dialogs in body to avoid z-index issues
           toolbar: [
             ['style', ['style']],
             ['font', ['bold', 'italic', 'underline', 'clear']],
@@ -144,11 +130,14 @@ export default function SummernoteEditor({ value, onChange, placeholder, height 
               onChange(content);
             },
             onInit: () => {
-              // Set initial value
               if (value) {
                 window.$(textareaRef.current).summernote('code', value);
               }
               isInitialized.current = true;
+            },
+            // FIX: Ensure modal is properly focused
+            onDialogShown: () => {
+              console.log('Dialog shown');
             }
           }
         });
@@ -158,7 +147,6 @@ export default function SummernoteEditor({ value, onChange, placeholder, height 
     loadSummernote();
 
     return () => {
-      // Cleanup on unmount
       if (isInitialized.current && window.$ && textareaRef.current) {
         try {
           if (typeof window.$(textareaRef.current).summernote === 'function') {
@@ -173,7 +161,6 @@ export default function SummernoteEditor({ value, onChange, placeholder, height 
   }, [placeholder, onChange, height]);
 
   useEffect(() => {
-    // Update content when value changes from outside
     if (isInitialized.current && window.$ && textareaRef.current) {
       const currentContent = window.$(textareaRef.current).summernote('code');
       if (currentContent !== value) {
@@ -189,8 +176,8 @@ export default function SummernoteEditor({ value, onChange, placeholder, height 
         className="summernote"
         style={{ display: 'none' }}
       />
-      {/* Global styles to override Bootstrap 4 appearance with Tailwind styling */}
       <style jsx global>{`
+        /* Editor Styling */
         .note-editor.note-frame {
           border: 1px solid #d1d5db;
           border-radius: 0.5rem;
@@ -212,7 +199,7 @@ export default function SummernoteEditor({ value, onChange, placeholder, height 
         }
         .note-editor.note-frame .note-editable {
           padding: 1rem;
-          min-height: ${height}px; /* Adjusted to use prop for min-height */
+          min-height: ${height}px;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           line-height: 1.6;
           color: #374151;
@@ -230,13 +217,112 @@ export default function SummernoteEditor({ value, onChange, placeholder, height 
           color: white;
           border-color: #3b82f6;
         }
+
+        /* FIX: Modal Z-Index and Positioning */
+        .note-modal {
+          z-index: 10000 !important;
+        }
         .note-modal .modal-dialog {
           max-width: 500px;
+          margin: 1.75rem auto;
+          position: relative;
+          z-index: 10001 !important;
         }
+        .note-modal .modal-content {
+          background: white;
+          border-radius: 0.5rem;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        }
+        .note-modal .modal-header {
+          background: #f9fafb;
+          border-bottom: 1px solid #e5e7eb;
+          padding: 1rem;
+          border-radius: 0.5rem 0.5rem 0 0;
+        }
+        .note-modal .modal-body {
+          padding: 1.5rem;
+        }
+        .note-modal .modal-footer {
+          background: #f9fafb;
+          border-top: 1px solid #e5e7eb;
+          padding: 1rem;
+          border-radius: 0 0 0.5rem 0.5rem;
+        }
+        
+        /* FIX: Modal Backdrop */
+        .modal-backdrop {
+          z-index: 9999 !important;
+          background-color: rgba(0, 0, 0, 0.5);
+        }
+        .modal-backdrop.show {
+          opacity: 0.5;
+        }
+
+        /* FIX: Form inputs in modals */
+        .note-modal .form-control {
+          display: block;
+          width: 100%;
+          padding: 0.5rem 0.75rem;
+          font-size: 0.875rem;
+          line-height: 1.5;
+          color: #374151;
+          background-color: #fff;
+          border: 1px solid #d1d5db;
+          border-radius: 0.375rem;
+        }
+        .note-modal .form-control:focus {
+          border-color: #3b82f6;
+          outline: 0;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        /* FIX: Buttons in modals */
+        .note-modal .btn {
+          padding: 0.5rem 1rem;
+          font-size: 0.875rem;
+          border-radius: 0.375rem;
+          border: 1px solid transparent;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .note-modal .btn-primary {
+          background-color: #3b82f6;
+          border-color: #3b82f6;
+          color: white;
+        }
+        .note-modal .btn-primary:hover {
+          background-color: #2563eb;
+          border-color: #2563eb;
+        }
+        .note-modal .btn-secondary {
+          background-color: #6b7280;
+          border-color: #6b7280;
+          color: white;
+        }
+        .note-modal .btn-secondary:hover {
+          background-color: #4b5563;
+          border-color: #4b5563;
+        }
+
+        /* FIX: Ensure modals are clickable */
+        .note-modal.show {
+          display: block !important;
+          pointer-events: auto !important;
+        }
+        .note-modal .modal-dialog {
+          pointer-events: auto !important;
+        }
+
+        /* Color picker dropdown */
         .note-popover .popover-content .note-color .dropdown-toggle,
         .note-toolbar .note-color .dropdown-toggle {
           width: 30px;
           padding-left: 5px;
+        }
+
+        /* FIX: Prevent body scroll when modal is open */
+        body.modal-open {
+          overflow: hidden;
         }
       `}</style>
     </div>

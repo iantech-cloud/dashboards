@@ -1,9 +1,9 @@
-// app/auth/login/LoginContent.tsx - FIXED VERSION WITH PROPER REDIRECTS
+// app/auth/login/LoginContent.tsx - COMPLETE FIXED VERSION
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { signIn } from 'next-auth/react';
+import { signIn, signOut, getSession } from 'next-auth/react';
 import Link from 'next/link';
 
 // Alert Component
@@ -39,17 +39,17 @@ const GoogleSignInButton: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const searchParams = useSearchParams();
   
-  // FIX: Get the dynamic callback URL from search params, default to '/dashboard'
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     try {
-      // FIX: Use the dynamically determined callbackUrl
-      await signIn('google', { callbackUrl: callbackUrl });
+      await signIn('google', { 
+        callbackUrl: callbackUrl,
+        redirect: true
+      });
     } catch (error) {
       console.error('Google sign in error:', error);
-    } finally {
       setIsLoading(false);
     }
   };
@@ -82,7 +82,6 @@ const MagicLinkForm: React.FC = () => {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const searchParams = useSearchParams();
 
-  // FIX: Get the dynamic callback URL from search params, default to '/dashboard'
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
 
   const handleMagicLink = async (e: React.FormEvent) => {
@@ -94,7 +93,6 @@ const MagicLinkForm: React.FC = () => {
       const result = await signIn('email', {
         email,
         redirect: false,
-        // FIX: Use the dynamically determined callbackUrl
         callbackUrl: callbackUrl 
       });
 
@@ -190,7 +188,7 @@ const handleNextAuthError = (errorParam: string | null): { message: string } => 
   }
 };
 
-// Forgot Password Modal Component (No changes needed here for login redirect logic)
+// Forgot Password Modal Component
 interface ForgotPasswordModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -495,7 +493,11 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
   );
 };
 
-export default function LoginContent() {
+interface LoginContentProps {
+  hasExistingSession?: boolean;
+}
+
+export default function LoginContent({ hasExistingSession = false }: LoginContentProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [token2FA, setToken2FA] = useState('');
@@ -505,16 +507,27 @@ export default function LoginContent() {
   const [requires2FA, setRequires2FA] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [activeTab, setActiveTab] = useState<'password' | 'magic'>('password');
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
   
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const isTimeout = searchParams.get('timeout') === 'true';
-  // NEW: Get the callback URL from the URL search parameters, default to '/dashboard'
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard'; 
+  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+
+  // Handle existing session message
+  useEffect(() => {
+    if (hasExistingSession) {
+      setMessage('You are already logged in. You can continue to your dashboard or log in with a different account.');
+      setMessageType('info');
+    }
+    setIsCheckingSession(false);
+  }, [hasExistingSession]);
 
   // Handle URL parameters and errors
   useEffect(() => {
+    if (isCheckingSession) return;
+
     const errorParam = searchParams.get('error');
     const successParam = searchParams.get('success');
 
@@ -534,8 +547,133 @@ export default function LoginContent() {
       setMessage(errorInfo.message);
       setMessageType('error');
     }
-  }, [searchParams]);
+  }, [searchParams, isCheckingSession]);
 
+  /**
+   * Enhanced user status checking with proper redirects
+   */
+  const checkUserStatusAndRedirect = async (callbackUrl: string) => {
+    try {
+      // Fetch the latest session to determine redirect
+      const response = await fetch('/api/auth/session');
+      const sessionData = await response.json();
+      
+      if (!sessionData?.user) {
+        console.error('No session data after successful login');
+        setMessage('Session error. Please try again.');
+        setMessageType('error');
+        setLoading(false);
+        return;
+      }
+      
+      const user = sessionData.user;
+      const authMethod = user.authMethod || 'credentials';
+      
+      console.log('User status:', {
+        email: user.email,
+        authMethod,
+        is_verified: user.is_verified,
+        profile_completed: user.profile_completed,
+        isActivationPaid: user.isActivationPaid,
+        activation_paid_at: user.activation_paid_at,
+        is_approved: user.is_approved,
+        approval_status: user.approval_status,
+        is_active: user.is_active,
+        status: user.status,
+      });
+      
+      // ===== FOR GOOGLE OAUTH USERS =====
+      if (authMethod === 'google') {
+        console.log('Google OAuth user detected - using OAuth flow');
+        
+        // Google users skip email verification (Google already verified their email)
+        // Check profile completion first
+        if (!user.profile_completed) {
+          console.log('OAuth user - Profile not completed, redirecting to complete-profile');
+          router.push('/auth/complete-profile');
+          return;
+        }
+
+        // Check activation payment
+        if (!user.isActivationPaid && !user.activation_paid_at) {
+          console.log('OAuth user - Activation not paid, redirecting to activate');
+          router.push('/auth/activate');
+          return;
+        }
+
+        // Check if approved
+        if (!user.is_approved || user.approval_status === 'pending') {
+          console.log('OAuth user - Not approved, redirecting to pending-approval');
+          router.push('/auth/pending-approval');
+          return;
+        }
+
+        // Check if active
+        if (!user.is_active || user.status !== 'active') {
+          console.log('OAuth user - Not active, redirecting to pending-approval');
+          router.push('/auth/pending-approval');
+          return;
+        }
+
+        // All checks passed - redirect to appropriate dashboard
+        console.log('OAuth user - All checks passed, redirecting to dashboard');
+        router.push(callbackUrl);
+        return;
+      }
+
+      // ===== FOR EMAIL/CREDENTIALS USERS =====
+      if (authMethod === 'credentials') {
+        console.log('Credentials user detected - using credentials flow');
+        
+        // Check email verification FIRST for credentials users
+        if (!user.is_verified) {
+          console.log('Credentials user - Email not verified, redirecting to verify-email');
+          router.push('/auth/verify-email');
+          return;
+        }
+
+        // Profile is already completed during signup for credentials users
+        console.log('Credentials user - Profile completed during signup, skipping profile check');
+
+        // Check activation payment
+        if (!user.isActivationPaid && !user.activation_paid_at) {
+          console.log('Credentials user - Activation not paid, redirecting to activate');
+          router.push('/auth/activate');
+          return;
+        }
+
+        // Check if approved
+        if (!user.is_approved || user.approval_status === 'pending') {
+          console.log('Credentials user - Not approved, redirecting to pending-approval');
+          router.push('/auth/pending-approval');
+          return;
+        }
+
+        // Check if active
+        if (!user.is_active || user.status !== 'active') {
+          console.log('Credentials user - Not active, redirecting to pending-approval');
+          router.push('/auth/pending-approval');
+          return;
+        }
+
+        // All checks passed - redirect to appropriate dashboard
+        console.log('Credentials user - All checks passed, redirecting to dashboard');
+        router.push(callbackUrl);
+        return;
+      }
+
+      // Fallback: redirect to dashboard
+      console.log('Unknown auth method, fallback redirect to dashboard');
+      router.push(callbackUrl);
+    } catch (error) {
+      console.error('Error checking user status:', error);
+      setMessage('Error checking user status. Please try again.');
+      setMessageType('error');
+      setLoading(false);
+    }
+  };
+
+  // Enhanced handlePasswordSubmit with user status checking
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -548,9 +686,7 @@ export default function LoginContent() {
         email,
         password,
         token2FA: requires2FA ? token2FA : undefined,
-        redirect: false, // Keep this false
-        // Optionally pass the callbackUrl here if you want it returned in the result.url
-        // callbackUrl: callbackUrl, 
+        redirect: false,
       });
 
       console.log('SignIn result:', result);
@@ -573,13 +709,12 @@ export default function LoginContent() {
       } 
       
       if (result?.ok) {
-        console.log('Login successful! Redirecting to:', callbackUrl);
-        setMessage('Login successful! Redirecting...');
+        console.log('Login successful! Checking user status...');
+        setMessage('Login successful! Checking account status...');
         setMessageType('success');
         
-        // FIX: Use the calculated callbackUrl for redirect
-        router.push(callbackUrl);
-        // router.refresh() is generally not needed here since push to a new route will handle re-fetching
+        // Use the enhanced status checking function
+        await checkUserStatusAndRedirect(callbackUrl);
       } else {
         console.warn('Unexpected login response:', result);
         setMessage('An unexpected login response occurred.');
@@ -621,13 +756,12 @@ export default function LoginContent() {
       }
 
       if (result?.ok) {
-        console.log('2FA verification successful! Redirecting to:', callbackUrl);
-        setMessage('2FA verification successful! Redirecting...');
+        console.log('2FA verification successful! Checking user status...');
+        setMessage('2FA verification successful! Checking account status...');
         setMessageType('success');
         
-        // FIX: Use the calculated callbackUrl for redirect
-        router.push(callbackUrl);
-        // router.refresh();
+        // Use the same enhanced status checking function
+        await checkUserStatusAndRedirect(callbackUrl);
       }
     } catch (error) {
       console.error('2FA verification error:', error);
@@ -648,6 +782,18 @@ export default function LoginContent() {
     setLoading(false);
   };
 
+  // Show loading while checking session
+  if (isCheckingSession) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-md text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Preparing login page...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
@@ -657,8 +803,23 @@ export default function LoginContent() {
             <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
               HustleHub Africa
             </h1>
-            <p className="text-gray-600 mt-2">Welcome back! Sign in to continue</p>
+            <p className="text-gray-600 mt-2">
+              {hasExistingSession ? 'Welcome back! You are already logged in.' : 'Welcome back! Sign in to continue'}
+            </p>
           </div>
+
+          {/* Dashboard Link for logged-in users */}
+          {hasExistingSession && (
+            <div className="mb-6 text-center">
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center px-6 py-3 bg-green-600 text-white font-semibold rounded-xl hover:bg-green-700 transition-colors shadow-lg hover:shadow-xl"
+              >
+                Go to Dashboard
+              </Link>
+              <p className="text-sm text-gray-600 mt-2">or continue below to log in with a different account</p>
+            </div>
+          )}
 
           {/* Timeout Warning */}
           {isTimeout && (

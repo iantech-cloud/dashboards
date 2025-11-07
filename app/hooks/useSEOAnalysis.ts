@@ -30,7 +30,8 @@ export function useSEOAnalysis(
   primaryKeyword: string,
   secondaryKeywords: string[],
   metaTitle: string,
-  metaDescription: string
+  metaDescription: string,
+  contentTitle?: string // Add content title parameter
 ) {
   const [analysis, setAnalysis] = useState<SEOAnalysisState>({
     keywords: [],
@@ -59,14 +60,19 @@ export function useSEOAnalysis(
     setAnalysis(prev => ({ ...prev, isAnalyzing: true }));
 
     try {
-      // Run all analyses
-      const keywordResults = analyzeKeywords(content, primaryKeyword, secondaryKeywords);
-      const readabilityResults = analyzeReadability(content);
-      const structureResults = analyzeStructure(content);
-      const wordCount = countWords(content);
+      // Combine title and content for analysis to treat title as H1
+      const contentWithTitle = contentTitle 
+        ? `<h1>${contentTitle}</h1>${content}`
+        : content;
+
+      // Run all analyses using content with title
+      const keywordResults = analyzeKeywords(contentWithTitle, primaryKeyword, secondaryKeywords);
+      const readabilityResults = analyzeReadability(contentWithTitle);
+      const structureResults = analyzeStructure(contentWithTitle);
+      const wordCount = countWords(contentWithTitle);
       const readingTime = estimateReadingTime(wordCount);
       const seoScore = calculateSEOScore(
-        content,
+        contentWithTitle,
         metaTitle,
         metaDescription,
         primaryKeyword,
@@ -86,7 +92,7 @@ export function useSEOAnalysis(
       console.error('SEO Analysis error:', error);
       setAnalysis(prev => ({ ...prev, isAnalyzing: false }));
     }
-  }, [content, primaryKeyword, secondaryKeywords, metaTitle, metaDescription]);
+  }, [content, contentTitle, primaryKeyword, secondaryKeywords, metaTitle, metaDescription]);
 
   // Debounced analysis - run 1 second after user stops typing
   useEffect(() => {
