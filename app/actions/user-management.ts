@@ -1,4 +1,4 @@
-// app/actions/user-management.ts - FIXED VERSION
+// app/actions/user-management.ts - UPDATED WITH LEVEL & RANK ON ACTIVATION
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -471,6 +471,17 @@ export async function activateUserAccount(userId: string, activationNotes?: stri
     user.activation_method = 'manual';
     user.activation_status = 'activated';
 
+    // ✅ NEW: Set initial level and rank for newly activated user
+    if (!user.level || user.level === 0) {
+      user.level = 1;
+      console.log(`✅ User ${user.username} assigned Level 1`);
+    }
+    
+    if (!user.rank || user.rank === '') {
+      user.rank = 'Bronze';
+      console.log(`✅ User ${user.username} assigned Bronze rank`);
+    }
+
     // ============================================================================
     // STEP 3: Auto-approve user if not already approved
     // ============================================================================
@@ -730,7 +741,8 @@ export async function activateUserAccount(userId: string, activationNotes?: stri
     console.log(`   Direct Bonus Paid: -KES ${(directReferralBonus?.amount_cents || 0) / 100}`);
     console.log(`   Level 1 Bonus Paid: -KES ${(level1ReferralBonus?.amount_cents || 0) / 100}`);
     console.log(`   Company Net Profit: KES ${netCompanyRevenue / 100}`);
-    console.log(`   Final Company Balance: KES ${finalCompanyBalance / 100}\n`);
+    console.log(`   Final Company Balance: KES ${finalCompanyBalance / 100}`);
+    console.log(`   User Level: ${user.level} | Rank: ${user.rank}\n`);
 
     // ============================================================================
     // STEP 8: Send Payment Confirmation Invoice
@@ -768,6 +780,8 @@ export async function activateUserAccount(userId: string, activationNotes?: stri
         direct_bonus: directReferralBonus?.amount_cents || 0,
         level1_bonus: level1ReferralBonus?.amount_cents || 0,
         bonus_tier: directReferralBonus?.bonus_tier || 'none',
+        level: user.level,
+        rank: user.rank,
       },
       metadata: {
         activation_details: {
@@ -781,7 +795,9 @@ export async function activateUserAccount(userId: string, activationNotes?: stri
           company_net_revenue: netCompanyRevenue / 100,
           final_company_balance: company.wallet_balance_cents / 100,
           confirmation_invoice_sent: true,
-          activation_notes: activationNotes
+          activation_notes: activationNotes,
+          user_level: user.level,
+          user_rank: user.rank
         }
       },
       ip_address: 'server-action',
@@ -796,7 +812,7 @@ export async function activateUserAccount(userId: string, activationNotes?: stri
     revalidatePath('/dashboard');
     revalidatePath('/admin/company');
 
-    let message = `User account activated successfully. `;
+    let message = `User account activated successfully (Level ${user.level}, ${user.rank} Rank). `;
     if (!feeDeducted) {
       message += `No fee charged (admin activated). `;
     } else {
