@@ -23,6 +23,7 @@ const TransactionTypes = [
   'SURVEY',
   'SURVEY_REVOKE',
   'ACTIVATION_FEE',
+  'ADMIN_ACTIVATION', 
   'COMPANY_REVENUE',
   'ACCOUNT_ACTIVATION',
   'SPIN_COST',
@@ -30,7 +31,6 @@ const TransactionTypes = [
   'ADMIN_CREDIT',
   'ADMIN_DEBIT'
 ] as const;
-const InvoiceStatuses = ['pending', 'paid'] as const;
 const BlogPostStatuses = ['draft', 'published', 'archived'] as const;
 const UserContentTypes = ['blog_post', 'social_media', 'product_review', 'video', 'other'] as const;
 const UserContentStatuses = ['pending', 'approved', 'rejected', 'revision_requested'] as const;
@@ -452,9 +452,6 @@ const SupportTicketSchema = new Schema({
 
 export const SupportTicket = getModel('SupportTicket', SupportTicketSchema);
 
-/**
- * 4. AdminAuditLog Model
- */
 const AdminAuditLogSchema = new Schema({
   actor_id: { type: String, ref: 'Profile', required: true, index: true },
   action: { 
@@ -467,9 +464,12 @@ const AdminAuditLogSchema = new Schema({
       'ACTIVATE_USER',
       'SUSPEND_USER',
       'BAN_USER',
+      'REINSTATE_USER',
       'ADD_SPINS',
       'UPDATE_USER_STATUS',
       'UPDATE_USER_BALANCE',
+      'CREDIT_USER_BALANCE',
+      'DEBIT_USER_BALANCE',
       'RESET_USER_LIMITS',
       'DELETE_USER',
       'APPROVE_WITHDRAWAL',
@@ -502,6 +502,7 @@ const AdminAuditLogSchema = new Schema({
       'UPDATE_TRANSACTION',
       'REVERSE_TRANSACTION',
       'UPDATE_SYSTEM_SETTINGS',
+      'SYNC_COMPANY_FINANCIALS',
       'VIEW_AUDIT_LOGS',
       'EXPORT_DATA',
       'CAMPAIGN_CREATE',
@@ -568,6 +569,7 @@ const AdminAuditLogSchema = new Schema({
     { fields: { 'spin_related.prize_type': 1 } },
   ]
 });
+
 export const AdminAuditLog = getModel('AdminAuditLog', AdminAuditLogSchema);
 /**
  * 5. Referral Model
@@ -791,19 +793,7 @@ const CustomerSchema = new Schema({
 
 export const Customer = getModel('Customer', CustomerSchema);
 
-/**
- * 11. Invoice Model
- */
-const InvoiceSchema = new Schema({
-  customer_id: { type: Types.ObjectId, ref: 'Customer', required: true, index: true },
-  amount: { type: Number, required: true },
-  status: { type: String, enum: InvoiceStatuses, required: true, index: true },
-  date: { type: Date, required: true, default: Date.now },
-}, {
-  timestamps: true,
-});
-
-export const Invoice = getModel('Invoice', InvoiceSchema);
+//invoice
 
 /**
  * 12. Revenue Model
@@ -2259,3 +2249,5 @@ export {
 } from './models/Soko';
 
 export { UserSession } from './models/UserSession';
+export { Invoice, InvoiceUtils, type IInvoice, type InvoiceCreateData, type InvoiceUpdateData } from './models/Invoice';
+

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase, Transaction, Profile, MpesaTransaction, ActivationPayment, MpesaCallbackLog } from '@/app/lib/models';
 import mongoose from 'mongoose';
 import { completeActivationAfterPayment } from '@/app/actions/activation';
+import { sendPaymentConfirmationInvoice } from '@/app/actions/email';
 
 /**
  * Map M-Pesa result codes to VALID database enum values
@@ -81,6 +82,78 @@ function getFailureType(resultCode: number): string {
 function getTransactionFlow(type: string): 'credit' | 'debit' {
   const creditTypes = ['DEPOSIT', 'BONUS', 'TASK_PAYMENT', 'SPIN_WIN', 'REFERRAL', 'SURVEY'];
   return creditTypes.includes(type) ? 'credit' : 'debit';
+}
+
+/**
+ * Send payment confirmation invoice for successful M-Pesa payments
+ */
+async function sendMpesaPaymentConfirmationInvoice(
+  userProfile: any,
+  mpesaTransaction: any,
+  activationPayment: any
+): Promise<void> {
+  try {
+    console.log('📧 Sending M-Pesa payment confirmation invoice for:', userProfile.email);
+    
+    const invoiceData = {
+      invoiceNumber: `MPESA-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      originalInvoiceNumber: `INV-${activationPayment?._id || mpesaTransaction._id}`,
+      amount: mpesaTransaction.amount_cents / 100, // Convert cents to KSH
+      paymentDate: new Date().toLocaleDateString(),
+      transactionId: mpesaTransaction.mpesa_receipt_number || mpesaTransaction._id.toString(),
+      paymentMethod: 'mpesa' as const,
+      user: {
+        name: userProfile.name || userProfile.username,
+        email: userProfile.email
+      },
+      business: {
+        name: 'HustleHub Africa',
+        address: 'Nairobi, Kenya',
+        phone: '+254 748 264 231',
+        email: 'support@hustlehub.africa'
+      },
+      activationDate: new Date().toLocaleDateString()
+    };
+
+    const result = await sendPaymentConfirmationInvoice(
+      userProfile.email,
+      userProfile.name || userProfile.username,
+      invoiceData
+    );
+
+    if (result.success) {
+      console.log('✅ M-Pesa payment confirmation invoice sent successfully');
+      
+      // Update transaction metadata to record invoice sent
+      await MpesaTransaction.findByIdAndUpdate(mpesaTransaction._id, {
+        $set: {
+          'metadata.confirmation_invoice_sent': true,
+          'metadata.confirmation_invoice_sent_at': new Date(),
+          'metadata.confirmation_invoice_number': invoiceData.invoiceNumber
+        }
+      });
+    } else {
+      console.error('❌ Failed to send M-Pesa payment confirmation invoice:', result.error);
+      
+      // Log the failure but don't throw error
+      await MpesaTransaction.findByIdAndUpdate(mpesaTransaction._id, {
+        $set: {
+          'metadata.confirmation_invoice_failed': true,
+          'metadata.confirmation_invoice_error': result.error
+        }
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error sending M-Pesa payment confirmation invoice:', error);
+    
+    // Log the error but don't throw - payment should still be processed
+    await MpesaTransaction.findByIdAndUpdate(mpesaTransaction._id, {
+      $set: {
+        'metadata.confirmation_invoice_failed': true,
+        'metadata.confirmation_invoice_error': error instanceof Error ? error.message : 'Unknown error'
+      }
+    });
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -287,6 +360,33 @@ export async function POST(request: NextRequest) {
             activationPaymentId: activationPayment._id,
             userId: activationPayment.user_id
           });
+
+          // ============================================================================
+          // STEP: Send Payment Confirmation Invoice for M-Pesa Payment
+          // ============================================================================
+          try {
+            // Get user profile for email
+            const userProfile = await Profile.findById(activationPayment.user_id);
+            
+            if (userProfile) {
+              console.log('📧 Triggering payment confirmation invoice for M-Pesa payment...');
+              
+              // Send payment confirmation invoice asynchronously (don't await)
+              sendMpesaPaymentConfirmationInvoice(
+                userProfile,
+                mpesaTransaction,
+                activationPayment
+              ).catch(error => {
+                console.error('❌ Background email sending failed:', error);
+                // Don't throw - email failure shouldn't affect payment processing
+              });
+            } else {
+              console.error('❌ User profile not found for email:', activationPayment.user_id);
+            }
+          } catch (emailError) {
+            console.error('❌ Error preparing payment confirmation email:', emailError);
+            // Don't throw - email failure shouldn't affect payment processing
+          }
         } else {
           console.error('❌ Activation failed:', activationResult.message);
         }
@@ -378,7 +478,8 @@ export async function POST(request: NextRequest) {
       processed_at: new Date(),
       processing_duration_ms: Date.now() - new Date(callbackLog.created_at).getTime(),
       final_status: safeStatus,
-      failure_type: safeStatus !== 'completed' ? failureType : undefined
+      failure_type: safeStatus !== 'completed' ? failureType : undefined,
+      confirmation_invoice_sent: safeStatus === 'completed' && activationPayment ? true : undefined
     });
 
     console.log('✅ Callback processed successfully');

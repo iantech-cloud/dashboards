@@ -1,7 +1,7 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { auth } from "@/auth" // Changed from next-auth imports
+import { auth } from "@/auth"
 import {
   connectToDatabase,
   Profile,
@@ -32,10 +32,11 @@ interface SpinSettingsLean {
   maintenance_mode?: boolean
   maintenance_message?: string
   probability_multipliers?: {
+    starter?: number
     bronze: number
     silver: number
     gold: number
-    platinum: number
+    platinum?: number
     diamond: number
   }
   last_activated_by?: string
@@ -100,7 +101,7 @@ interface SpinPrizeLean {
   value_description?: string
   credit_type: string
   base_probability: number
-  accessible_ranks?: string[]
+  accessible_tiers?: string[] // FIXED: Changed from accessible_ranks
   min_referrals?: number
   requires_activation?: boolean
   is_active?: boolean
@@ -200,10 +201,12 @@ function isValidSession(session: unknown): session is SessionWithUser {
 // --- HELPER FUNCTIONS ---
 
 /**
- * Normalize user rank to lowercase for consistent comparison
+ * Normalize user rank/tier to lowercase for consistent comparison
  */
 function normalizeRank(rank: string | undefined): string {
-  return (rank || "bronze").toLowerCase().trim()
+  const normalized = (rank || "bronze").toLowerCase().trim()
+  // Handle both 'rank' and 'spin_tier' fields
+  return normalized
 }
 
 /**
@@ -282,11 +285,343 @@ function checkScheduledActivation(settings?: SpinSettingsLean): boolean {
 }
 
 /**
+ * Initialize default spin settings if they don't exist
+ */
+async function ensureSpinSettings(): Promise<void> {
+  try {
+    const existingSettings = await (SpinSettings as any).findOne({})
+    
+    if (!existingSettings) {
+      console.log('📝 Creating default spin settings...')
+      const defaultSettings = new (SpinSettings as any)({
+        is_active: false,
+        activation_mode: 'scheduled',
+        scheduled_days: ['wednesday', 'friday'],
+        start_time: '19:00',
+        end_time: '22:00',
+        timezone: 'Africa/Nairobi',
+        spins_per_session: 3,
+        spins_cost_per_spin: 5,
+        cooldown_minutes: 1440,
+        require_tasks_completion: true,
+        maintenance_mode: false,
+        maintenance_message: '',
+        probability_multipliers: {
+          starter: 1.0,
+          bronze: 1.0,
+          silver: 1.1,
+          gold: 1.2,
+          diamond: 1.5,
+        },
+        last_activated_by: 'system',
+        last_updated_by: 'system',
+      })
+      
+      await defaultSettings.save()
+      console.log('✅ Default spin settings created')
+    }
+  } catch (error) {
+    console.error('Error ensuring spin settings:', error)
+  }
+}
+
+/**
+ * Initialize default spin prizes if they don't exist
+ */
+async function ensureSpinPrizes(): Promise<void> {
+  try {
+    const existingPrizes = await (SpinPrize as any).countDocuments({})
+    
+    if (existingPrizes === 0) {
+      console.log('🎁 Creating all 12 spin prizes...')
+      
+      const defaultPrizes = [
+        {
+          type: 'EXTRA_SPIN_VOUCHER',
+          name: 'Extra Spin Voucher',
+          display_name: '5 Extra Spins',
+          description: 'Get 5 additional spins to use',
+          icon: '🎟️',
+          base_probability: 20,
+          accessible_tiers: ['starter', 'bronze', 'silver', 'gold', 'diamond'],
+          min_referrals: 0,
+          requires_activation: true,
+          value_cents: 500,
+          value_description: '5 extra spins',
+          credit_type: 'spins',
+          duration_days: 0,
+          is_active: true,
+          is_featured: false,
+          wheel_order: 1,
+          color: '#FF6B6B',
+          created_by: 'system'
+        },
+        {
+          type: 'BONUS_CREDIT',
+          name: 'Bonus Credit',
+          display_name: 'KES 100 Bonus',
+          description: 'Get KES 100 credited to your account',
+          icon: '💰',
+          base_probability: 15,
+          accessible_tiers: ['starter', 'bronze', 'silver', 'gold', 'diamond'],
+          min_referrals: 0,
+          requires_activation: true,
+          value_cents: 10000,
+          value_description: 'KES 100',
+          credit_type: 'balance',
+          duration_days: 0,
+          is_active: true,
+          is_featured: true,
+          wheel_order: 2,
+          color: '#4ECDC4',
+          created_by: 'system'
+        },
+        {
+          type: 'REFERRAL_BOOST',
+          name: '20% Referral Boost',
+          display_name: '20% Referral Boost',
+          description: 'Get 20% more on next 5 referral rewards',
+          icon: '🧭',
+          base_probability: 10,
+          accessible_tiers: ['bronze', 'silver', 'gold', 'diamond'],
+          min_referrals: 3,
+          requires_activation: true,
+          value_cents: 0,
+          value_description: '20% boost for 5 referrals',
+          credit_type: 'boost',
+          duration_days: 7,
+          is_active: true,
+          is_featured: false,
+          wheel_order: 3,
+          color: '#96CEB4',
+          created_by: 'system'
+        },
+        {
+          type: 'TRAINING_COURSE',
+          name: 'Free Training Course',
+          display_name: 'Free Training',
+          description: 'Access to premium training course',
+          icon: '🧠',
+          base_probability: 10,
+          accessible_tiers: ['starter', 'bronze', 'silver', 'gold', 'diamond'],
+          min_referrals: 0,
+          requires_activation: true,
+          value_cents: 50000,
+          value_description: 'Premium training access',
+          credit_type: 'voucher',
+          duration_days: 30,
+          is_active: true,
+          is_featured: false,
+          wheel_order: 4,
+          color: '#FFEAA7',
+          created_by: 'system'
+        },
+        {
+          type: 'AIRTIME',
+          name: 'Free Airtime',
+          display_name: 'KES 50 Airtime',
+          description: 'Get KES 50 airtime credit',
+          icon: '📱',
+          base_probability: 10,
+          accessible_tiers: ['silver', 'gold', 'diamond'],
+          min_referrals: 5,
+          requires_activation: true,
+          value_cents: 5000,
+          value_description: 'KES 50 airtime',
+          credit_type: 'airtime',
+          duration_days: 0,
+          is_active: true,
+          is_featured: true,
+          wheel_order: 5,
+          color: '#45B7D1',
+          created_by: 'system'
+        },
+        {
+          type: 'LEADERSHIP_TOKEN',
+          name: 'Leadership Token',
+          display_name: 'Leadership Token',
+          description: 'Exclusive leadership program access',
+          icon: '💼',
+          base_probability: 5,
+          accessible_tiers: ['gold', 'diamond'],
+          min_referrals: 50,
+          requires_activation: true,
+          value_cents: 100000,
+          value_description: 'Leadership access',
+          credit_type: 'badge',
+          duration_days: 0,
+          is_active: true,
+          is_featured: true,
+          wheel_order: 6,
+          color: '#DDA0DD',
+          created_by: 'system'
+        },
+        {
+          type: 'SURVEY_PRIORITY',
+          name: 'Survey Priority',
+          display_name: 'Survey Priority',
+          description: 'Get priority access to high-paying surveys',
+          icon: '🧾',
+          base_probability: 5,
+          accessible_tiers: ['silver', 'gold', 'diamond'],
+          min_referrals: 15,
+          requires_activation: true,
+          value_cents: 0,
+          value_description: 'Priority survey access',
+          credit_type: 'feature',
+          duration_days: 30,
+          is_active: true,
+          is_featured: false,
+          wheel_order: 7,
+          color: '#98D8C8',
+          created_by: 'system'
+        },
+        {
+          type: 'MYSTERY_BOX',
+          name: 'Mystery Box',
+          display_name: 'Mystery Box',
+          description: 'Random surprise gift worth up to KES 50',
+          icon: '🎲',
+          base_probability: 10,
+          accessible_tiers: ['starter', 'bronze', 'silver', 'gold', 'diamond'],
+          min_referrals: 0,
+          requires_activation: true,
+          value_cents: 2500,
+          value_description: 'Random gift',
+          credit_type: 'balance',
+          duration_days: 0,
+          is_active: true,
+          is_featured: false,
+          wheel_order: 8,
+          color: '#F7DC6F',
+          created_by: 'system'
+        },
+        {
+          type: 'COMMISSION_BOOST',
+          name: 'Commission Boost',
+          display_name: '15% Commission Boost',
+          description: 'Get 15% commission boost for 7 days',
+          icon: '💎',
+          base_probability: 3,
+          accessible_tiers: ['gold', 'diamond'],
+          min_referrals: 50,
+          requires_activation: true,
+          value_cents: 0,
+          value_description: '15% boost for 7 days',
+          credit_type: 'boost',
+          duration_days: 7,
+          is_active: true,
+          is_featured: true,
+          wheel_order: 9,
+          color: '#BB8FCE',
+          created_by: 'system'
+        },
+        {
+          type: 'TOP_AFFILIATE_BADGE',
+          name: 'Top Affiliate Badge',
+          display_name: 'Top Affiliate Badge',
+          description: 'Exclusive recognition for top performers',
+          icon: '👑',
+          base_probability: 2,
+          accessible_tiers: ['diamond'],
+          min_referrals: 100,
+          requires_activation: true,
+          value_cents: 0,
+          value_description: 'Elite status',
+          credit_type: 'badge',
+          duration_days: 0,
+          is_active: true,
+          is_featured: true,
+          wheel_order: 10,
+          color: '#E8DAEF',
+          created_by: 'system'
+        },
+        {
+          type: 'TRY_AGAIN',
+          name: 'Try Again',
+          display_name: 'Try Again',
+          description: 'Better luck next time!',
+          icon: '❌',
+          base_probability: 10,
+          accessible_tiers: ['starter', 'bronze', 'silver', 'gold', 'diamond'],
+          min_referrals: 0,
+          requires_activation: true,
+          value_cents: 0,
+          value_description: 'No prize',
+          credit_type: 'balance',
+          duration_days: 0,
+          is_active: true,
+          is_featured: false,
+          wheel_order: 11,
+          color: '#CCCCCC',
+          created_by: 'system'
+        },
+        {
+          type: 'AD_SLOT',
+          name: 'Ad Slot',
+          display_name: 'Watch Ad & Earn',
+          description: 'Watch a short ad and earn KES 10',
+          icon: '📺',
+          base_probability: 5,
+          accessible_tiers: ['silver', 'gold', 'diamond'],
+          min_referrals: 50,
+          requires_activation: true,
+          value_cents: 1000,
+          value_description: 'KES 10 for watching ad',
+          credit_type: 'balance',
+          duration_days: 0,
+          is_active: true,
+          is_featured: false,
+          is_ad_slot: true,
+          wheel_order: 12,
+          color: '#FFD93D',
+          created_by: 'system'
+        }
+      ]
+      
+      await (SpinPrize as any).insertMany(defaultPrizes)
+      
+      // Verify probabilities sum to 100%
+      const totalProbability = defaultPrizes.reduce((sum, p) => sum + p.base_probability, 0)
+      
+      console.log(`✅ Created ${defaultPrizes.length} spin prizes`)
+      console.log(`📊 Total probability: ${totalProbability}%`)
+    }
+  } catch (error) {
+    console.error('Error ensuring spin prizes:', error)
+  }
+}
+
+/**
+ * Initialize spin system on first run
+ */
+export async function initializeSpinSystem(): Promise<{ success: boolean; message: string }> {
+  try {
+    await connectToDatabase()
+    await ensureSpinSettings()
+    await ensureSpinPrizes()
+    
+    return {
+      success: true,
+      message: 'Spin system initialized successfully'
+    }
+  } catch (error) {
+    console.error('Error initializing spin system:', error)
+    return {
+      success: false,
+      message: 'Failed to initialize spin system'
+    }
+  }
+}
+
+/**
  * Check if spin is active based on admin settings or schedule
  */
 export async function checkSpinActivation(): Promise<{ active: boolean; message: string }> {
   try {
     await connectToDatabase()
+    await ensureSpinSettings() // ADDED: Ensure settings exist
+    
     const spinSettings = (await (SpinSettings as any).findOne({}).lean()) as SpinSettingsLean | null
 
     if (!spinSettings) {
@@ -350,28 +685,29 @@ export async function performSpin(): Promise<SpinResponse> {
   try {
     console.log("🎯 Starting performSpin...")
 
-    // NextAuth v5: Use auth() instead of getServerSession()
     const session = await auth()
     if (!isValidSession(session)) {
       return { success: false, message: "Unauthorized" }
     }
 
     await connectToDatabase()
+    await ensureSpinPrizes() // ADDED: Ensure prizes exist
     
-    // NextAuth v5: Use session.user.id instead of session.user.email
     const user = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
     if (!user) {
       return { success: false, message: "User not found" }
     }
 
     const userId = user._id.toString()
-    const userRank = normalizeRank(user.rank)
+    // FIXED: Use spin_tier if available, otherwise fall back to rank
+    const userTier = normalizeRank(user.spin_tier || user.rank)
 
     console.log("👤 User found:", {
       userId,
       email: user.email,
       originalRank: user.rank,
-      normalizedRank: userRank,
+      spin_tier: user.spin_tier,
+      normalizedTier: userTier,
       level: user.level,
       availableSpins: user.available_spins,
       totalSpinsUsed: user.total_spins_used,
@@ -395,10 +731,10 @@ export async function performSpin(): Promise<SpinResponse> {
 
     const availablePrizes = await getAvailablePrizesForUser(userId)
     if (availablePrizes.length === 0) {
-      return { success: false, message: "No prizes available for your rank" }
+      return { success: false, message: "No prizes available for your tier" }
     }
 
-    const selectedPrize = await selectPrizeWithProbability(availablePrizes, userRank)
+    const selectedPrize = await selectPrizeWithProbability(availablePrizes, userTier)
     const spinDeduction = await deductSpinCost(userId)
 
     if (!spinDeduction.success) {
@@ -407,12 +743,12 @@ export async function performSpin(): Promise<SpinResponse> {
 
     const won = selectedPrize.type !== "TRY_AGAIN"
 
-    await processPrize(userId, selectedPrize, userRank, won)
+    await processPrize(userId, selectedPrize, userTier, won)
 
     await logSpin({
       userId,
       prize: selectedPrize,
-      userRank: userRank,
+      userRank: userTier,
       userLevel: user.level || 1,
       referralCount: eligibilityCheck.referralCount,
       spinCost: spinDeduction.cost,
@@ -457,13 +793,13 @@ export async function getAvailablePrizes(): Promise<{
   message: string
 }> {
   try {
-    // NextAuth v5: Use auth() instead of getServerSession()
     const session = await auth()
     if (!isValidSession(session)) {
       return { success: false, message: "Unauthorized" }
     }
 
     await connectToDatabase()
+    await ensureSpinPrizes() // ADDED: Ensure prizes exist
 
     const prizes = (await (SpinPrize as any)
       .find({ is_active: true })
@@ -486,15 +822,14 @@ export async function getAvailablePrizes(): Promise<{
  */
 export async function getSpinSettings(): Promise<SpinSettingsResponse> {
   try {
-    // NextAuth v5: Use auth() instead of getServerSession()
     const session = await auth()
     if (!isValidSession(session)) {
       return { success: false, message: "Unauthorized" }
     }
 
     await connectToDatabase()
+    await ensureSpinSettings() // ADDED: Ensure settings exist
     
-    // NextAuth v5: Use session.user.id instead of session.user.email
     const user = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
     if (!user) {
       return { success: false, message: "User not found" }
@@ -517,10 +852,10 @@ export async function getSpinSettings(): Promise<SpinSettingsResponse> {
         maintenance_mode: false,
         maintenance_message: "",
         probability_multipliers: {
+          starter: 1.0,
           bronze: 1.0,
           silver: 1.1,
           gold: 1.2,
-          platinum: 1.3,
           diamond: 1.5,
         },
       }
@@ -751,12 +1086,14 @@ async function getAvailablePrizesForUser(userId: string): Promise<SpinPrizeLean[
   }
 
   const referralCount = await getReferralCount(userId)
-  const userRank = normalizeRank(userProfile.rank)
+  // FIXED: Use spin_tier if available, otherwise fall back to rank
+  const userTier = normalizeRank(userProfile.spin_tier || userProfile.rank)
 
   console.log("🎯 Getting available prizes for user:", {
     userId,
     originalRank: userProfile.rank,
-    normalizedRank: userRank,
+    spin_tier: userProfile.spin_tier,
+    normalizedTier: userTier,
     referralCount,
     availableSpins: userProfile.available_spins,
   })
@@ -770,16 +1107,17 @@ async function getAvailablePrizesForUser(userId: string): Promise<SpinPrizeLean[
     .sort({ wheel_order: 1 })
     .lean()) as SpinPrizeLean[]
 
+  // FIXED: Check accessible_tiers instead of accessible_ranks
   const accessiblePrizes = allPrizes.filter((prize) => {
-    if (!prize.accessible_ranks || !Array.isArray(prize.accessible_ranks)) {
-      console.log(`❌ Prize ${prize.display_name} has invalid accessible_ranks:`, prize.accessible_ranks)
+    if (!prize.accessible_tiers || !Array.isArray(prize.accessible_tiers)) {
+      console.log(`❌ Prize ${prize.display_name} has invalid accessible_tiers:`, prize.accessible_tiers)
       return false
     }
 
-    const isAccessible = prize.accessible_ranks.some((rank: string) => normalizeRank(rank) === userRank)
+    const isAccessible = prize.accessible_tiers.some((tier: string) => normalizeRank(tier) === userTier)
 
     if (isAccessible) {
-      console.log(`✅ Prize accessible: ${prize.display_name} - ranks: ${prize.accessible_ranks}`)
+      console.log(`✅ Prize accessible: ${prize.display_name} - tiers: ${prize.accessible_tiers}`)
     }
 
     return isAccessible
@@ -795,16 +1133,16 @@ async function getAvailablePrizesForUser(userId: string): Promise<SpinPrizeLean[
 }
 
 /**
- * Select prize based on probabilities - FIXED VERSION
+ * Select prize based on probabilities
  */
-async function selectPrizeWithProbability(availablePrizes: SpinPrizeLean[], userRank: string): Promise<SpinPrizeLean> {
+async function selectPrizeWithProbability(availablePrizes: SpinPrizeLean[], userTier: string): Promise<SpinPrizeLean> {
   if (availablePrizes.length === 0) {
     const defaultPrize: SpinPrizeLean = {
       _id: "default-try-again",
       type: "TRY_AGAIN",
       display_name: "Try Again",
       value_cents: 0,
-      credit_type: "none",
+      credit_type: "balance", // Changed from 'none' to 'balance'
       base_probability: 100,
     }
     console.log(`🎉 No prizes available, returning default: ${defaultPrize.display_name} (${defaultPrize.type})`)
@@ -813,26 +1151,26 @@ async function selectPrizeWithProbability(availablePrizes: SpinPrizeLean[], user
 
   const spinSettings = (await (SpinSettings as any).findOne({}).lean()) as SpinSettingsLean | null
   const probabilityMultipliers = spinSettings?.probability_multipliers || {
+    starter: 1.0,
     bronze: 1.0,
     silver: 1.1,
     gold: 1.2,
-    platinum: 1.3,
     diamond: 1.5,
   }
 
-  const normalizedRank = normalizeRank(userRank)
-  const rankMultiplier = probabilityMultipliers[normalizedRank as keyof typeof probabilityMultipliers] || 1.0
+  const normalizedTier = normalizeRank(userTier)
+  const tierMultiplier = probabilityMultipliers[normalizedTier as keyof typeof probabilityMultipliers] || 1.0
 
   console.log("🎲 Prize selection:", {
     availablePrizesCount: availablePrizes.length,
-    userRank,
-    normalizedRank,
-    rankMultiplier,
+    userTier,
+    normalizedTier,
+    tierMultiplier,
   })
 
   const adjustedPrizes = availablePrizes.map((prize) => ({
     ...prize,
-    adjustedProbability: prize.base_probability * rankMultiplier,
+    adjustedProbability: prize.base_probability * tierMultiplier,
   }))
 
   const totalProbability = adjustedPrizes.reduce((sum, prize) => sum + prize.adjustedProbability, 0)
@@ -894,13 +1232,12 @@ async function selectPrizeWithProbability(availablePrizes: SpinPrizeLean[], user
     return lastPrize
   }
 
-  // Ultimate fallback
   const ultimateFallback: SpinPrizeLean = {
     _id: "ultimate-fallback",
     type: "TRY_AGAIN",
     display_name: "Try Again",
     value_cents: 0,
-    credit_type: "none",
+    credit_type: "balance",
     base_probability: 100,
   }
   console.log(`🎉 Returning ultimate fallback: ${ultimateFallback.display_name}`)
@@ -946,7 +1283,7 @@ async function deductSpinCost(userId: string): Promise<{ success: boolean; messa
 /**
  * Process the won prize and update user statistics
  */
-async function processPrize(userId: string, prize: SpinPrizeLean, userRank: string, won: boolean): Promise<void> {
+async function processPrize(userId: string, prize: SpinPrizeLean, userTier: string, won: boolean): Promise<void> {
   try {
     console.log(`🎁 Processing prize: ${prize.type} for user: ${userId}, Won: ${won}`)
 
@@ -980,14 +1317,19 @@ async function processPrize(userId: string, prize: SpinPrizeLean, userRank: stri
             type: "SPIN_WIN",
             description: `Spin wheel prize: ${prize.display_name}`,
             status: "completed",
-            reference: `SPIN-${Date.now()}`,
+            transaction_code: `SPIN-${Date.now()}`,
             metadata: {
               prize_type: prize.type,
-              spin_rank: userRank,
+              spin_tier: userTier,
               prize_name: prize.display_name,
             },
+            target_type: 'user',
+            target_id: userId,
           })
           console.log(`💰 Added ${prize.value_cents} cents to balance`)
+        } else {
+          // This handles TRY_AGAIN with 0 value_cents
+          console.log("🔄 No prize to process (TRY_AGAIN or 0 value)")
         }
         break
 
@@ -1017,10 +1359,6 @@ async function processPrize(userId: string, prize: SpinPrizeLean, userRank: stri
 
       case "voucher":
         await processVoucherPrize(userId, prize)
-        break
-
-      case "none":
-        console.log("🔄 No prize to process (TRY_AGAIN)")
         break
 
       default:
@@ -1228,19 +1566,19 @@ async function logSpin(data: {
   }
 }
 
-async function getProbabilityMultiplier(userRank: string): Promise<number> {
+async function getProbabilityMultiplier(userTier: string): Promise<number> {
   try {
     const spinSettings = (await (SpinSettings as any).findOne({}).lean()) as SpinSettingsLean | null
     const probabilityMultipliers = spinSettings?.probability_multipliers || {
+      starter: 1.0,
       bronze: 1.0,
       silver: 1.1,
       gold: 1.2,
-      platinum: 1.3,
       diamond: 1.5,
     }
 
-    const normalizedRank = normalizeRank(userRank)
-    return probabilityMultipliers[normalizedRank as keyof typeof probabilityMultipliers] || 1.0
+    const normalizedTier = normalizeRank(userTier)
+    return probabilityMultipliers[normalizedTier as keyof typeof probabilityMultipliers] || 1.0
   } catch (error) {
     console.error("Error getting probability multiplier:", error)
     return 1.0
@@ -1383,7 +1721,6 @@ export async function updateSpinSettings(settings: {
   }
 }): Promise<AdminActionResponse> {
   try {
-    // NextAuth v5: Use auth() instead of getServerSession()
     const session = await auth()
 
     if (!isValidSession(session)) {
@@ -1392,7 +1729,6 @@ export async function updateSpinSettings(settings: {
 
     await connectToDatabase()
     
-    // NextAuth v5: Use session.user.id instead of session.user.email
     const adminUser = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
 
     if (adminUser?.role !== "admin") {
@@ -1479,7 +1815,6 @@ export async function getSpinLogs(
   },
 ): Promise<SpinLogsResponse> {
   try {
-    // NextAuth v5: Use auth() instead of getServerSession()
     const session = await auth()
 
     if (!isValidSession(session)) {
@@ -1488,7 +1823,6 @@ export async function getSpinLogs(
 
     await connectToDatabase()
     
-    // NextAuth v5: Use session.user.id instead of session.user.email
     const adminUser = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
 
     if (adminUser?.role !== "admin") {
@@ -1578,7 +1912,6 @@ export async function getSpinLogs(
  */
 export async function addUserSpins(userId: string, spins: number, reason: string): Promise<AdminActionResponse> {
   try {
-    // NextAuth v5: Use auth() instead of getServerSession()
     const session = await auth()
 
     if (!isValidSession(session)) {
@@ -1587,7 +1920,6 @@ export async function addUserSpins(userId: string, spins: number, reason: string
 
     await connectToDatabase()
     
-    // NextAuth v5: Use session.user.id instead of session.user.email
     const adminUser = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
 
     if (adminUser?.role !== "admin") {
@@ -1636,7 +1968,6 @@ export async function addUserSpins(userId: string, spins: number, reason: string
  */
 export async function adminToggleSpinWheel(activate: boolean): Promise<AdminActionResponse> {
   try {
-    // NextAuth v5: Use auth() instead of getServerSession()
     const session = await auth()
 
     if (!isValidSession(session)) {
@@ -1645,14 +1976,12 @@ export async function adminToggleSpinWheel(activate: boolean): Promise<AdminActi
 
     await connectToDatabase()
     
-    // NextAuth v5: Use session.user.id instead of session.user.email
     const adminUser = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
 
     if (adminUser?.role !== "admin") {
       return { success: false, message: "Admin access required" }
     }
 
-    // Note: You'll need to update the admin.ts file too
     const { toggleSpinWheel } = await import("./admin")
     const result = await toggleSpinWheel(activate)
 
@@ -1676,7 +2005,6 @@ export async function getSpinAnalytics(
   date?: Date,
 ): Promise<SpinAnalyticsResponse> {
   try {
-    // NextAuth v5: Use auth() instead of getServerSession()
     const session = await auth()
 
     if (!isValidSession(session)) {
@@ -1685,7 +2013,6 @@ export async function getSpinAnalytics(
 
     await connectToDatabase()
     
-    // NextAuth v5: Use session.user.id instead of session.user.email
     const adminUser = (await (Profile as any).findById(session.user.id).lean()) as UserProfileLean | null
 
     if (adminUser?.role !== "admin") {

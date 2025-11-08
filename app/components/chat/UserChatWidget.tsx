@@ -143,6 +143,7 @@ export default function UserChatWidget() {
   const [isMinimized, setIsMinimized] = useState(false);
   const [messageInput, setMessageInput] = useState('');
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -155,6 +156,18 @@ export default function UserChatWidget() {
   const otherParticipant = currentConversation?.participants.find(
     p => p.user_id?._id !== session?.user?.id
   );
+
+  // Detect mobile/small screens
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 640); // sm breakpoint
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -194,6 +207,19 @@ export default function UserChatWidget() {
       setSelectedConversation(null);
     }
   }, [isOpen, selectedConversation, leaveConversation]);
+
+  // Prevent body scroll when chat is open on mobile
+  useEffect(() => {
+    if (isOpen && isMobile) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isOpen, isMobile]);
 
   const handleSendMessage = async () => {
     if (!messageInput.trim() || isLoading) return;
@@ -273,35 +299,43 @@ export default function UserChatWidget() {
 
   return (
     <>
-      {/* Chat Button */}
+      {/* Chat Button - Hidden when minimized on mobile */}
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-full p-4 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-110 z-50 group"
+          className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-full p-3 sm:p-4 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-110 z-50 group"
           aria-label="Open chat"
         >
-          <MessageCircle className="w-6 h-6" />
+          <MessageCircle className="w-5 h-5 sm:w-6 sm:h-6" />
           {unreadCount > 0 && (
             <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full min-w-5 h-5 flex items-center justify-center px-1.5 animate-pulse">
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}
-          <div className="absolute right-full mr-3 top-1/2 -translate-y-1/2 bg-gray-900 text-white text-sm px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+          {/* Tooltip - hidden on mobile */}
+          <div className="hidden sm:block absolute right-full mr-3 top-1/2 -translate-y-1/2 bg-gray-900 text-white text-sm px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
             Need help? Chat with us!
           </div>
         </button>
       )}
 
-      {/* Chat Widget */}
+      {/* Chat Widget - Full screen on mobile, floating on desktop */}
       {isOpen && (
         <div
-          className={`fixed bottom-6 right-6 bg-white rounded-2xl shadow-2xl z-50 border border-gray-200 transition-all duration-300 ${
-            isMinimized ? 'w-80 h-16' : 'w-96 h-[600px]'
-          } flex flex-col`}
+          className={`
+            fixed z-50 bg-white transition-all duration-300 flex flex-col
+            ${isMobile 
+              ? 'inset-0 rounded-none' 
+              : `bottom-4 right-4 sm:bottom-6 sm:right-6 rounded-2xl shadow-2xl border border-gray-200 ${
+                  isMinimized ? 'w-80 h-16' : 'w-full sm:w-96 h-[500px] sm:h-[600px]'
+                }`
+            }
+            ${isMobile && 'max-w-full'}
+          `}
         >
           {/* Header */}
-          <div className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-t-2xl shrink-0">
-            <div className="flex items-center space-x-3 min-w-0">
+          <div className={`flex items-center justify-between p-3 sm:p-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white shrink-0 ${isMobile ? 'rounded-none' : 'rounded-t-2xl'}`}>
+            <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
               {otherParticipant ? (
                 <>
                   <Avatar 
@@ -310,7 +344,7 @@ export default function UserChatWidget() {
                     showOnline={connected}
                   />
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-sm truncate">{otherParticipant.user_id?.username || 'Support'}</h3>
+                    <h3 className="font-semibold text-xs sm:text-sm truncate">{otherParticipant.user_id?.username || 'Support'}</h3>
                     <p className="text-xs text-blue-100 flex items-center">
                       {isOtherUserTyping ? (
                         <>
@@ -328,9 +362,9 @@ export default function UserChatWidget() {
                 </>
               ) : (
                 <>
-                  <MessageCircle className="w-8 h-8 flex-shrink-0" />
+                  <MessageCircle className="w-6 h-6 sm:w-8 sm:h-8 flex-shrink-0" />
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-sm">Support Chat</h3>
+                    <h3 className="font-semibold text-xs sm:text-sm">Support Chat</h3>
                     <p className="text-xs text-blue-100 flex items-center">
                       <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${connected ? 'bg-green-400' : 'bg-gray-400'}`}></span>
                       {connected ? 'Online' : 'Offline'}
@@ -339,28 +373,30 @@ export default function UserChatWidget() {
                 </>
               )}
             </div>
-            <div className="flex items-center space-x-1 flex-shrink-0">
+            <div className="flex items-center space-x-0.5 sm:space-x-1 flex-shrink-0">
               <button
                 onClick={() => fetchConversations()}
-                className="hover:bg-blue-600 p-2 rounded-lg transition-colors"
+                className="hover:bg-blue-600 p-1.5 sm:p-2 rounded-lg transition-colors"
                 aria-label="Refresh"
                 title="Refresh"
               >
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>
-              <button
-                onClick={() => setIsMinimized(!isMinimized)}
-                className="hover:bg-blue-600 p-2 rounded-lg transition-colors"
-                aria-label={isMinimized ? 'Maximize' : 'Minimize'}
-              >
-                {isMinimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
-              </button>
+              {!isMobile && (
+                <button
+                  onClick={() => setIsMinimized(!isMinimized)}
+                  className="hover:bg-blue-600 p-1.5 sm:p-2 rounded-lg transition-colors"
+                  aria-label={isMinimized ? 'Maximize' : 'Minimize'}
+                >
+                  {isMinimized ? <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Minimize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+                </button>
+              )}
               <button
                 onClick={() => setIsOpen(false)}
-                className="hover:bg-blue-600 p-2 rounded-lg transition-colors"
+                className="hover:bg-blue-600 p-1.5 sm:p-2 rounded-lg transition-colors"
                 aria-label="Close chat"
               >
-                <X className="w-4 h-4" />
+                <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>
             </div>
           </div>
@@ -369,8 +405,8 @@ export default function UserChatWidget() {
             <>
               {/* Error Display */}
               {error && (
-                <div className="bg-red-50 border-b border-red-200 p-3 shrink-0">
-                  <p className="text-red-600 text-sm flex items-center">
+                <div className="bg-red-50 border-b border-red-200 p-2 sm:p-3 shrink-0">
+                  <p className="text-red-600 text-xs sm:text-sm flex items-center">
                     <span className="mr-2">⚠️</span>
                     {error}
                   </p>
@@ -380,16 +416,16 @@ export default function UserChatWidget() {
               {/* Messages Area */}
               <div 
                 ref={messagesContainerRef}
-                className="flex-1 overflow-y-auto p-4 space-y-1 bg-gradient-to-b from-gray-50 to-white"
+                className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-1 bg-gradient-to-b from-gray-50 to-white"
                 style={{ minHeight: 0 }}
               >
                 {conversationMessages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-center px-4">
-                    <div className="bg-blue-50 rounded-full p-6 mb-4">
-                      <MessageCircle className="w-16 h-16 text-blue-500" />
+                    <div className="bg-blue-50 rounded-full p-4 sm:p-6 mb-3 sm:mb-4">
+                      <MessageCircle className="w-12 h-12 sm:w-16 sm:h-16 text-blue-500" />
                     </div>
-                    <h4 className="text-gray-700 text-base font-semibold mb-2">Start a Conversation</h4>
-                    <p className="text-gray-500 text-sm max-w-xs">
+                    <h4 className="text-gray-700 text-sm sm:text-base font-semibold mb-2">Start a Conversation</h4>
+                    <p className="text-gray-500 text-xs sm:text-sm max-w-xs">
                       Our support team is here to help. Send us a message and we'll respond as soon as possible.
                     </p>
                   </div>
@@ -409,14 +445,14 @@ export default function UserChatWidget() {
                               {isOwn ? (
                                 // YOUR MESSAGES - Right aligned, blue
                                 <div className="flex justify-end items-end space-x-2 animate-fadeIn">
-                                  <div className="max-w-[75%]">
+                                  <div className="max-w-[85%] sm:max-w-[75%]">
                                     {isFirstInGroup && (
-                                      <p className="text-xs text-gray-500 mb-1 text-right mr-3">
+                                      <p className="text-xs text-gray-500 mb-1 text-right mr-2 sm:mr-3">
                                         You
                                       </p>
                                     )}
-                                    <div className="bg-blue-500 text-white rounded-2xl rounded-tr-md px-4 py-2.5 shadow-sm">
-                                      <p className="text-sm break-words whitespace-pre-wrap leading-relaxed">
+                                    <div className="bg-blue-500 text-white rounded-2xl rounded-tr-md px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm">
+                                      <p className="text-xs sm:text-sm break-words whitespace-pre-wrap leading-relaxed">
                                         {message.content}
                                       </p>
                                       <div className="flex items-center justify-end space-x-1.5 mt-1">
@@ -435,9 +471,9 @@ export default function UserChatWidget() {
                                     <Avatar user={message.sender} size="sm" />
                                   )}
                                   {!isFirstInGroup && <div className="w-8" />}
-                                  <div className="max-w-[75%]">
+                                  <div className="max-w-[85%] sm:max-w-[75%]">
                                     {isFirstInGroup && message.sender && (
-                                      <p className="text-xs font-medium text-gray-600 mb-1 ml-3 flex items-center">
+                                      <p className="text-xs font-medium text-gray-600 mb-1 ml-2 sm:ml-3 flex items-center">
                                         {message.sender.username}
                                         {message.sender.role === 'admin' && (
                                           <span className="ml-1 text-blue-600" title="Admin">👑</span>
@@ -447,8 +483,8 @@ export default function UserChatWidget() {
                                         )}
                                       </p>
                                     )}
-                                    <div className="bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-tl-md px-4 py-2.5 shadow-sm">
-                                      <p className="text-sm break-words whitespace-pre-wrap leading-relaxed">
+                                    <div className="bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-tl-md px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm">
+                                      <p className="text-xs sm:text-sm break-words whitespace-pre-wrap leading-relaxed">
                                         {message.content}
                                       </p>
                                       <div className="flex items-center justify-end mt-1">
@@ -479,7 +515,7 @@ export default function UserChatWidget() {
               </div>
 
               {/* Input Area */}
-              <div className="p-4 bg-white border-t border-gray-200 rounded-b-2xl shrink-0">
+              <div className={`p-3 sm:p-4 bg-white border-t border-gray-200 shrink-0 ${!isMobile && 'rounded-b-2xl'}`}>
                 <div className="flex items-end space-x-2">
                   <button
                     onClick={handleFileUpload}
@@ -488,7 +524,7 @@ export default function UserChatWidget() {
                     aria-label="Attach file"
                     title="Attach file"
                   >
-                    <Paperclip className="w-5 h-5" />
+                    <Paperclip className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
                   <input
                     ref={fileInputRef}
@@ -506,9 +542,9 @@ export default function UserChatWidget() {
                       placeholder="Type a message..."
                       disabled={!connected || isLoading}
                       rows={1}
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:bg-gray-100 text-sm resize-none max-h-32"
+                      className="w-full px-3 py-2 sm:px-4 sm:py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:bg-gray-100 text-xs sm:text-sm resize-none max-h-32"
                       style={{
-                        minHeight: '42px',
+                        minHeight: '38px',
                         height: 'auto',
                       }}
                       onInput={(e) => {
@@ -522,13 +558,13 @@ export default function UserChatWidget() {
                   <button
                     onClick={handleSendMessage}
                     disabled={!messageInput.trim() || !connected || isLoading}
-                    className="p-2.5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 active:scale-95 self-end mb-0.5"
+                    className="p-2 sm:p-2.5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 active:scale-95 self-end mb-0.5"
                     aria-label="Send message"
                   >
                     {isLoading ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
                     ) : (
-                      <Send className="w-5 h-5" />
+                      <Send className="w-4 h-4 sm:w-5 sm:h-5" />
                     )}
                   </button>
                 </div>
@@ -600,6 +636,13 @@ export default function UserChatWidget() {
 
         .overflow-y-auto::-webkit-scrollbar-thumb:hover {
           background: #94a3b8;
+        }
+
+        /* Prevent horizontal scroll on mobile */
+        @media (max-width: 640px) {
+          body {
+            overflow-x: hidden;
+          }
         }
       `}</style>
     </>

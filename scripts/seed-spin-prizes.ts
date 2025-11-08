@@ -228,7 +228,7 @@ async function seedSpinPrizes() {
         requires_activation: true,
         value_cents: 0,
         value_description: 'No prize',
-        credit_type: 'none',
+        credit_type: 'balance', // FIXED: Changed from 'none' to 'balance'
         duration_days: 0,
         is_active: true,
         is_featured: false,

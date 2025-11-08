@@ -1,10 +1,13 @@
-// app/actions/user-management.ts
+// app/actions/user-management.ts - FIXED VERSION
 'use server';
 
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { connectToDatabase, Profile, Transaction, Referral, AdminAuditLog, Company } from '../lib/models';
 import { Types } from 'mongoose';
+
+// Import email function for payment confirmation
+import { sendPaymentConfirmationInvoice } from '@/app/actions/email';
 
 // Helper to check admin access
 async function checkAdminAccess() {
@@ -65,6 +68,55 @@ function serializeDocument(doc: any) {
   }
   
   return serialized;
+}
+
+/**
+ * Send payment confirmation invoice for admin-activated users
+ */
+async function sendAdminActivationConfirmationInvoice(
+  userProfile: any,
+  adminProfile: any,
+  activationNotes?: string
+): Promise<void> {
+  try {
+    console.log('📧 Sending admin activation confirmation invoice for:', userProfile.email);
+    
+    const invoiceData = {
+      invoiceNumber: `ADMIN-ACT-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      originalInvoiceNumber: `MANUAL-${userProfile._id}`,
+      amount: 1000, // KSH 1,000 activation fee
+      paymentDate: new Date().toLocaleDateString(),
+      transactionId: `ADMIN-${adminProfile._id}-${Date.now()}`,
+      paymentMethod: 'admin' as const,
+      user: {
+        name: userProfile.name || userProfile.username,
+        email: userProfile.email
+      },
+      business: {
+        name: 'HustleHub Africa',
+        address: 'Nairobi, Kenya',
+        phone: '+254 748 264 231',
+        email: 'support@hustlehub.africa'
+      },
+      activationDate: new Date().toLocaleDateString(),
+      adminNotes: activationNotes || `Account manually activated by administrator: ${adminProfile.username}`
+    };
+
+    const result = await sendPaymentConfirmationInvoice(
+      userProfile.email,
+      userProfile.name || userProfile.username,
+      invoiceData
+    );
+
+    if (result.success) {
+      console.log('✅ Admin activation confirmation invoice sent successfully');
+    } else {
+      console.error('❌ Failed to send admin activation confirmation invoice:', result.error);
+    }
+  } catch (error) {
+    console.error('❌ Error sending admin activation confirmation invoice:', error);
+    // Don't throw error - activation should continue even if email fails
+  }
 }
 
 // Get users for admin management with enhanced filtering and pagination
@@ -322,8 +374,8 @@ export async function rejectUserAccount(userId: string, rejectionReason: string)
   }
 }
 
-// Activate user account with NEW TIERED financial logic (KSH 1,000 activation fee)
-export async function activateUserAccount(userId: string): Promise<{
+// Activate user account with FIXED TIERED financial logic (KSH 1,000 activation fee)
+export async function activateUserAccount(userId: string, activationNotes?: string): Promise<{
   success: boolean;
   message: string;
 }> {
@@ -353,11 +405,14 @@ export async function activateUserAccount(userId: string): Promise<{
     // Constants for activation fee split
     const ACTIVATION_FEE_CENTS = 100000; // KSH 1,000
 
-    // 1. Check if user has sufficient balance for activation fee
+    // ============================================================================
+    // STEP 1: Handle activation fee payment (user side)
+    // ============================================================================
     let feeDeducted = false;
     let activationTransaction = null;
 
     if (user.balance_cents >= ACTIVATION_FEE_CENTS) {
+      // User has sufficient balance - deduct the fee
       user.balance_cents -= ACTIVATION_FEE_CENTS;
       feeDeducted = true;
 
@@ -380,40 +435,45 @@ export async function activateUserAccount(userId: string): Promise<{
       });
       await activationTransaction.save({ session });
     } else {
-      // CRITICAL FIX: Even if user doesn't pay, record KES 1,000 as activation transaction
-      // This represents the value of the activation that company is providing
+      // ✅ FIXED: Admin activates without payment - NO BONUS given to user
+      // User gets activation WITHOUT paying, company keeps full KES 1,000 as profit
       feeDeducted = false;
 
+      // Create a reference transaction for tracking only (no money movement for user)
       activationTransaction = new Transaction({
         user_id: userId,
         target_type: 'user', 
         target_id: userId,
-        amount_cents: ACTIVATION_FEE_CENTS, // CHANGED: Record full amount, not 0
-        type: 'BONUS', // This is a bonus/gift from company
-        description: 'Account activated by admin - activation fee credited as bonus',
+        amount_cents: 0, // ✅ FIXED: No money given to user
+        type: 'ADMIN_ACTIVATION', // Changed from 'BONUS'
+        description: 'Account activated by admin - no fee charged',
         status: 'completed',
         metadata: {
-          activation_fee: ACTIVATION_FEE_CENTS,
+          activation_fee: 0, // User didn't pay
           processed_by: admin._id,
           fee_deducted: false,
           admin_override: true,
-          reason: 'Admin activated - user receives KES 1,000 value as activation bonus',
+          reason: 'Admin activated without payment - company absorbs activation cost',
           transaction_purpose: 'ACCOUNT_ACTIVATION',
-          is_gift_activation: true
+          is_free_activation: true
         },
       });
       await activationTransaction.save({ session });
     }
 
-    // 2. Activate user account (update ALL activation fields)
+    // ============================================================================
+    // STEP 2: Activate user account (update ALL activation fields)
+    // ============================================================================
     user.is_active = true;
     user.status = 'active';
     user.activation_paid_at = new Date();
     user.activation_transaction_id = activationTransaction._id;
     user.activation_method = 'manual';
-    user.activation_status = 'activated'; // NEW FIELD
+    user.activation_status = 'activated';
 
-    // 3. Auto-approve user if not already approved
+    // ============================================================================
+    // STEP 3: Auto-approve user if not already approved
+    // ============================================================================
     if (user.approval_status !== 'approved') {
       user.approval_status = 'approved';
       user.is_approved = true;
@@ -421,20 +481,23 @@ export async function activateUserAccount(userId: string): Promise<{
       user.approval_at = new Date();
     }
 
-    // 4. Get or create company account
+    // ============================================================================
+    // STEP 4: Get or create company account
+    // ============================================================================
     const company = await getOrCreateCompany();
 
     // ============================================================================
-    // CRITICAL FIX: Always credit company with full KES 1,000 activation fee first
-    // This ensures company balance is never negative, regardless of who pays
+    // STEP 5: Company receives the FULL KES 1,000 activation fee
+    // This happens regardless of whether user paid or admin activated
     // ============================================================================
+    const balanceBeforeCompanyCredit = company.wallet_balance_cents;
     company.wallet_balance_cents += ACTIVATION_FEE_CENTS;
     company.total_revenue_cents += ACTIVATION_FEE_CENTS;
     company.activation_revenue_cents += ACTIVATION_FEE_CENTS;
     await company.save({ session });
 
-    // Create company revenue transaction for the FULL activation fee
-    const initialCompanyTransaction = new Transaction({
+    // Create company revenue transaction
+    const companyRevenueTransaction = new Transaction({
       target_type: 'company',
       target_id: company._id.toString(),
       user_id: userId,
@@ -443,7 +506,7 @@ export async function activateUserAccount(userId: string): Promise<{
       description: `Activation fee received from ${user.username} ${feeDeducted ? '(paid by user)' : '(admin activated)'}`,
       status: 'completed',
       source: 'activation',
-      balance_before_cents: company.wallet_balance_cents - ACTIVATION_FEE_CENTS,
+      balance_before_cents: balanceBeforeCompanyCredit,
       balance_after_cents: company.wallet_balance_cents,
       metadata: {
         source_user_id: userId,
@@ -454,12 +517,14 @@ export async function activateUserAccount(userId: string): Promise<{
         transaction_purpose: 'ACTIVATION_FEE_RECEIVED'
       },
     });
-    await initialCompanyTransaction.save({ session });
+    await companyRevenueTransaction.save({ session });
 
     console.log(`✅ Company credited with KES 1,000 activation fee from ${user.username}`);
 
-    // 5. Process referral bonuses with NEW TIERED STRUCTURE
-    // NOTE: These will be DEDUCTED from company balance
+    // ============================================================================
+    // STEP 6: Process referral bonuses with TIERED STRUCTURE
+    // NOTE: These are EXPENSES that will be deducted from company balance
+    // ============================================================================
     let directReferralBonus = null;
     let level1ReferralBonus = null;
 
@@ -483,6 +548,7 @@ export async function activateUserAccount(userId: string): Promise<{
         const bonusTier = isFirst2 ? 'first_2' : 'subsequent';
 
         // DEDUCT from company balance as expense
+        const balanceBeforeDirectBonus = company.wallet_balance_cents;
         company.wallet_balance_cents -= DIRECT_BONUS_CENTS;
         company.total_expenses_cents += DIRECT_BONUS_CENTS;
         await company.save({ session });
@@ -497,7 +563,7 @@ export async function activateUserAccount(userId: string): Promise<{
           description: `Direct referral bonus paid to ${referrer.username} for ${user.username}'s activation (${bonusTier})`,
           status: 'completed',
           source: 'activation',
-          balance_before_cents: company.wallet_balance_cents + DIRECT_BONUS_CENTS,
+          balance_before_cents: balanceBeforeDirectBonus,
           balance_after_cents: company.wallet_balance_cents,
           metadata: {
             beneficiary_user_id: referrer._id,
@@ -512,6 +578,7 @@ export async function activateUserAccount(userId: string): Promise<{
         await companyExpenseTransaction.save({ session });
 
         // Update referrer's balance and earnings
+        const referrerBalanceBefore = referrer.balance_cents;
         referrer.balance_cents += DIRECT_BONUS_CENTS;
         referrer.total_earnings_cents += DIRECT_BONUS_CENTS;
         await referrer.save({ session });
@@ -541,7 +608,7 @@ export async function activateUserAccount(userId: string): Promise<{
           description: `Direct referral bonus for ${user.username}'s activation (${isFirst2 ? 'First 2' : 'Subsequent'})`,
           status: 'completed',
           source: 'activation',
-          balance_before_cents: referrer.balance_cents - DIRECT_BONUS_CENTS,
+          balance_before_cents: referrerBalanceBefore,
           balance_after_cents: referrer.balance_cents,
           metadata: {
             referred_user_id: userId,
@@ -574,6 +641,7 @@ export async function activateUserAccount(userId: string): Promise<{
             const LEVEL1_BONUS_CENTS = 10000; // KES 100
 
             // DEDUCT from company balance as expense
+            const balanceBeforeLevel1 = company.wallet_balance_cents;
             company.wallet_balance_cents -= LEVEL1_BONUS_CENTS;
             company.total_expenses_cents += LEVEL1_BONUS_CENTS;
             await company.save({ session });
@@ -588,7 +656,7 @@ export async function activateUserAccount(userId: string): Promise<{
               description: `Level 1 downline bonus paid to ${level1Referrer.username} for ${user.username}'s activation`,
               status: 'completed',
               source: 'activation',
-              balance_before_cents: company.wallet_balance_cents + LEVEL1_BONUS_CENTS,
+              balance_before_cents: balanceBeforeLevel1,
               balance_after_cents: company.wallet_balance_cents,
               metadata: {
                 beneficiary_user_id: level1Referrer._id,
@@ -604,6 +672,7 @@ export async function activateUserAccount(userId: string): Promise<{
             await companyLevel1ExpenseTransaction.save({ session });
 
             // Update level 1 referrer's balance
+            const level1BalanceBefore = level1Referrer.balance_cents;
             level1Referrer.balance_cents += LEVEL1_BONUS_CENTS;
             level1Referrer.total_earnings_cents += LEVEL1_BONUS_CENTS;
             await level1Referrer.save({ session });
@@ -618,7 +687,7 @@ export async function activateUserAccount(userId: string): Promise<{
               description: `Level 1 downline bonus for ${user.username}'s activation (via ${referrer.username})`,
               status: 'completed',
               source: 'activation',
-              balance_before_cents: level1Referrer.balance_cents - LEVEL1_BONUS_CENTS,
+              balance_before_cents: level1BalanceBefore,
               balance_after_cents: level1Referrer.balance_cents,
               metadata: {
                 referred_user_id: userId,
@@ -645,22 +714,36 @@ export async function activateUserAccount(userId: string): Promise<{
       }
     }
 
-    // Save user changes first
+    // Save user changes
     await user.save({ session });
 
-    // 6. Calculate final balances for logging (MUST be after all bonus operations)
+    // ============================================================================
+    // STEP 7: Calculate final balances for logging
+    // ============================================================================
     const totalBonusesPaid = (directReferralBonus?.amount_cents || 0) + (level1ReferralBonus?.amount_cents || 0);
     const finalCompanyBalance = company.wallet_balance_cents;
     const netCompanyRevenue = ACTIVATION_FEE_CENTS - totalBonusesPaid;
     
     console.log(`\n💰 ACTIVATION SUMMARY for ${user.username}:`);
-    console.log(`   Initial Company Credit: +KES 1,000`);
+    console.log(`   User Payment: ${feeDeducted ? 'KES 1,000 (deducted from wallet)' : 'KES 0 (admin activated)'}`);
+    console.log(`   Company Revenue: +KES 1,000`);
     console.log(`   Direct Bonus Paid: -KES ${(directReferralBonus?.amount_cents || 0) / 100}`);
     console.log(`   Level 1 Bonus Paid: -KES ${(level1ReferralBonus?.amount_cents || 0) / 100}`);
-    console.log(`   Final Company Balance: KES ${finalCompanyBalance / 100}`);
-    console.log(`   Company Net from this activation: KES ${netCompanyRevenue / 100}\n`);
+    console.log(`   Company Net Profit: KES ${netCompanyRevenue / 100}`);
+    console.log(`   Final Company Balance: KES ${finalCompanyBalance / 100}\n`);
 
-    // Log the activation
+    // ============================================================================
+    // STEP 8: Send Payment Confirmation Invoice
+    // ============================================================================
+    await sendAdminActivationConfirmationInvoice(
+      user,
+      admin,
+      activationNotes
+    );
+
+    // ============================================================================
+    // STEP 9: Log the activation
+    // ============================================================================
     const auditLog = new AdminAuditLog({
       actor_id: admin._id,
       action: 'ACTIVATE_USER',
@@ -679,7 +762,7 @@ export async function activateUserAccount(userId: string): Promise<{
         approval_status: user.approval_status,
         is_approved: user.is_approved,
         fee_deducted: feeDeducted,
-        activation_fee: ACTIVATION_FEE_CENTS,
+        activation_fee: feeDeducted ? ACTIVATION_FEE_CENTS : 0,
         total_bonuses_paid: totalBonusesPaid,
         company_net_revenue: netCompanyRevenue,
         direct_bonus: directReferralBonus?.amount_cents || 0,
@@ -689,12 +772,16 @@ export async function activateUserAccount(userId: string): Promise<{
       metadata: {
         activation_details: {
           fee_deducted: feeDeducted,
+          user_paid: feeDeducted,
+          admin_override: !feeDeducted,
           direct_referral_bonus: directReferralBonus,
           level1_referral_bonus: level1ReferralBonus,
-          initial_company_credit: ACTIVATION_FEE_CENTS / 100,
+          company_revenue: ACTIVATION_FEE_CENTS / 100,
           total_bonuses_paid: totalBonusesPaid / 100,
           company_net_revenue: netCompanyRevenue / 100,
-          final_company_balance: company.wallet_balance_cents / 100
+          final_company_balance: company.wallet_balance_cents / 100,
+          confirmation_invoice_sent: true,
+          activation_notes: activationNotes
         }
       },
       ip_address: 'server-action',
@@ -707,21 +794,22 @@ export async function activateUserAccount(userId: string): Promise<{
     revalidatePath('/admin/users');
     revalidatePath('/admin/approvals');
     revalidatePath('/dashboard');
+    revalidatePath('/admin/company');
 
     let message = `User account activated successfully. `;
     if (!feeDeducted) {
-      message += `Activation fee waived (admin override). `;
+      message += `No fee charged (admin activated). `;
     } else {
-      message += `Activation fee of KSH ${ACTIVATION_FEE_CENTS / 100} deducted. `;
+      message += `Activation fee of KSH ${ACTIVATION_FEE_CENTS / 100} deducted from user wallet. `;
     }
     if (directReferralBonus) {
       message += `Direct referral bonus of KSH ${directReferralBonus.amount_cents / 100} (${directReferralBonus.bonus_tier}) awarded to ${directReferralBonus.referrer_username}. `;
     }
     if (level1ReferralBonus) {
-      message += `Level 1 bonus of KSH ${level1ReferralBonus.amount_cents / 100} awarded to ${level1ReferralBonus.referrer_username}.`;
+      message += `Level 1 bonus of KSH ${level1ReferralBonus.amount_cents / 100} awarded to ${level1ReferralBonus.referrer_username}. `;
     }
     if (!directReferralBonus && !level1ReferralBonus) {
-      message += `No active referrer found - full amount credited to company.`;
+      message += `No referrer found - full KES 1,000 credited to company.`;
     }
 
     return { success: true, message };

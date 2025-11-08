@@ -35,10 +35,22 @@ export default function BottomNav({ userName }: BottomNavProps) {
       path: '/dashboard/surveys' 
     },
     { 
+      id: 'affiliate', 
+      label: 'Soko', 
+      icon: ShoppingBag, 
+      path: '/dashboard/soko' 
+    },
+    { 
       id: 'referrals', 
       label: 'Refs', 
       icon: Users, 
       path: '/dashboard/referrals' 
+    },
+    { 
+      id: 'support', 
+      label: 'Support', 
+      icon: HelpCircle, 
+      path: '/dashboard/support' 
     },
     { 
       id: 'settings', 
