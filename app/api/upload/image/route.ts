@@ -1,8 +1,6 @@
 // app/api/upload/image/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
-import { existsSync } from 'fs';
+import { put } from '@vercel/blob';
 import sharp from 'sharp';
 import { auth } from '@/auth';
 
@@ -29,10 +27,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file type
-    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg'];
     if (!validTypes.includes(file.type)) {
       return NextResponse.json(
-        { success: false, message: 'Invalid file type. Please upload JPG, PNG, GIF, or WebP.' },
+        { success: false, message: `Invalid file type: ${file.type}` },
         { status: 400 }
       );
     }
@@ -53,18 +51,9 @@ export async function POST(request: NextRequest) {
     // Generate unique filename
     const timestamp = Date.now();
     const randomStr = Math.random().toString(36).substring(2, 8);
-    const originalName = file.name.replace(/[^a-zA-Z0-9.-]/g, '-');
-    const baseName = `${timestamp}-${randomStr}-${originalName}`;
-    const webpName = baseName.replace(/\.[^.]+$/, '.webp');
-    const jpgName = baseName.replace(/\.[^.]+$/, '.jpg');
-
-    // Ensure upload directory exists
-    const uploadsDir = join(process.cwd(), 'public', 'uploads', 'blog-images');
-    if (!existsSync(uploadsDir)) {
-      await mkdir(uploadsDir, { recursive: true });
-    }
-
-    // Optimize and convert to WebP (primary format for web)
+    const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '-').substring(0, 50);
+    
+    // Optimize and convert to WebP
     const optimizedWebP = await sharp(imageBuffer)
       .resize(1200, 800, {
         fit: 'inside',
@@ -73,10 +62,15 @@ export async function POST(request: NextRequest) {
       .webp({ quality: 85 })
       .toBuffer();
 
-    const webpPath = join(uploadsDir, webpName);
-    await writeFile(webpPath, optimizedWebP);
+    const webpName = `${timestamp}-${randomStr}-${sanitizedName.replace(/\.[^.]+$/, '.webp')}`;
 
-    // Also create a JPEG fallback (for older browsers)
+    // Upload to Vercel Blob
+    const blob = await put(webpName, optimizedWebP, {
+      access: 'public',
+      contentType: 'image/webp',
+    });
+
+    // Create JPG fallback
     const optimizedJpg = await sharp(imageBuffer)
       .resize(1200, 800, {
         fit: 'inside',
@@ -85,11 +79,13 @@ export async function POST(request: NextRequest) {
       .jpeg({ quality: 80, progressive: true })
       .toBuffer();
 
-    const jpgPath = join(uploadsDir, jpgName);
-    await writeFile(jpgPath, optimizedJpg);
+    const jpgName = `${timestamp}-${randomStr}-${sanitizedName.replace(/\.[^.]+$/, '.jpg')}`;
+    const jpgBlob = await put(jpgName, optimizedJpg, {
+      access: 'public',
+      contentType: 'image/jpeg',
+    });
 
-    // Create thumbnail for preview (300x200)
-    const thumbnailName = baseName.replace(/\.[^.]+$/, '-thumb.webp');
+    // Create thumbnail
     const thumbnail = await sharp(imageBuffer)
       .resize(300, 200, {
         fit: 'cover',
@@ -97,27 +93,24 @@ export async function POST(request: NextRequest) {
       .webp({ quality: 75 })
       .toBuffer();
 
-    const thumbPath = join(uploadsDir, thumbnailName);
-    await writeFile(thumbPath, thumbnail);
-
-    // Return URLs
-    const baseUrl = `/uploads/blog-images`;
-    const webpUrl = `${baseUrl}/${webpName}`;
-    const jpgUrl = `${baseUrl}/${jpgName}`;
-    const thumbUrl = `${baseUrl}/${thumbnailName}`;
+    const thumbName = `${timestamp}-${randomStr}-thumb.webp`;
+    const thumbBlob = await put(thumbName, thumbnail, {
+      access: 'public',
+      contentType: 'image/webp',
+    });
 
     return NextResponse.json({
       success: true,
       message: 'Image uploaded and optimized successfully',
       data: {
-        url: webpUrl,
-        jpgUrl: jpgUrl,
-        thumbnailUrl: thumbUrl,
+        url: blob.url,
+        jpgUrl: jpgBlob.url,
+        thumbnailUrl: thumbBlob.url,
         altText: altText,
         html: `
           <picture>
-            <source srcset="${webpUrl}" type="image/webp">
-            <img src="${jpgUrl}" alt="${altText.replace(/"/g, '&quot;')}" loading="lazy" style="max-width: 100%; height: auto; border-radius: 8px; margin: 10px 0;">
+            <source srcset="${blob.url}" type="image/webp">
+            <img src="${jpgBlob.url}" alt="${altText.replace(/"/g, '&quot;')}" loading="lazy" style="max-width: 100%; height: auto; border-radius: 8px; margin: 10px 0;">
           </picture>
         `,
       },
@@ -125,7 +118,11 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Image upload error:', error);
     return NextResponse.json(
-      { success: false, message: 'Failed to upload image' },
+      { 
+        success: false, 
+        message: 'Failed to upload image',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     );
   }
