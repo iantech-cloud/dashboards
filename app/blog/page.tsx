@@ -1,9 +1,55 @@
-// app/blog/page.tsx - MODERNIZED
+// app/blog/page.tsx - WITH PROPER METADATA
 import Link from 'next/link';
 import { connectToDatabase, BlogPost } from '../lib/models';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 import { Calendar, Clock, User, ArrowRight, Tag, BookOpen, TrendingUp } from 'lucide-react';
+import type { Metadata } from 'next';
+
+// Export metadata for SEO
+export const metadata: Metadata = {
+  title: 'Blog - Latest News & Updates',
+  description: 'Read the latest news, updates, and insights from Hustle Hub Africa. Discover earning tips, platform updates, success stories, and more on our blog.',
+  keywords: [
+    'hustle hub africa blog',
+    'make money online tips kenya',
+    'earn online updates',
+    'online earning blog kenya',
+    'work from home tips',
+    'freelance tips kenya',
+  ],
+  
+  // Canonical URL - Next.js will combine with metadataBase
+  alternates: {
+    canonical: '/blog',
+    languages: {
+      'en-KE': '/blog',
+      'sw-KE': '/sw/blog',
+    },
+  },
+  
+  openGraph: {
+    title: 'Blog - Hustle Hub Africa',
+    description: 'Latest news, updates, and insights about earning money online in Kenya.',
+    url: 'https://hustlehubafrica.com/blog',
+    type: 'website',
+    images: [
+      {
+        url: '/og-image-blog.png',
+        width: 1200,
+        height: 630,
+        alt: 'Hustle Hub Africa Blog',
+      },
+    ],
+  },
+  
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Blog - Hustle Hub Africa',
+    description: 'Latest news and insights about earning money online in Kenya.',
+    images: ['/og-image-blog.png'],
+  },
+};
 
 interface BlogPageProps {
   searchParams: Promise<{

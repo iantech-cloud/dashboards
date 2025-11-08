@@ -109,15 +109,6 @@ export const metadata: Metadata = {
     yandex: 'your-yandex-verification-code',
   },
   
-  // Alternate Languages (if applicable)
-  alternates: {
-    canonical: 'https://hustlehubafrica.com',
-    languages: {
-      'en-KE': 'https://hustlehubafrica.com',
-      'sw-KE': 'https://hustlehubafrica.com/sw',
-    },
-  },
-  
   // Category
   category: 'Business',
 };

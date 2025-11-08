@@ -1,4 +1,4 @@
-// app/blog/[slug]/page.tsx - MODERNIZED
+// app/blog/[slug]/page.tsx - WITH PROPER METADATA
 import { notFound } from 'next/navigation';
 import { connectToDatabase, BlogPost } from '../../lib/models';
 import Link from 'next/link';
@@ -6,11 +6,92 @@ import Header from '../../components/Header';
 import Footer from '../../components/Footer';
 import BlogContent from './BlogContent';
 import { ArrowLeft, Calendar, Clock, User, Tag, Share2, Bookmark, TrendingUp } from 'lucide-react';
+import type { Metadata } from 'next';
 
 interface BlogPostPageProps {
   params: Promise<{
     slug: string;
   }>;
+}
+
+// Generate metadata for SEO with dynamic canonical URLs
+export async function generateMetadata({ params }: BlogPostPageProps): Promise<Metadata> {
+  const { slug } = await params;
+  
+  await connectToDatabase();
+  const post = await BlogPost.findOne({ slug, status: 'published' })
+    .populate('author', 'username name')
+    .lean();
+
+  if (!post) {
+    return {
+      title: 'Post Not Found',
+      description: 'The blog post you are looking for could not be found.',
+    };
+  }
+
+  const authorDisplayName = post.author?.username || post.author?.name || 'Unknown Author';
+  const title = post.meta_title || post.title;
+  const description = post.meta_description || post.excerpt || post.title;
+
+  return {
+    title,
+    description,
+    keywords: post.tags || [],
+    authors: [{ name: authorDisplayName }],
+    
+    // Dynamic canonical URL based on slug
+    alternates: {
+      canonical: `/blog/${slug}`,
+      languages: {
+        'en-KE': `/blog/${slug}`,
+        'sw-KE': `/sw/blog/${slug}`,
+      },
+    },
+    
+    openGraph: {
+      title,
+      description,
+      url: `https://hustlehubafrica.com/blog/${slug}`,
+      type: 'article',
+      publishedTime: post.published_at?.toISOString() || post.created_at.toISOString(),
+      modifiedTime: post.updated_at?.toISOString(),
+      authors: [authorDisplayName],
+      tags: post.tags || [],
+      images: post.featured_image ? [
+        {
+          url: post.featured_image,
+          width: 1200,
+          height: 630,
+          alt: post.title,
+        }
+      ] : [
+        {
+          url: '/og-image-blog.png',
+          width: 1200,
+          height: 630,
+          alt: 'Hustle Hub Africa Blog',
+        }
+      ],
+    },
+    
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      images: post.featured_image ? [post.featured_image] : ['/og-image-blog.png'],
+    },
+  };
+}
+
+// Generate static params for better performance
+export async function generateStaticParams() {
+  await connectToDatabase();
+  const posts = await BlogPost.find({ status: 'published' }).select('slug').lean();
+  
+  return posts.map((post) => ({
+    slug: post.slug,
+  }));
 }
 
 export default async function BlogPostPage({ params }: BlogPostPageProps) {
@@ -130,10 +211,16 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
 
                 {/* Action Buttons */}
                 <div className="flex gap-2">
-                  <button className="p-2.5 bg-white hover:bg-blue-50 rounded-xl border border-slate-200 hover:border-blue-300 transition-all duration-200 group">
+                  <button 
+                    className="p-2.5 bg-white hover:bg-blue-50 rounded-xl border border-slate-200 hover:border-blue-300 transition-all duration-200 group"
+                    aria-label="Share this post"
+                  >
                     <Share2 className="w-5 h-5 text-slate-600 group-hover:text-blue-600 transition-colors duration-200" />
                   </button>
-                  <button className="p-2.5 bg-white hover:bg-cyan-50 rounded-xl border border-slate-200 hover:border-cyan-300 transition-all duration-200 group">
+                  <button 
+                    className="p-2.5 bg-white hover:bg-cyan-50 rounded-xl border border-slate-200 hover:border-cyan-300 transition-all duration-200 group"
+                    aria-label="Bookmark this post"
+                  >
                     <Bookmark className="w-5 h-5 text-slate-600 group-hover:text-cyan-600 transition-colors duration-200" />
                   </button>
                 </div>
@@ -185,9 +272,12 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
                     </div>
                   </div>
 
-                  {/* Share Buttons */}
+                  {/* Share Button */}
                   <div className="flex gap-2">
-                    <button className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 flex items-center gap-2">
+                    <button 
+                      className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 flex items-center gap-2"
+                      aria-label="Share this post"
+                    >
                       <Share2 className="w-4 h-4" />
                       Share
                     </button>
@@ -223,48 +313,4 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
       <Footer />
     </div>
   );
-}
-
-// Generate metadata for SEO
-export async function generateMetadata({ params }: BlogPostPageProps) {
-  const { slug } = await params;
-  
-  await connectToDatabase();
-  const post = await BlogPost.findOne({ slug, status: 'published' }).lean();
-
-  if (!post) {
-    return {
-      title: 'Post Not Found',
-    };
-  }
-
-  return {
-    title: post.meta_title || post.title,
-    description: post.meta_description || post.excerpt,
-    openGraph: {
-      title: post.meta_title || post.title,
-      description: post.meta_description || post.excerpt,
-      type: 'article',
-      publishedTime: post.created_at,
-      authors: [post.author?.username || post.author?.name],
-      tags: post.tags,
-      images: post.featured_image ? [post.featured_image] : [],
-    },
-    twitter: {
-      card: 'summary_large_image',
-      title: post.meta_title || post.title,
-      description: post.meta_description || post.excerpt,
-      images: post.featured_image ? [post.featured_image] : [],
-    },
-  };
-}
-
-// Generate static params for better performance (optional)
-export async function generateStaticParams() {
-  await connectToDatabase();
-  const posts = await BlogPost.find({ status: 'published' }).select('slug').lean();
-  
-  return posts.map((post) => ({
-    slug: post.slug,
-  }));
 }
