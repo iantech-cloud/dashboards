@@ -41,6 +41,29 @@ const nextConfig: NextConfig = {
     ];
   },
 
+  async redirects() {
+    return [
+      // Redirect non-www to www
+      {
+        source: '/:path*',
+        has: [
+          {
+            type: 'host',
+            value: 'hustlehubafrica.com',
+          },
+        ],
+        destination: 'https://www.hustlehubafrica.com/:path*',
+        permanent: true,
+      },
+      // Remove trailing slashes
+      {
+        source: '/:path*/',
+        destination: '/:path*',
+        permanent: true,
+      },
+    ];
+  },
+
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {
