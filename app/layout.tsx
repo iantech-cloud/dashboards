@@ -6,6 +6,7 @@ import { DashboardProvider } from './dashboard/DashboardContext';
 import SessionProvider from './providers/SessionProvider';
 import Script from 'next/script';
 import { auth } from '@/auth';
+import { Analytics } from "@vercel/analytics/next"
 
 // Comprehensive SEO Metadata
 export const metadata: Metadata = {
