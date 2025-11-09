@@ -1,4 +1,4 @@
-// app/blog/[slug]/BlogContent.tsx - MODERNIZED
+// app/blog/[slug]/BlogContent.tsx - FIXED VERSION
 'use client';
 
 import { useEffect, useRef } from 'react';
@@ -92,11 +92,11 @@ export default function BlogContent({ content }: BlogContentProps) {
           color: #64748b;
         }
 
-        /* ===== LISTS ===== */
+        /* ===== LISTS - FIXED ===== */
         .blog-content-wrapper ul,
         .blog-content-wrapper ol {
           margin: 1.25rem 0;
-          padding-left: 2rem;
+          padding-left: 0;
           color: #475569;
         }
 
@@ -104,32 +104,41 @@ export default function BlogContent({ content }: BlogContentProps) {
           list-style-type: none;
         }
 
+        .blog-content-wrapper ul li {
+          position: relative;
+          padding-left: 2rem;
+          margin: 0.75rem 0;
+          line-height: 1.7;
+        }
+
         .blog-content-wrapper ul li::before {
           content: "▸";
           color: #3b82f6;
           font-weight: bold;
-          display: inline-block;
-          width: 1em;
-          margin-left: -1em;
+          position: absolute;
+          left: 0.5rem;
+          top: 0;
         }
 
         .blog-content-wrapper ol {
           list-style-type: decimal;
           list-style-position: outside;
+          padding-left: 2rem;
         }
 
         .blog-content-wrapper ol li {
           padding-left: 0.5rem;
-        }
-
-        .blog-content-wrapper li {
           margin: 0.75rem 0;
           line-height: 1.7;
         }
 
+        /* Nested lists */
         .blog-content-wrapper ul ul,
-        .blog-content-wrapper ol ol {
+        .blog-content-wrapper ol ol,
+        .blog-content-wrapper ul ol,
+        .blog-content-wrapper ol ul {
           margin: 0.5rem 0;
+          padding-left: 2rem;
         }
 
         .blog-content-wrapper ul ul li::before {
@@ -139,6 +148,15 @@ export default function BlogContent({ content }: BlogContentProps) {
 
         .blog-content-wrapper ol ol {
           list-style-type: lower-alpha;
+        }
+        
+        .blog-content-wrapper ul ol {
+          list-style-type: decimal;
+        }
+        
+        .blog-content-wrapper ol ul li::before {
+          content: "▸";
+          color: #3b82f6;
         }
 
         /* ===== IMAGES ===== */
@@ -162,17 +180,36 @@ export default function BlogContent({ content }: BlogContentProps) {
 
         /* ===== LINKS ===== */
         .blog-content-wrapper a {
-          color: #3b82f6;
+          color: #2563eb;
           text-decoration: none;
           word-break: break-word;
-          border-bottom: 2px solid transparent;
+          border-bottom: 2px solid #93c5fd;
           transition: all 0.2s ease;
           font-weight: 500;
+          padding-bottom: 1px;
         }
 
         .blog-content-wrapper a:hover {
-          color: #1d4ed8;
-          border-bottom-color: #3b82f6;
+          color: #1e40af;
+          border-bottom-color: #2563eb;
+          background-color: #dbeafe;
+        }
+
+        /* Make sure links in paragraphs are visible */
+        .blog-content-wrapper p a,
+        .blog-content-wrapper li a,
+        .blog-content-wrapper td a,
+        .blog-content-wrapper div a {
+          color: #2563eb;
+          border-bottom: 2px solid #93c5fd;
+        }
+
+        .blog-content-wrapper p a:hover,
+        .blog-content-wrapper li a:hover,
+        .blog-content-wrapper td a:hover,
+        .blog-content-wrapper div a:hover {
+          color: #1e40af;
+          background-color: #dbeafe;
         }
 
         .blog-content-wrapper a.affiliate-link {

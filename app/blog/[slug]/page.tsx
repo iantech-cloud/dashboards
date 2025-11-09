@@ -1,5 +1,4 @@
-// app/blog/[slug]/page.tsx - COMPLETE AND CORRECTED VERSION
-// Temporarily force dynamic rendering to debug the 500 error
+// app/blog/[slug]/page.tsx - COMPLETE AND CORRECTED VERSION WITH SHARE BUTTON
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
@@ -9,7 +8,8 @@ import Link from 'next/link';
 import Header from '../../components/Header';
 import Footer from '../../components/Footer';
 import BlogContent from './BlogContent';
-import { ArrowLeft, Calendar, Clock, User, Tag, Share2, Bookmark, TrendingUp } from 'lucide-react';
+import ShareButton from './ShareButton';
+import { ArrowLeft, Calendar, Clock, User, Tag, Bookmark, TrendingUp } from 'lucide-react';
 import type { Metadata } from 'next';
 
 interface BlogPostPageProps {
@@ -276,12 +276,11 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
 
                   {/* Action Buttons */}
                   <div className="flex gap-2">
-                    <button 
-                      className="p-2.5 bg-white hover:bg-blue-50 rounded-xl border border-slate-200 hover:border-blue-300 transition-all duration-200 group"
-                      aria-label="Share this post"
-                    >
-                      <Share2 className="w-5 h-5 text-slate-600 group-hover:text-blue-600 transition-colors duration-200" />
-                    </button>
+                    <ShareButton 
+                      title={serializedPost.title}
+                      slug={slug}
+                      className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40"
+                    />
                     <button 
                       className="p-2.5 bg-white hover:bg-cyan-50 rounded-xl border border-slate-200 hover:border-cyan-300 transition-all duration-200 group"
                       aria-label="Bookmark this post"
@@ -338,15 +337,11 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
                     </div>
 
                     {/* Share Button */}
-                    <div className="flex gap-2">
-                      <button 
-                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 flex items-center gap-2"
-                        aria-label="Share this post"
-                      >
-                        <Share2 className="w-4 h-4" />
-                        Share
-                      </button>
-                    </div>
+                    <ShareButton 
+                      title={serializedPost.title}
+                      slug={slug}
+                      className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40"
+                    />
                   </div>
                 </div>
               </div>
