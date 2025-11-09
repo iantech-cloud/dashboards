@@ -39,6 +39,7 @@ export const metadata: Metadata = {
     address: false,
     telephone: false,
   },
+  // UPDATED: Favicon configuration with correct file paths from /public
   icons: {
     icon: [
       {
@@ -46,7 +47,12 @@ export const metadata: Metadata = {
         sizes: 'any',
       },
       {
-        url: '/icon.png',
+        url: '/favicon-16x16.png',
+        type: 'image/png',
+        sizes: '16x16',
+      },
+      {
+        url: '/favicon-32x32.png',
         type: 'image/png',
         sizes: '32x32',
       },
@@ -54,7 +60,7 @@ export const metadata: Metadata = {
     shortcut: ['/favicon.ico'],
     apple: [
       {
-        url: '/apple-icon.png',
+        url: '/apple-touch-icon.png',
         sizes: '180x180',
         type: 'image/png',
       },
@@ -72,7 +78,7 @@ export const metadata: Metadata = {
     description: 'Join Kenyans earning through our platform. Multiple income streams including referral program, surveys, academic writing & more. Instant M-Pesa withdrawals.',
     images: [
       {
-        url: '/og-image.png',
+        url: '/opengraph-image.png', // UPDATED to match your file
         width: 1200,
         height: 630,
         alt: 'Hustle Hub Africa - Earn Money Online in Kenya',
@@ -88,7 +94,7 @@ export const metadata: Metadata = {
     creator: '@HustleHubAfrica',
     title: 'Hustle Hub Africa - Earn Money Online',
     description: 'Join Kenyans earning through surveys, writing, referrals & more. Instant M-Pesa withdrawals.',
-    images: ['/og-image.png'],
+    images: ['/opengraph-image.png'], // UPDATED to match your file
   },
   
   // Additional Meta Tags
@@ -350,6 +356,7 @@ export default async function RootLayout({
         <SessionProvider session={session}>
           <DashboardProvider value={contextValue}>
             {children}
+            <Analytics />
           </DashboardProvider>
         </SessionProvider>
       </body>
