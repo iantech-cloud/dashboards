@@ -1,0 +1,15 @@
+{
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.hustlehubafrica.com"
+        }
+      ],
+      "destination": "https://hustlehubafrica.com/:path*",
+      "permanent": true
+    }
+  ]
+}
