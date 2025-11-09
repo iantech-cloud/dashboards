@@ -92,7 +92,21 @@ export default function BlogContent({ content }: BlogContentProps) {
           color: #64748b;
         }
 
-        /* ===== LISTS - FIXED ===== */
+        /* Bold text in lists (like "Steps:", "How to start:") */
+        .blog-content-wrapper li strong {
+          font-weight: 700;
+          color: #1e40af;
+          font-size: 1.1em;
+        }
+
+        /* Regular bold text (not headings) should use normal color */
+        .blog-content-wrapper li p strong,
+        .blog-content-wrapper p strong {
+          color: #1e293b;
+          font-size: 1em;
+        }
+
+        /* ===== LISTS - FIXED FOR NESTED ITEMS ===== */
         .blog-content-wrapper ul,
         .blog-content-wrapper ol {
           margin: 1.25rem 0;
@@ -104,14 +118,14 @@ export default function BlogContent({ content }: BlogContentProps) {
           list-style-type: none;
         }
 
-        .blog-content-wrapper ul li {
+        .blog-content-wrapper ul > li {
           position: relative;
           padding-left: 2rem;
           margin: 0.75rem 0;
           line-height: 1.7;
         }
 
-        .blog-content-wrapper ul li::before {
+        .blog-content-wrapper ul > li::before {
           content: "▸";
           color: #3b82f6;
           font-weight: bold;
@@ -126,37 +140,79 @@ export default function BlogContent({ content }: BlogContentProps) {
           padding-left: 2rem;
         }
 
-        .blog-content-wrapper ol li {
+        .blog-content-wrapper ol > li {
           padding-left: 0.5rem;
           margin: 0.75rem 0;
           line-height: 1.7;
         }
 
-        /* Nested lists */
+        /* Nested lists - Second level */
         .blog-content-wrapper ul ul,
-        .blog-content-wrapper ol ol,
-        .blog-content-wrapper ul ol,
         .blog-content-wrapper ol ul {
           margin: 0.5rem 0;
           padding-left: 2rem;
         }
 
-        .blog-content-wrapper ul ul li::before {
-          content: "◦";
-          color: #06b6d4;
+        .blog-content-wrapper ul ul > li {
+          padding-left: 2rem;
         }
 
+        .blog-content-wrapper ul ul > li::before {
+          content: "◦";
+          color: #06b6d4;
+          font-size: 1.2em;
+          left: 0.5rem;
+        }
+
+        /* Nested lists - Third level */
+        .blog-content-wrapper ul ul ul,
+        .blog-content-wrapper ol ul ul {
+          margin: 0.5rem 0;
+          padding-left: 2rem;
+        }
+
+        .blog-content-wrapper ul ul ul > li::before {
+          content: "▪";
+          color: #0891b2;
+          font-size: 0.8em;
+          left: 0.5rem;
+        }
+
+        /* Ordered lists nesting */
         .blog-content-wrapper ol ol {
           list-style-type: lower-alpha;
+          padding-left: 2rem;
         }
         
+        .blog-content-wrapper ol ol ol {
+          list-style-type: lower-roman;
+        }
+        
+        /* Mixed nesting - ol inside ul */
         .blog-content-wrapper ul ol {
           list-style-type: decimal;
+          padding-left: 2rem;
         }
         
-        .blog-content-wrapper ol ul li::before {
+        .blog-content-wrapper ul ol > li {
+          padding-left: 0.5rem;
+        }
+        
+        .blog-content-wrapper ul ol > li::before {
+          content: none;
+        }
+        
+        /* ol with ul inside */
+        .blog-content-wrapper ol ul > li {
+          padding-left: 2rem;
+        }
+        
+        .blog-content-wrapper ol ul > li::before {
           content: "▸";
           color: #3b82f6;
+          font-weight: bold;
+          position: absolute;
+          left: 0.5rem;
         }
 
         /* ===== IMAGES ===== */
