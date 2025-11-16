@@ -9,14 +9,14 @@ import { Calendar, Clock, User, ArrowRight, Tag, BookOpen, TrendingUp } from 'lu
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Blog - Latest News & Updates | Hustle Hub Africa',
+  title: 'Blog - Latest News & Updates',
   description: 'Read the latest news, updates, and insights from Hustle Hub Africa. Discover earning tips, platform updates, success stories, and more.',
   keywords: ['blog', 'news', 'updates', 'earning tips', 'kenya', 'online money'],
   alternates: {
     canonical: '/blog',
   },
   openGraph: {
-    title: 'Blog - Hustle Hub Africa',
+    title: 'Blog',
     description: 'Latest news, updates, and insights about earning money online in Kenya.',
     type: 'website',
   },
@@ -100,7 +100,7 @@ export default async function BlogPage({ searchParams }: BlogPageProps) {
               <BookOpen className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-4">
-              Our Blog
+              Our Blog Latest News & Updates
             </h1>
             <p className="text-lg text-slate-600 max-w-2xl mx-auto mb-6">
               Latest news, updates, and insights from our team
