@@ -773,7 +773,7 @@ export async function sendInitialPaymentInvoice(
                             <strong>Option 2 - Manual M-Pesa:</strong> 
                             <br>1. Go to M-Pesa menu
                             <br>2. Select "Lipa Na M-Pesa"
-                            <br>3. Enter Business Number: 123456
+                            <br>3. Enter Business Number: 4182501
                             <br>4. Enter Amount: KES ${invoiceData.amount}
                             <br>5. Use your name as account reference
                         </p>

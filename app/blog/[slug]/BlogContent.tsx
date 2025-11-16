@@ -1,4 +1,4 @@
-// app/blog/[slug]/BlogContent.tsx - FIXED VERSION
+// app/blog/[slug]/BlogContent.tsx - OPTIMIZED VERSION
 'use client';
 
 import { useEffect, useRef } from 'react';
@@ -9,36 +9,108 @@ interface BlogContentProps {
 
 export default function BlogContent({ content }: BlogContentProps) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const mathJaxInitialized = useRef(false);
 
   useEffect(() => {
-    // Trigger MathJax rendering when component mounts or content changes
-    if (typeof window !== 'undefined' && window.MathJax) {
-      // Wait a bit for DOM to be ready
-      const timer = setTimeout(() => {
-        if (window.MathJax.typesetPromise && contentRef.current) {
-          window.MathJax.typesetPromise([contentRef.current]).catch((err: any) => {
-            console.warn('MathJax rendering error:', err);
-          });
-        }
-      }, 100);
+    const initMathJax = async () => {
+      if (typeof window === 'undefined' || mathJaxInitialized.current) return;
 
-      return () => clearTimeout(timer);
-    }
+      // Check if content contains math elements before loading MathJax
+      const hasMath = content.includes('\\(') || 
+                     content.includes('\\[') || 
+                     content.includes('$$') ||
+                     content.includes('&lt;math') ||
+                     content.includes('<math');
+
+      if (!hasMath) return;
+
+      try {
+        if (!window.MathJax) {
+          // Load MathJax only if needed
+          await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js';
+            script.async = true;
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+          });
+
+          // Configure MathJax
+          window.MathJax = {
+            startup: {
+              typeset: false,
+              pageReady: () => {
+                return Promise.resolve();
+              }
+            },
+            tex: {
+              inlineMath: [['\\(', '\\)']],
+              displayMath: [['\\[', '\\]']],
+              processEscapes: true,
+            },
+            options: {
+              skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+            },
+            svg: {
+              fontCache: 'global'
+            }
+          };
+        }
+
+        mathJaxInitialized.current = true;
+
+        // Typeset with debounce
+        const timer = setTimeout(() => {
+          if (window.MathJax?.typesetPromise && contentRef.current) {
+            window.MathJax.typesetPromise([contentRef.current]).catch((err) => {
+              console.warn('MathJax rendering error:', err);
+            });
+          }
+        }, 150);
+
+        return () => clearTimeout(timer);
+      } catch (error) {
+        console.warn('MathJax loading failed:', error);
+      }
+    };
+
+    initMathJax();
   }, [content]);
+
+  // Optimize images in content
+  const optimizedContent = content.replace(
+    /<img([^>]*)src="([^"]*)"([^>]*)>/g,
+    (match, before, src, after) => {
+      // Add loading lazy and basic attributes
+      return `<img${before}src="${src}"${after} loading="lazy" decoding="async">`;
+    }
+  );
 
   return (
     <>
       <div 
         ref={contentRef}
-        className="blog-content-wrapper tex2jax_process"
-        dangerouslySetInnerHTML={{ __html: content }}
+        className="blog-content-wrapper"
+        dangerouslySetInnerHTML={{ __html: optimizedContent }}
       />
       
       <style jsx global>{`
         .blog-content-wrapper {
           font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-          line-height: 1.75;
-          color: #475569;
+          line-height: 1.7;
+          color: #374151;
+          font-size: 1.0625rem;
+        }
+
+        /* ===== PERFORMANCE OPTIMIZATIONS ===== */
+        .blog-content-wrapper {
+          content-visibility: auto;
+          contain-intrinsic-size: 1000px;
+        }
+
+        .blog-content-wrapper img {
+          content-visibility: auto;
         }
 
         /* ===== HEADINGS ===== */
@@ -51,293 +123,156 @@ export default function BlogContent({ content }: BlogContentProps) {
           font-weight: 700;
           margin-top: 2rem;
           margin-bottom: 1rem;
-          color: #0f172a;
+          color: #111827;
           line-height: 1.3;
-          background: linear-gradient(135deg, #1e40af 0%, #0891b2 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
+          scroll-margin-top: 80px;
         }
 
         .blog-content-wrapper h1 { 
-          font-size: 2.5rem;
-          border-bottom: 2px solid #e0f2fe;
-          padding-bottom: 0.75rem;
-          margin-bottom: 1.5rem;
-        }
-        .blog-content-wrapper h2 { 
-          font-size: 2rem;
-          border-bottom: 1px solid #f0f9ff;
+          font-size: 2.25rem;
+          border-bottom: 2px solid #e5e7eb;
           padding-bottom: 0.5rem;
         }
-        .blog-content-wrapper h3 { font-size: 1.625rem; }
-        .blog-content-wrapper h4 { font-size: 1.375rem; }
+        .blog-content-wrapper h2 { 
+          font-size: 1.875rem;
+          border-bottom: 1px solid #f3f4f6;
+          padding-bottom: 0.25rem;
+        }
+        .blog-content-wrapper h3 { font-size: 1.5rem; }
+        .blog-content-wrapper h4 { font-size: 1.25rem; }
         .blog-content-wrapper h5 { font-size: 1.125rem; }
-        .blog-content-wrapper h6 { font-size: 1rem; }
+        .blog-content-wrapper h6 { font-size: 1rem; color: #6b7280; }
 
         /* ===== PARAGRAPHS & TEXT ===== */
         .blog-content-wrapper p {
           margin-bottom: 1.25rem;
-          color: #475569;
-          font-size: 1.0625rem;
+          color: #374151;
         }
 
         .blog-content-wrapper strong {
           font-weight: 600;
-          color: #1e293b;
+          color: #111827;
         }
 
         .blog-content-wrapper em {
           font-style: italic;
-          color: #64748b;
+          color: #6b7280;
         }
 
-        /* Bold text in lists (like "Steps:", "How to start:") */
+        /* Bold text in lists */
         .blog-content-wrapper li strong {
           font-weight: 700;
-          color: #1e40af;
-          font-size: 1.1em;
+          color: #111827;
         }
 
-        /* Regular bold text (not headings) should use normal color */
-        .blog-content-wrapper li p strong,
-        .blog-content-wrapper p strong {
-          color: #1e293b;
-          font-size: 1em;
-        }
-
-        /* ===== LISTS - FIXED FOR NESTED ITEMS ===== */
+        /* ===== LISTS - OPTIMIZED ===== */
         .blog-content-wrapper ul,
         .blog-content-wrapper ol {
-          margin: 1.25rem 0;
-          padding-left: 0;
-          color: #475569;
+          margin: 1rem 0;
+          padding-left: 1.5rem;
         }
 
         .blog-content-wrapper ul {
-          list-style-type: none;
+          list-style-type: disc;
         }
 
         .blog-content-wrapper ul > li {
-          position: relative;
-          padding-left: 2rem;
-          margin: 0.75rem 0;
-          line-height: 1.7;
-        }
-
-        .blog-content-wrapper ul > li::before {
-          content: "▸";
-          color: #3b82f6;
-          font-weight: bold;
-          position: absolute;
-          left: 0.5rem;
-          top: 0;
+          margin: 0.5rem 0;
+          line-height: 1.6;
         }
 
         .blog-content-wrapper ol {
           list-style-type: decimal;
-          list-style-position: outside;
-          padding-left: 2rem;
         }
 
         .blog-content-wrapper ol > li {
-          padding-left: 0.5rem;
-          margin: 0.75rem 0;
-          line-height: 1.7;
+          margin: 0.5rem 0;
+          line-height: 1.6;
         }
 
-        /* Nested lists - Second level */
+        /* Nested lists */
         .blog-content-wrapper ul ul,
         .blog-content-wrapper ol ul {
-          margin: 0.5rem 0;
-          padding-left: 2rem;
+          margin: 0.25rem 0;
+          list-style-type: circle;
         }
 
-        .blog-content-wrapper ul ul > li {
-          padding-left: 2rem;
-        }
-
-        .blog-content-wrapper ul ul > li::before {
-          content: "◦";
-          color: #06b6d4;
-          font-size: 1.2em;
-          left: 0.5rem;
-        }
-
-        /* Nested lists - Third level */
-        .blog-content-wrapper ul ul ul,
-        .blog-content-wrapper ol ul ul {
-          margin: 0.5rem 0;
-          padding-left: 2rem;
-        }
-
-        .blog-content-wrapper ul ul ul > li::before {
-          content: "▪";
-          color: #0891b2;
-          font-size: 0.8em;
-          left: 0.5rem;
-        }
-
-        /* Ordered lists nesting */
         .blog-content-wrapper ol ol {
           list-style-type: lower-alpha;
-          padding-left: 2rem;
-        }
-        
-        .blog-content-wrapper ol ol ol {
-          list-style-type: lower-roman;
-        }
-        
-        /* Mixed nesting - ol inside ul */
-        .blog-content-wrapper ul ol {
-          list-style-type: decimal;
-          padding-left: 2rem;
-        }
-        
-        .blog-content-wrapper ul ol > li {
-          padding-left: 0.5rem;
-        }
-        
-        .blog-content-wrapper ul ol > li::before {
-          content: none;
-        }
-        
-        /* ol with ul inside */
-        .blog-content-wrapper ol ul > li {
-          padding-left: 2rem;
-        }
-        
-        .blog-content-wrapper ol ul > li::before {
-          content: "▸";
-          color: #3b82f6;
-          font-weight: bold;
-          position: absolute;
-          left: 0.5rem;
         }
 
-        /* ===== IMAGES ===== */
+        /* ===== IMAGES - OPTIMIZED ===== */
         .blog-content-wrapper img {
           max-width: 100%;
           height: auto;
-          border-radius: 1rem;
-          margin: 2rem 0;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-          transition: transform 0.3s ease, box-shadow 0.3s ease;
+          border-radius: 0.5rem;
+          margin: 1.5rem 0;
+          background: #f9fafb;
         }
 
-        .blog-content-wrapper img:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        .blog-content-wrapper picture {
+          display: block;
+          margin: 1.5rem 0;
         }
 
-        .blog-content-wrapper picture img {
-          margin: 2rem 0;
-        }
-
-        /* ===== LINKS ===== */
+        /* ===== LINKS - OPTIMIZED ===== */
         .blog-content-wrapper a {
           color: #2563eb;
           text-decoration: none;
-          word-break: break-word;
-          border-bottom: 2px solid #93c5fd;
-          transition: all 0.2s ease;
+          border-bottom: 1px solid #dbeafe;
+          transition: color 0.2s ease;
           font-weight: 500;
-          padding-bottom: 1px;
         }
 
         .blog-content-wrapper a:hover {
-          color: #1e40af;
+          color: #1d4ed8;
           border-bottom-color: #2563eb;
-          background-color: #dbeafe;
-        }
-
-        /* Make sure links in paragraphs are visible */
-        .blog-content-wrapper p a,
-        .blog-content-wrapper li a,
-        .blog-content-wrapper td a,
-        .blog-content-wrapper div a {
-          color: #2563eb;
-          border-bottom: 2px solid #93c5fd;
-        }
-
-        .blog-content-wrapper p a:hover,
-        .blog-content-wrapper li a:hover,
-        .blog-content-wrapper td a:hover,
-        .blog-content-wrapper div a:hover {
-          color: #1e40af;
-          background-color: #dbeafe;
         }
 
         .blog-content-wrapper a.affiliate-link {
           color: #dc2626;
           font-weight: 600;
-          background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
-          padding: 0.125rem 0.5rem;
-          border-radius: 0.375rem;
+          background: #fef2f2;
+          padding: 0.125rem 0.375rem;
+          border-radius: 0.25rem;
           border-bottom: none;
         }
 
-        .blog-content-wrapper a.affiliate-link::after {
-          content: ' 🔗';
-          font-size: 0.85em;
-          margin-left: 2px;
-        }
-
-        .blog-content-wrapper a.affiliate-link:hover {
-          background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
-          box-shadow: 0 2px 8px rgba(220, 38, 38, 0.15);
-        }
-
-        /* ===== BLOCKQUOTE ===== */
+        /* ===== BLOCKQUOTE - OPTIMIZED ===== */
         .blog-content-wrapper blockquote {
-          position: relative;
-          border-left: 4px solid #3b82f6;
-          padding: 1.25rem 1.5rem;
-          margin: 2rem 0;
+          border-left: 4px solid #e5e7eb;
+          padding: 1rem 1.25rem;
+          margin: 1.5rem 0;
           font-style: italic;
-          color: #64748b;
-          background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-          border-radius: 0.5rem;
-          box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
-        }
-
-        .blog-content-wrapper blockquote::before {
-          content: '"';
-          position: absolute;
-          top: -0.25rem;
-          left: 0.75rem;
-          font-size: 4rem;
-          color: #3b82f6;
-          opacity: 0.2;
-          font-family: Georgia, serif;
+          color: #6b7280;
+          background: #f9fafb;
+          border-radius: 0.375rem;
         }
 
         .blog-content-wrapper blockquote p:last-child {
           margin-bottom: 0;
         }
 
-        /* ===== CODE ===== */
+        /* ===== CODE - OPTIMIZED ===== */
         .blog-content-wrapper code {
-          background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
-          padding: 0.25rem 0.5rem;
-          border-radius: 0.375rem;
+          background: #f3f4f6;
+          padding: 0.125rem 0.375rem;
+          border-radius: 0.25rem;
           font-family: 'Courier New', 'Consolas', monospace;
-          font-size: 0.9em;
-          color: #1e293b;
-          border: 1px solid #cbd5e1;
-          font-weight: 500;
+          font-size: 0.875em;
+          color: #111827;
+          border: 1px solid #e5e7eb;
         }
 
         .blog-content-wrapper pre {
-          background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-          color: #f1f5f9;
-          padding: 1.5rem;
-          border-radius: 1rem;
+          background: #1f2937;
+          color: #f9fafb;
+          padding: 1.25rem;
+          border-radius: 0.5rem;
           overflow-x: auto;
-          margin: 2rem 0;
-          line-height: 1.6;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-          border: 1px solid #334155;
+          margin: 1.5rem 0;
+          line-height: 1.5;
+          border: 1px solid #374151;
         }
 
         .blog-content-wrapper pre code {
@@ -345,225 +280,150 @@ export default function BlogContent({ content }: BlogContentProps) {
           padding: 0;
           color: inherit;
           border: none;
-          font-size: 0.875rem;
         }
 
-        /* ===== TABLES ===== */
+        /* ===== TABLES - OPTIMIZED ===== */
         .blog-content-wrapper table {
           width: 100%;
-          border-collapse: separate;
-          border-spacing: 0;
-          margin: 2rem 0;
-          border: 1px solid #e2e8f0;
-          border-radius: 1rem;
+          border-collapse: collapse;
+          margin: 1.5rem 0;
+          border: 1px solid #e5e7eb;
+          border-radius: 0.5rem;
           overflow: hidden;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
         }
 
         .blog-content-wrapper th,
         .blog-content-wrapper td {
-          border: 1px solid #e2e8f0;
-          padding: 1rem;
+          border: 1px solid #e5e7eb;
+          padding: 0.75rem;
           text-align: left;
         }
 
         .blog-content-wrapper th {
-          background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+          background: #f9fafb;
           font-weight: 600;
-          color: #1e293b;
-          border-bottom: 2px solid #cbd5e1;
-        }
-
-        .blog-content-wrapper tbody tr {
-          transition: background 0.2s ease;
+          color: #111827;
         }
 
         .blog-content-wrapper tbody tr:nth-child(even) {
-          background: #f8fafc;
+          background: #f9fafb;
         }
 
-        .blog-content-wrapper tbody tr:hover {
-          background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-        }
-
-        /* ===== PRODUCT REVIEW BOX ===== */
+        /* ===== PRODUCT REVIEW BOX - OPTIMIZED ===== */
         .blog-content-wrapper .product-review-box {
-          border: 2px solid #3b82f6;
-          border-radius: 1rem;
-          padding: 2rem;
-          margin: 2rem 0;
-          background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
-          page-break-inside: avoid;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .blog-content-wrapper .product-review-box::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          right: 0;
-          width: 200px;
-          height: 200px;
-          background: radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%);
-          pointer-events: none;
+          border: 1px solid #e5e7eb;
+          border-radius: 0.75rem;
+          padding: 1.5rem;
+          margin: 1.5rem 0;
+          background: #f9fafb;
         }
 
         .blog-content-wrapper .product-review-box h3 {
           margin-top: 0;
-          color: #1e40af;
-          background: linear-gradient(135deg, #1e40af 0%, #0891b2 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-        }
-
-        .blog-content-wrapper .product-review-box h4 {
-          margin-top: 1.5rem;
-          margin-bottom: 0.75rem;
-          color: #0369a1;
+          color: #111827;
         }
 
         .blog-content-wrapper .review-rating {
-          font-size: 1.25em;
-          margin: 1.25rem 0;
-          padding: 0.75rem 1rem;
+          font-size: 1.125em;
+          margin: 1rem 0;
+          padding: 0.75rem;
           background: white;
-          border-radius: 0.5rem;
           border-left: 4px solid #f59e0b;
           font-weight: 600;
           color: #92400e;
         }
 
-        .blog-content-wrapper .review-section ul {
-          margin: 0.75rem 0;
-        }
-
         .blog-content-wrapper .review-verdict {
-          margin-top: 1.5rem;
-          padding: 1.25rem;
+          margin-top: 1rem;
+          padding: 1rem;
           background: white;
-          border-left: 4px solid #3b82f6;
-          border-radius: 0.75rem;
-          box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+          border-left: 4px solid #2563eb;
+          border-radius: 0.5rem;
         }
 
-        /* ===== MATH EQUATIONS ===== */
+        /* ===== MATH EQUATIONS - OPTIMIZED ===== */
         .blog-content-wrapper .math-equation {
           display: inline-block;
-          padding: 0.625rem 1rem;
-          margin: 0.375rem;
-          background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-          border: 1px solid #bae6fd;
-          border-radius: 0.75rem;
+          padding: 0.5rem 0.75rem;
+          margin: 0.25rem;
+          background: #f9fafb;
+          border: 1px solid #e5e7eb;
+          border-radius: 0.375rem;
           font-family: 'Times New Roman', serif;
-          transition: all 0.25s ease;
-          box-shadow: 0 2px 4px rgba(59, 130, 246, 0.08);
-        }
-
-        .blog-content-wrapper .math-equation:hover {
-          background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
-          border-color: #7dd3fc;
-          box-shadow: 0 4px 8px rgba(59, 130, 246, 0.2);
-          transform: translateY(-2px);
-        }
-
-        .blog-content-wrapper .math-equation[data-type="inline"] {
-          display: inline;
-          padding: 0.25rem 0.5rem;
-          margin: 0 0.25rem;
-          vertical-align: middle;
         }
 
         .blog-content-wrapper .math-equation[data-type="display"] {
           display: block;
-          margin: 2rem auto;
-          padding: 1.5rem;
+          margin: 1.5rem auto;
+          padding: 1rem;
           text-align: center;
-          background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-          border-left: 4px solid #3b82f6;
-          border-radius: 1rem;
-          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
-          max-width: 95%;
+          background: #f9fafb;
+          border-left: 4px solid #2563eb;
+          border-radius: 0.5rem;
+          max-width: 100%;
         }
 
-        .blog-content-wrapper .math-equation[data-type="display"]:hover {
-          box-shadow: 0 6px 16px rgba(59, 130, 246, 0.25);
-          transform: translateY(-2px);
-        }
-
-        /* MathJax rendered content styling */
+        /* MathJax styling */
         .blog-content-wrapper mjx-container {
           display: inline !important;
-          margin: 0 0.25em;
         }
 
         .blog-content-wrapper mjx-container[display="true"] {
           display: block !important;
           text-align: center;
-          margin: 2rem auto;
-          overflow-x: auto;
-          overflow-y: hidden;
+          margin: 1.5rem auto;
           padding: 1rem;
-          background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-          border-radius: 0.75rem;
+          background: #f9fafb;
+          border-radius: 0.5rem;
+          overflow-x: auto;
         }
 
-        .blog-content-wrapper mjx-container svg {
-          max-width: 100%;
-          height: auto;
-        }
-
-        /* ===== VIDEO/IFRAME ===== */
+        /* ===== VIDEO/IFRAME - OPTIMIZED ===== */
         .blog-content-wrapper iframe {
           max-width: 100%;
           height: auto;
-          min-height: 400px;
-          border-radius: 1rem;
-          margin: 2rem 0;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-          border: 2px solid #e2e8f0;
+          min-height: 300px;
+          border-radius: 0.5rem;
+          margin: 1.5rem 0;
+          border: 1px solid #e5e7eb;
         }
 
         /* ===== HORIZONTAL RULE ===== */
         .blog-content-wrapper hr {
           border: none;
-          height: 2px;
-          background: linear-gradient(90deg, transparent, #cbd5e1, transparent);
-          margin: 2.5rem 0;
+          height: 1px;
+          background: #e5e7eb;
+          margin: 2rem 0;
         }
 
         /* ===== SPECIAL ELEMENTS ===== */
-        
-        /* Callout boxes */
         .blog-content-wrapper .callout {
-          padding: 1.25rem 1.5rem;
-          margin: 1.5rem 0;
-          border-radius: 0.75rem;
+          padding: 1rem 1.25rem;
+          margin: 1.25rem 0;
+          border-radius: 0.5rem;
           border-left: 4px solid;
         }
 
         .blog-content-wrapper .callout.info {
-          background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-          border-left-color: #3b82f6;
+          background: #eff6ff;
+          border-left-color: #2563eb;
           color: #1e40af;
         }
 
         .blog-content-wrapper .callout.warning {
-          background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+          background: #fffbeb;
           border-left-color: #f59e0b;
           color: #92400e;
         }
 
         .blog-content-wrapper .callout.success {
-          background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+          background: #f0fdf4;
           border-left-color: #10b981;
           color: #065f46;
         }
 
         .blog-content-wrapper .callout.danger {
-          background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+          background: #fef2f2;
           border-left-color: #ef4444;
           color: #991b1b;
         }
@@ -571,49 +431,35 @@ export default function BlogContent({ content }: BlogContentProps) {
         /* Keyboard keys */
         .blog-content-wrapper kbd {
           display: inline-block;
-          padding: 0.25rem 0.5rem;
-          font-size: 0.875em;
-          font-family: 'Courier New', monospace;
-          background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
-          border: 1px solid #cbd5e1;
-          border-radius: 0.375rem;
-          box-shadow: 0 2px 0 #94a3b8;
-          font-weight: 600;
-        }
-
-        /* Footnote references */
-        .blog-content-wrapper sup {
+          padding: 0.125rem 0.375rem;
           font-size: 0.75em;
-          color: #3b82f6;
+          font-family: 'Courier New', monospace;
+          background: #f9fafb;
+          border: 1px solid #e5e7eb;
+          border-radius: 0.25rem;
           font-weight: 600;
-        }
-
-        /* Definition lists */
-        .blog-content-wrapper dl {
-          margin: 1.5rem 0;
-        }
-
-        .blog-content-wrapper dt {
-          font-weight: 600;
-          color: #1e293b;
-          margin-top: 1rem;
-        }
-
-        .blog-content-wrapper dd {
-          margin-left: 2rem;
-          color: #475569;
-          margin-bottom: 0.5rem;
         }
 
         /* ===== RESPONSIVE DESIGN ===== */
         @media (max-width: 768px) {
-          .blog-content-wrapper h1 { font-size: 2rem; }
-          .blog-content-wrapper h2 { font-size: 1.75rem; }
-          .blog-content-wrapper h3 { font-size: 1.5rem; }
+          .blog-content-wrapper {
+            font-size: 1rem;
+            line-height: 1.6;
+          }
+
+          .blog-content-wrapper h1 { 
+            font-size: 1.75rem;
+          }
+          .blog-content-wrapper h2 { 
+            font-size: 1.5rem;
+          }
+          .blog-content-wrapper h3 { 
+            font-size: 1.25rem;
+          }
           
           .blog-content-wrapper pre {
             padding: 1rem;
-            font-size: 0.85rem;
+            font-size: 0.875rem;
           }
           
           .blog-content-wrapper table {
@@ -622,65 +468,125 @@ export default function BlogContent({ content }: BlogContentProps) {
           
           .blog-content-wrapper th,
           .blog-content-wrapper td {
-            padding: 0.75rem 0.5rem;
+            padding: 0.5rem;
           }
 
           .blog-content-wrapper .product-review-box {
-            padding: 1.5rem;
+            padding: 1rem;
           }
 
           .blog-content-wrapper iframe {
-            min-height: 250px;
+            min-height: 200px;
+          }
+
+          .blog-content-wrapper ul,
+          .blog-content-wrapper ol {
+            padding-left: 1.25rem;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .blog-content-wrapper {
+            font-size: 0.9375rem;
+          }
+
+          .blog-content-wrapper h1 { font-size: 1.5rem; }
+          .blog-content-wrapper h2 { font-size: 1.375rem; }
+          .blog-content-wrapper h3 { font-size: 1.25rem; }
+
+          .blog-content-wrapper pre {
+            padding: 0.75rem;
+            font-size: 0.8125rem;
           }
         }
 
         /* ===== PRINT STYLES ===== */
         @media print {
-          .blog-content-wrapper .math-equation,
-          .blog-content-wrapper blockquote,
-          .blog-content-wrapper .product-review-box {
-            background: transparent !important;
-            box-shadow: none !important;
+          .blog-content-wrapper {
+            color: #000;
+            font-size: 12pt;
+            line-height: 1.4;
+          }
+
+          .blog-content-wrapper h1,
+          .blog-content-wrapper h2,
+          .blog-content-wrapper h3,
+          .blog-content-wrapper h4,
+          .blog-content-wrapper h5,
+          .blog-content-wrapper h6 {
+            color: #000;
+            page-break-after: avoid;
           }
 
           .blog-content-wrapper img {
-            box-shadow: none;
+            max-width: 100% !important;
             page-break-inside: avoid;
           }
 
-          .blog-content-wrapper pre {
-            background: #f8fafc !important;
-            color: #1e293b !important;
-            border: 1px solid #cbd5e1 !important;
+          .blog-content-wrapper pre,
+          .blog-content-wrapper blockquote {
+            page-break-inside: avoid;
           }
 
           .blog-content-wrapper a {
-            color: #1e293b !important;
-            text-decoration: underline !important;
+            color: #000;
+            text-decoration: underline;
           }
         }
 
-        /* ===== ANIMATIONS ===== */
-        @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
+        /* ===== REDUCED MOTION SUPPORT ===== */
+        @media (prefers-reduced-motion: reduce) {
+          .blog-content-wrapper * {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
           }
         }
 
-        .blog-content-wrapper > * {
-          animation: fadeInUp 0.5s ease-out;
-        }
+        /* ===== DARK MODE SUPPORT ===== */
+        @media (prefers-color-scheme: dark) {
+          .blog-content-wrapper {
+            color: #d1d5db;
+          }
 
-        /* ===== ACCESSIBILITY ===== */
-        .blog-content-wrapper *:focus-visible {
-          outline: 2px solid #3b82f6;
-          outline-offset: 2px;
-          border-radius: 0.25rem;
+          .blog-content-wrapper h1,
+          .blog-content-wrapper h2,
+          .blog-content-wrapper h3,
+          .blog-content-wrapper h4,
+          .blog-content-wrapper h5,
+          .blog-content-wrapper h6 {
+            color: #f9fafb;
+          }
+
+          .blog-content-wrapper code {
+            background: #374151;
+            color: #f9fafb;
+            border-color: #4b5563;
+          }
+
+          .blog-content-wrapper blockquote {
+            background: #374151;
+            border-color: #4b5563;
+            color: #d1d5db;
+          }
+
+          .blog-content-wrapper table {
+            border-color: #4b5563;
+          }
+
+          .blog-content-wrapper th,
+          .blog-content-wrapper td {
+            border-color: #4b5563;
+          }
+
+          .blog-content-wrapper th {
+            background: #374151;
+            color: #f9fafb;
+          }
+
+          .blog-content-wrapper tbody tr:nth-child(even) {
+            background: #374151;
+          }
         }
       `}</style>
     </>

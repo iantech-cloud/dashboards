@@ -1,32 +1,31 @@
 // lib/cache.js
-import { Redis } from '@upstash/redis';
+import { unstable_cache } from 'next/cache';
 
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN,
-});
+export const getCachedBlogPosts = unstable_cache(
+  async (page = 1, limit = 9) => {
+    await connectToDatabase();
+    const skip = (page - 1) * limit;
+    
+    return BlogPost.find({ status: 'published' })
+      .populate('author', 'username name')
+      .sort({ published_at: -1, created_at: -1 })
+      .skip(skip)
+      .limit(limit)
+      .select('_id title slug excerpt featured_image tags read_time created_at author')
+      .lean();
+  },
+  ['blog-posts'],
+  { revalidate: 3600 } // 1 hour cache
+);
 
-const CACHE_TTL = 300; // 5 minutes
-
-export async function getCachedBlogPosts(page, category, search) {
-  const cacheKey = `blog:${page}:${category}:${search}`;
-  
-  try {
-    const cached = await redis.get(cacheKey);
-    if (cached) return JSON.parse(cached);
-  } catch (error) {
-    console.error('Cache read error:', error);
-  }
-  
-  return null;
-}
-
-export async function setCachedBlogPosts(page, category, search, data) {
-  const cacheKey = `blog:${page}:${category}:${search}`;
-  
-  try {
-    await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(data));
-  } catch (error) {
-    console.error('Cache write error:', error);
-  }
-}
+export const getCachedBlogPost = unstable_cache(
+  async (slug: string) => {
+    await connectToDatabase();
+    return BlogPost.findOne({ slug, status: 'published' })
+      .populate('author', 'username name')
+      .select('_id title slug content excerpt featured_image tags read_time views created_at updated_at published_at author meta_title meta_description')
+      .lean();
+  },
+  ['blog-post'],
+  { revalidate: 3600 }
+);
