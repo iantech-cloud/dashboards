@@ -1,4 +1,4 @@
-// app/blog/[slug]/page.tsx - CORRECTED VERSION WITH WRITER BIO
+// app/blog/[slug]/page.tsx - COMPLETE AND CORRECTED VERSION WITH SHARE BUTTON
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
@@ -9,7 +9,6 @@ import Header from '../../components/Header';
 import Footer from '../../components/Footer';
 import BlogContent from './BlogContent';
 import ShareButton from './ShareButton';
-import { WriterBio } from '../../components/writerbio';
 import { ArrowLeft, Calendar, Clock, User, Tag, Bookmark, TrendingUp } from 'lucide-react';
 import type { Metadata } from 'next';
 
@@ -122,37 +121,6 @@ export async function generateStaticParams() {
   }
 }
 
-// Writer information
-const WRITER_INFO = {
-  name: "Ian Omondi",
-  bio: "Cybersecurity expert, C++ developer, data analyst, and emerging researcher with experience spanning software development, digital forensics, AI-driven systems, and full-stack web applications.",
-  avatar: "/writer-avatar.png",
-  expertise: [
-    "Cybersecurity",
-    "Software Development", 
-    "Data Analysis",
-    "AI Systems",
-    "Full-Stack Development",
-    "Digital Forensics",
-    "Quantum Computing",
-    "Biomedical Engineering",
-    "C++ Programming",
-    "Machine Learning",
-    "Cloud Infrastructure",
-    "DevOps"
-  ],
-  email: "waiganjoian51@gmail.com",
-  twitter: "IanMuiruri15",
-  facebook: "https://www.facebook.com/share/19qVdp7RGC/",
-  tiktok: "i____devvs",
-  website: "hustlehubafrica.com",
-  phone: "+254748264231",
-  linkedin: "",
-  fullBio: `Ian Omondi is a cybersecurity expert, C++ developer, data analyst, and emerging researcher with experience spanning software development, digital forensics, AI-driven systems, and full-stack web applications. He has worked across education, SaaS, and enterprise environments, building secure backends, cloud-hosted platforms, and automation tools for data-driven decision-making.
-
-With a strong foundation in mathematics, engineering, and advanced computing, Ian also contributes to projects in quantum mechanics, portfolio optimization, biomedical engineering, and architectural design. He is passionate about solving real-world technological challenges, creating human-centered digital experiences, and developing scalable solutions that empower businesses and communities across Africa.`
-};
-
 export default async function BlogPostPage({ params }: BlogPostPageProps) {
   try {
     console.log('[Page] Starting to render blog post page...');
@@ -202,12 +170,6 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
     const authorDisplayName = post.author?.username || post.author?.name || 'Unknown Author';
     console.log('[Page] Author display name:', authorDisplayName);
 
-    // Get author's post count
-    const authorPostsCount = await BlogPost.countDocuments({ 
-      author: post.author?._id, 
-      status: 'published' 
-    });
-
     // Serialize the post data with comprehensive safety checks
     const serializedPost = {
       ...post,
@@ -239,7 +201,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
         <Header />
         
         <main className="flex-grow py-8 relative z-10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             {/* Back to Blogs Link */}
             <div className="mb-8 animate-slideUp">
               <Link 
@@ -251,184 +213,158 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
               </Link>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-              {/* Main Content - 3 columns */}
-              <div className="lg:col-span-3">
-                {/* Blog Post Article */}
-                <article className="bg-white/70 backdrop-blur-xl rounded-3xl shadow-2xl overflow-hidden border border-white/50 animate-scaleIn">
-                  {/* Featured Image */}
-                  {serializedPost.featured_image && (
-                    <div className="relative w-full h-64 md:h-[500px] bg-gradient-to-br from-slate-200 to-slate-300 overflow-hidden">
-                      <img
-                        src={serializedPost.featured_image}
-                        alt={serializedPost.title}
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"></div>
-                      
-                      {/* Floating stats badge */}
-                      <div className="absolute bottom-6 right-6 flex gap-3">
-                        <div className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-full shadow-lg border border-white/50 flex items-center gap-2">
-                          <TrendingUp className="w-4 h-4 text-blue-600" />
-                          <span className="text-sm font-semibold text-slate-700">{serializedPost.views} views</span>
-                        </div>
-                        <div className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-full shadow-lg border border-white/50 flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-cyan-600" />
-                          <span className="text-sm font-semibold text-slate-700">{serializedPost.read_time} min</span>
-                        </div>
-                      </div>
+            {/* Blog Post Article */}
+            <article className="bg-white/70 backdrop-blur-xl rounded-3xl shadow-2xl overflow-hidden border border-white/50 animate-scaleIn">
+              {/* Featured Image */}
+              {serializedPost.featured_image && (
+                <div className="relative w-full h-64 md:h-[500px] bg-gradient-to-br from-slate-200 to-slate-300 overflow-hidden">
+                  <img
+                    src={serializedPost.featured_image}
+                    alt={serializedPost.title}
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"></div>
+                  
+                  {/* Floating stats badge */}
+                  <div className="absolute bottom-6 right-6 flex gap-3">
+                    <div className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-full shadow-lg border border-white/50 flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-blue-600" />
+                      <span className="text-sm font-semibold text-slate-700">{serializedPost.views} views</span>
                     </div>
-                  )}
-
-                  {/* Post Content */}
-                  <div className="p-6 md:p-10 lg:p-12">
-                    {/* Title */}
-                    <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-6 leading-tight">
-                      {serializedPost.title}
-                    </h1>
-
-                    {/* Author Card */}
-                    <div className="flex items-center justify-between flex-wrap gap-4 mb-8 p-4 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-2xl border border-blue-200">
-                      <div className="flex items-center gap-4">
-                        {/* Author Avatar */}
-                        <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-blue-500/30">
-                          <User className="w-7 h-7 text-white" />
-                        </div>
-                        
-                        {/* Author Info */}
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-lg font-bold text-slate-900">{authorDisplayName}</span>
-                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">Author</span>
-                          </div>
-                          <div className="flex items-center gap-3 text-sm text-slate-600">
-                            <div className="flex items-center gap-1.5">
-                              <Calendar className="w-4 h-4 text-blue-500" />
-                              <span>{formattedDate}</span>
-                            </div>
-                            <span className="w-1 h-1 rounded-full bg-slate-400"></span>
-                            <div className="flex items-center gap-1.5">
-                              <Clock className="w-4 h-4 text-cyan-500" />
-                              <span>{serializedPost.read_time} min read</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="flex gap-2">
-                        <ShareButton 
-                          title={serializedPost.title}
-                          slug={slug}
-                          className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40"
-                        />
-                        <button 
-                          className="p-2.5 bg-white hover:bg-cyan-50 rounded-xl border border-slate-200 hover:border-cyan-300 transition-all duration-200 group"
-                          aria-label="Bookmark this post"
-                        >
-                          <Bookmark className="w-5 h-5 text-slate-600 group-hover:text-cyan-600 transition-colors duration-200" />
-                        </button>
-                      </div>
+                    <div className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-full shadow-lg border border-white/50 flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-cyan-600" />
+                      <span className="text-sm font-semibold text-slate-700">{serializedPost.read_time} min</span>
                     </div>
+                  </div>
+                </div>
+              )}
 
-                    {/* Tags */}
-                    {serializedPost.tags && serializedPost.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-8">
-                        {serializedPost.tags.map((tag: string, index: number) => (
-                          <span
-                            key={index}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 border border-blue-200 hover:border-blue-300 transition-all duration-200 hover:shadow-md cursor-pointer"
-                          >
-                            <Tag className="w-4 h-4" />
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+              {/* Post Content */}
+              <div className="p-6 md:p-10 lg:p-12">
+                {/* Title */}
+                <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-6 leading-tight">
+                  {serializedPost.title}
+                </h1>
 
-                    {/* Excerpt */}
-                    {serializedPost.excerpt && (
-                      <div className="relative bg-gradient-to-r from-blue-50 via-cyan-50 to-blue-50 border-l-4 border-blue-500 p-6 mb-8 rounded-r-2xl shadow-md overflow-hidden">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-100/50 to-transparent rounded-full"></div>
-                        <p className="text-lg text-slate-700 italic leading-relaxed relative z-10 font-medium">
-                          "{serializedPost.excerpt}"
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Divider */}
-                    <div className="h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent mb-8"></div>
-
-                    {/* Content - Use client component for MathJax rendering */}
-                    <div className="prose prose-lg max-w-none">
-                      <BlogContent content={serializedPost.content} />
+                {/* Author Card */}
+                <div className="flex items-center justify-between flex-wrap gap-4 mb-8 p-4 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-2xl border border-blue-200">
+                  <div className="flex items-center gap-4">
+                    {/* Author Avatar */}
+                    <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-blue-500/30">
+                      <User className="w-7 h-7 text-white" />
                     </div>
-
-                    {/* Post Footer */}
-                    <div className="mt-12 pt-8 border-t-2 border-slate-200">
-                      <div className="flex items-center justify-between flex-wrap gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center shadow-lg">
-                            <User className="w-6 h-6 text-white" />
-                          </div>
-                          <div>
-                            <p className="text-sm text-slate-600 mb-1">Written by</p>
-                            <p className="font-bold text-slate-900">{authorDisplayName}</p>
-                          </div>
+                    
+                    {/* Author Info */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-lg font-bold text-slate-900">{authorDisplayName}</span>
+                        <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">Author</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-sm text-slate-600">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-4 h-4 text-blue-500" />
+                          <span>{formattedDate}</span>
                         </div>
-
-                        {/* Share Button */}
-                        <ShareButton 
-                          title={serializedPost.title}
-                          slug={slug}
-                          className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40"
-                        />
+                        <span className="w-1 h-1 rounded-full bg-slate-400"></span>
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-4 h-4 text-cyan-500" />
+                          <span>{serializedPost.read_time} min read</span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </article>
 
-                {/* Navigation */}
-                <div className="mt-12 flex justify-center">
-                  <Link 
-                    href="/blog" 
-                    className="inline-flex items-center gap-3 px-8 py-4 bg-white/70 backdrop-blur-xl text-blue-600 hover:text-blue-800 font-bold rounded-2xl border-2 border-blue-200 hover:border-blue-300 transition-all duration-200 shadow-lg hover:shadow-xl group"
-                  >
-                    <ArrowLeft className="w-6 h-6 group-hover:-translate-x-2 transition-transform duration-200" />
-                    Explore More Articles
-                  </Link>
+                  {/* Action Buttons */}
+                  <div className="flex gap-2">
+                    <ShareButton 
+                      title={serializedPost.title}
+                      slug={slug}
+                      className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40"
+                    />
+                    <button 
+                      className="p-2.5 bg-white hover:bg-cyan-50 rounded-xl border border-slate-200 hover:border-cyan-300 transition-all duration-200 group"
+                      aria-label="Bookmark this post"
+                    >
+                      <Bookmark className="w-5 h-5 text-slate-600 group-hover:text-cyan-600 transition-colors duration-200" />
+                    </button>
+                  </div>
                 </div>
 
-                {/* Related Posts Section (Placeholder) */}
-                <div className="mt-16 bg-white/70 backdrop-blur-xl rounded-3xl shadow-lg border border-white/50 p-8">
-                  <h2 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-6">
-                    You might also like
-                  </h2>
-                  <div className="text-center text-slate-500 py-8">
-                    Related posts coming soon...
+                {/* Tags */}
+                {serializedPost.tags && serializedPost.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-8">
+                    {serializedPost.tags.map((tag: string, index: number) => (
+                      <span
+                        key={index}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 border border-blue-200 hover:border-blue-300 transition-all duration-200 hover:shadow-md cursor-pointer"
+                      >
+                        <Tag className="w-4 h-4" />
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Excerpt */}
+                {serializedPost.excerpt && (
+                  <div className="relative bg-gradient-to-r from-blue-50 via-cyan-50 to-blue-50 border-l-4 border-blue-500 p-6 mb-8 rounded-r-2xl shadow-md overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-100/50 to-transparent rounded-full"></div>
+                    <p className="text-lg text-slate-700 italic leading-relaxed relative z-10 font-medium">
+                      "{serializedPost.excerpt}"
+                    </p>
+                  </div>
+                )}
+
+                {/* Divider */}
+                <div className="h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent mb-8"></div>
+
+                {/* Content - Use client component for MathJax rendering */}
+                <div className="prose prose-lg max-w-none">
+                  <BlogContent content={serializedPost.content} />
+                </div>
+
+                {/* Post Footer */}
+                <div className="mt-12 pt-8 border-t-2 border-slate-200">
+                  <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center shadow-lg">
+                        <User className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Written by</p>
+                        <p className="font-bold text-slate-900">{authorDisplayName}</p>
+                      </div>
+                    </div>
+
+                    {/* Share Button */}
+                    <ShareButton 
+                      title={serializedPost.title}
+                      slug={slug}
+                      className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40"
+                    />
                   </div>
                 </div>
               </div>
+            </article>
 
-              {/* Sidebar with Writer Bio - 1 column */}
-              <div className="lg:col-span-1">
-                <div className="sticky top-24 space-y-6">
-                  {/* Writer Bio */}
-                  <WriterBio 
-                    name={WRITER_INFO.name}
-                    bio={WRITER_INFO.bio}
-                    avatar={WRITER_INFO.avatar}
-                    expertise={WRITER_INFO.expertise}
-                    email={WRITER_INFO.email}
-                    twitter={WRITER_INFO.twitter}
-                    facebook={WRITER_INFO.facebook}
-                    tiktok={WRITER_INFO.tiktok}
-                    website={WRITER_INFO.website}
-                    phone={WRITER_INFO.phone}
-                    linkedin={WRITER_INFO.linkedin}
-                    postsCount={authorPostsCount}
-                  />
-                </div>
+            {/* Navigation */}
+            <div className="mt-12 flex justify-center">
+              <Link 
+                href="/blog" 
+                className="inline-flex items-center gap-3 px-8 py-4 bg-white/70 backdrop-blur-xl text-blue-600 hover:text-blue-800 font-bold rounded-2xl border-2 border-blue-200 hover:border-blue-300 transition-all duration-200 shadow-lg hover:shadow-xl group"
+              >
+                <ArrowLeft className="w-6 h-6 group-hover:-translate-x-2 transition-transform duration-200" />
+                Explore More Articles
+              </Link>
+            </div>
+
+            {/* Related Posts Section (Placeholder) */}
+            <div className="mt-16 bg-white/70 backdrop-blur-xl rounded-3xl shadow-lg border border-white/50 p-8">
+              <h2 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-6">
+                You might also like
+              </h2>
+              <div className="text-center text-slate-500 py-8">
+                Related posts coming soon...
               </div>
             </div>
           </div>
