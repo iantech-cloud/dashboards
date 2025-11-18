@@ -64,10 +64,269 @@ export default function SummernoteEditor({
     }
   }, []);
 
+  const typesetMath = useCallback(() => {
+    if (mathRenderTimeout.current) {
+      clearTimeout(mathRenderTimeout.current);
+    }
+
+    mathRenderTimeout.current = setTimeout(() => {
+      if (window.MathJax?.typesetPromise) {
+        const editable = editorRef.current
+          ? window.$(editorRef.current).next('.note-editor').find('.note-editable')[0]
+          : null;
+        if (editable) {
+          window.MathJax.typesetPromise([editable]).catch((e: any) => {
+            console.warn('MathJax error:', e);
+          });
+        }
+      }
+    }, 100);
+  }, []);
+
+  // Function to detect and wrap LaTeX in proper delimiters
+  const processLatexContent = useCallback((html: string): string => {
+    if (html.includes('class="math-equation"')) {
+      return html;
+    }
+
+    html = html.replace(/\$\$([\s\S]+?)\$\$/g, (match, latex) => {
+      return `<div class="math-equation" data-type="display">$$${latex.trim()}$$</div>`;
+    });
+
+    html = html.replace(/\\\[([\s\S]+?)\\\]/g, (match, latex) => {
+      return `<div class="math-equation" data-type="display">\\[${latex.trim()}\\]</div>`;
+    });
+
+    html = html.replace(/\$([^\$\n]+?)\$/g, (match, latex) => {
+      if (match.includes('$$')) return match;
+      return `<span class="math-equation" data-type="inline">$${latex.trim()}$</span>`;
+    });
+
+    html = html.replace(/\\\(([^\)]+?)\\\)/g, (match, latex) => {
+      return `<span class="math-equation" data-type="inline">\\(${latex.trim()}\\)</span>`;
+    });
+
+    return html;
+  }, []);
+
+  // Function to clean and validate links in content
+  const cleanLinksInContent = useCallback((html: string): string => {
+    if (!html) return html;
+    
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    
+    const links = tempDiv.querySelectorAll('a');
+    
+    links.forEach((link) => {
+      const href = link.getAttribute('href');
+      const text = link.textContent?.trim();
+      
+      // Fix 1: Remove links without href
+      if (!href || href === '' || href === '#') {
+        console.warn('Removing link without href:', link.outerHTML);
+        const textNode = document.createTextNode(text || '');
+        link.parentNode?.replaceChild(textNode, link);
+        return;
+      }
+      
+      // Fix 2: Add text to empty links (use href as text)
+      if (!text || text === '') {
+        console.warn('Adding text to empty link:', href);
+        link.textContent = href;
+      }
+      
+      // Fix 3: Fix target="_new" to target="_blank"
+      const target = link.getAttribute('target');
+      if (target === '_new' || target === 'new') {
+        link.setAttribute('target', '_blank');
+      }
+      
+      // Fix 4: Ensure proper rel attributes for external links
+      if (target === '_blank' || link.getAttribute('target') === '_blank') {
+        const currentRel = link.getAttribute('rel') || '';
+        const relParts = currentRel.split(' ').filter(Boolean);
+        
+        if (!relParts.includes('noopener')) relParts.push('noopener');
+        if (!relParts.includes('noreferrer')) relParts.push('noreferrer');
+        
+        link.setAttribute('rel', relParts.join(' '));
+      }
+      
+      // Fix 5: Remove data-start and data-end attributes
+      link.removeAttribute('data-start');
+      link.removeAttribute('data-end');
+      
+      // Fix 6: Remove cursor-pointer class
+      if (link.classList.contains('cursor-pointer')) {
+        link.classList.remove('cursor-pointer');
+      }
+      
+      // Fix 7: Ensure href has protocol
+      let cleanHref = href.trim();
+      if (cleanHref && !cleanHref.match(/^(https?|mailto|tel):/i)) {
+        cleanHref = 'https://' + cleanHref;
+        link.setAttribute('href', cleanHref);
+      }
+    });
+    
+    return tempDiv.innerHTML;
+  }, []);
+
+  // Custom link dialog with proper validation
+  const showCustomLinkDialog = useCallback(() => {
+    if (!editorRef.current || !window.$) return;
+    
+    const $ = window.$;
+    
+    // Get selected text
+    const selectedText = window.getSelection()?.toString() || '';
+    
+    // Remove existing modal if any
+    $('#customLinkModal').remove();
+    
+    // Create modal HTML
+    const modalHTML = `
+      <div class="modal fade" id="customLinkModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Insert Link</h5>
+              <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">&times;</span>
+              </button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label for="linkText">Link Text * <small class="text-muted">(Required for accessibility)</small></label>
+                <input type="text" class="form-control" id="linkText" 
+                  placeholder="Enter visible link text" 
+                  value="${selectedText.replace(/"/g, '&quot;')}" required>
+                <small class="form-text text-muted">This text will be visible to users and screen readers</small>
+              </div>
+              <div class="form-group">
+                <label for="linkUrl">URL * <small class="text-muted">(Must start with http:// or https://)</small></label>
+                <input type="url" class="form-control" id="linkUrl" 
+                  placeholder="https://example.com" required>
+                <small class="form-text text-muted">The web address this link points to</small>
+              </div>
+              <div class="form-group">
+                <label for="linkTarget">Open Link:</label>
+                <select class="form-control" id="linkTarget">
+                  <option value="_self">Same window</option>
+                  <option value="_blank" selected>New window/tab</option>
+                </select>
+              </div>
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="linkNofollow">
+                <label class="form-check-label" for="linkNofollow">
+                  Add nofollow (for external/sponsored links)
+                </label>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+              <button type="button" class="btn btn-primary" id="insertLinkBtn">Insert Link</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // Add modal to body
+    $('body').append(modalHTML);
+    
+    // Show modal
+    $('#customLinkModal').modal('show');
+    
+    // Focus on text input if empty, otherwise URL input
+    $('#customLinkModal').on('shown.bs.modal', function () {
+      if (!selectedText) {
+        $('#linkText').focus();
+      } else {
+        $('#linkUrl').focus();
+      }
+    });
+    
+    // Handle Enter key in inputs
+    $('#linkText, #linkUrl').on('keypress', function(e: any) {
+      if (e.which === 13) {
+        e.preventDefault();
+        $('#insertLinkBtn').click();
+      }
+    });
+    
+    // Handle insert button
+    $('#insertLinkBtn').off('click').on('click', function() {
+      const text = $('#linkText').val() as string;
+      const url = $('#linkUrl').val() as string;
+      const target = $('#linkTarget').val() as string;
+      const nofollow = $('#linkNofollow').is(':checked');
+      
+      // Validate link text
+      if (!text || !text.trim()) {
+        alert('Link text is required for accessibility and SEO.\n\nScreen readers need descriptive text to announce links to users.');
+        $('#linkText').focus();
+        return;
+      }
+      
+      // Validate URL
+      if (!url || !url.trim()) {
+        alert('URL is required');
+        $('#linkUrl').focus();
+        return;
+      }
+      
+      let validUrl = url.trim();
+      
+      // Add protocol if missing
+      if (!validUrl.match(/^https?:\/\//i)) {
+        validUrl = 'https://' + validUrl;
+      }
+      
+      // Validate URL format
+      try {
+        new URL(validUrl);
+      } catch (e) {
+        alert('Invalid URL format.\n\nPlease enter a valid URL like:\nhttps://example.com\nhttps://www.google.com');
+        $('#linkUrl').focus();
+        return;
+      }
+      
+      // Build rel attribute
+      let relParts = [];
+      if (target === '_blank') {
+        relParts.push('noopener', 'noreferrer');
+      }
+      if (nofollow) {
+        relParts.push('nofollow');
+      }
+      const relAttr = relParts.length > 0 ? ` rel="${relParts.join(' ')}"` : '';
+      
+      // Create link HTML
+      const linkHtml = `<a href="${validUrl.replace(/"/g, '&quot;')}" target="${target}"${relAttr}>${text.trim()}</a>`;
+      
+      // Insert the link
+      $(editorRef.current).summernote('pasteHTML', linkHtml);
+      
+      // Close modal
+      $('#customLinkModal').modal('hide');
+      
+      // Remove modal from DOM after it's hidden
+      $('#customLinkModal').on('hidden.bs.modal', function () {
+        $(this).remove();
+      });
+    });
+    
+    // Clean up modal on close
+    $('#customLinkModal').on('hidden.bs.modal', function () {
+      $(this).remove();
+    });
+  }, []);
+
   // Load all required libraries
   useEffect(() => {
     const loadLibraries = async () => {
-      // Check if jQuery and Summernote are already loaded
       if (window.$ && window.$.fn.summernote) {
         setTimeout(initEditor, 100);
         return;
@@ -91,7 +350,7 @@ export default function SummernoteEditor({
         document.head.appendChild(link);
       }
 
-      // Load Prism.js CSS for code syntax highlighting
+      // Load Prism.js CSS
       if (!document.querySelector('link[href*="prism"]')) {
         const prismCSS = document.createElement('link');
         prismCSS.rel = 'stylesheet';
@@ -132,7 +391,6 @@ export default function SummernoteEditor({
       }
 
       function loadPrism() {
-        // Load Prism.js for syntax highlighting
         const prismScript = document.createElement('script');
         prismScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js';
         prismScript.setAttribute('data-summernote', 'true');
@@ -141,7 +399,6 @@ export default function SummernoteEditor({
       }
 
       function loadPrismLanguages() {
-        // Load additional language support
         const languages = [
           'markup', 'css', 'javascript', 'python', 'java', 'php', 
           'c', 'cpp', 'csharp', 'ruby', 'go', 'rust', 'typescript'
@@ -165,7 +422,6 @@ export default function SummernoteEditor({
       }
 
       function loadMathJax() {
-        // Check if MathJax script is already loaded
         if (document.getElementById('MathJax-script')) {
           setTimeout(initEditor, 100);
           return;
@@ -186,7 +442,6 @@ export default function SummernoteEditor({
     loadLibraries();
 
     return () => {
-      // Cleanup on unmount
       if (mathRenderTimeout.current) {
         clearTimeout(mathRenderTimeout.current);
       }
@@ -199,55 +454,6 @@ export default function SummernoteEditor({
         }
       }
     };
-  }, []);
-
-  const typesetMath = useCallback(() => {
-    if (mathRenderTimeout.current) {
-      clearTimeout(mathRenderTimeout.current);
-    }
-
-    mathRenderTimeout.current = setTimeout(() => {
-      if (window.MathJax?.typesetPromise) {
-        const editable = editorRef.current
-          ? window.$(editorRef.current).next('.note-editor').find('.note-editable')[0]
-          : null;
-        if (editable) {
-          window.MathJax.typesetPromise([editable]).catch((e: any) => {
-            console.warn('MathJax error:', e);
-          });
-        }
-      }
-    }, 100);
-  }, []);
-
-  // Function to detect and wrap LaTeX in proper delimiters
-  const processLatexContent = useCallback((html: string): string => {
-    // Don't process if already wrapped in math delimiters
-    if (html.includes('class="math-equation"')) {
-      return html;
-    }
-
-    // Detect display math patterns ($$...$$, \[...\])
-    html = html.replace(/\$\$([\s\S]+?)\$\$/g, (match, latex) => {
-      return `<div class="math-equation" data-type="display">$$${latex.trim()}$$</div>`;
-    });
-
-    html = html.replace(/\\\[([\s\S]+?)\\\]/g, (match, latex) => {
-      return `<div class="math-equation" data-type="display">\\[${latex.trim()}\\]</div>`;
-    });
-
-    // Detect inline math patterns ($...$, \(...\))
-    html = html.replace(/\$([^\$\n]+?)\$/g, (match, latex) => {
-      // Avoid matching display math
-      if (match.includes('$$')) return match;
-      return `<span class="math-equation" data-type="inline">$${latex.trim()}$</span>`;
-    });
-
-    html = html.replace(/\\\(([^\)]+?)\\\)/g, (match, latex) => {
-      return `<span class="math-equation" data-type="inline">\\(${latex.trim()}\\)</span>`;
-    });
-
-    return html;
   }, []);
 
   const initEditor = useCallback(() => {
@@ -265,36 +471,99 @@ export default function SummernoteEditor({
       const ui = $.summernote.ui;
       const button = ui.button({
         contents: '<i class="note-icon-link"/> Affiliate',
-        tooltip: 'Insert Affiliate Link',
+        tooltip: 'Insert Affiliate Link (with nofollow)',
         click: function () {
-          const url = prompt('Enter affiliate URL (e.g., https://amazon.com/...):');
-          if (!url) return;
-
-          const text = prompt('Enter link text (leave blank to use URL):') || url;
-
-          context.invoke('createLink', {
-            text: text,
-            url: url,
-            isNewWindow: true,
+          $('#affiliateLinkModal').remove();
+          
+          const modalHTML = `
+            <div class="modal fade" id="affiliateLinkModal" tabindex="-1">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <div class="modal-header bg-warning">
+                    <h5 class="modal-title">🔗 Insert Affiliate Link</h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                      <span>&times;</span>
+                    </button>
+                  </div>
+                  <div class="modal-body">
+                    <div class="alert alert-info">
+                      <strong>Note:</strong> Affiliate links will automatically include "nofollow" and "sponsored" attributes for SEO compliance.
+                    </div>
+                    <div class="form-group">
+                      <label for="affiliateText">Link Text * <small>(Required)</small></label>
+                      <input type="text" class="form-control" id="affiliateText" 
+                        placeholder="e.g., Buy on Amazon" required>
+                    </div>
+                    <div class="form-group">
+                      <label for="affiliateUrl">Affiliate URL *</label>
+                      <input type="url" class="form-control" id="affiliateUrl" 
+                        placeholder="https://amazon.com/..." required>
+                    </div>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-warning" id="insertAffiliateBtn">Insert Affiliate Link</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+          
+          $('body').append(modalHTML);
+          $('#affiliateLinkModal').modal('show');
+          
+          $('#affiliateLinkModal').on('shown.bs.modal', function () {
+            $('#affiliateText').focus();
           });
-
-          // Add affiliate attributes
-          setTimeout(() => {
-            const editable = $(editorRef.current).next('.note-editor').find('.note-editable');
-            const links = editable.find(`a[href="${url}"]`);
-            links.each(function () {
-              $(this)
-                .attr('rel', 'nofollow noopener sponsored')
-                .attr('data-affiliate', 'true')
-                .addClass('affiliate-link');
+          
+          $('#insertAffiliateBtn').off('click').on('click', function() {
+            const text = $('#affiliateText').val() as string;
+            const url = $('#affiliateUrl').val() as string;
+            
+            if (!text || !text.trim()) {
+              alert('Link text is required for accessibility');
+              $('#affiliateText').focus();
+              return;
+            }
+            
+            if (!url || !url.trim()) {
+              alert('Affiliate URL is required');
+              $('#affiliateUrl').focus();
+              return;
+            }
+            
+            let validUrl = url.trim();
+            if (!validUrl.match(/^https?:\/\//i)) {
+              validUrl = 'https://' + validUrl;
+            }
+            
+            try {
+              new URL(validUrl);
+            } catch (e) {
+              alert('Invalid URL format');
+              $('#affiliateUrl').focus();
+              return;
+            }
+            
+            const linkHtml = `<a href="${validUrl.replace(/"/g, '&quot;')}" rel="nofollow noopener noreferrer sponsored" target="_blank" class="affiliate-link" data-affiliate="true">${text.trim()}</a>`;
+            
+            context.invoke('pasteHTML', linkHtml);
+            $('#affiliateLinkModal').modal('hide');
+            
+            $('#affiliateLinkModal').on('hidden.bs.modal', function () {
+              $(this).remove();
             });
-          }, 50);
+          });
+          
+          $('#affiliateLinkModal').on('hidden.bs.modal', function () {
+            $(this).remove();
+          });
         },
       });
       return button.render();
     };
 
-    // Enhanced Math button with better LaTeX handling
+    // Enhanced Math button
     const MathButton = function (context: any) {
       const ui = $.summernote.ui;
       const button = ui.button({
@@ -327,7 +596,7 @@ export default function SummernoteEditor({
       return button.render();
     };
 
-    // Custom button for product review box
+    // Product Review button
     const ProductReviewButton = function (context: any) {
       const ui = $.summernote.ui;
       const button = ui.button({
@@ -370,7 +639,7 @@ export default function SummernoteEditor({
       return button.render();
     };
 
-    // Custom button for code blocks with syntax highlighting
+    // Code Block button
     const CodeBlockButton = function (context: any) {
       const ui = $.summernote.ui;
       const button = ui.button({
@@ -419,16 +688,10 @@ export default function SummernoteEditor({
             </div>
           `;
           
-          // Remove existing modal if any
           $('#codeBlockModal').remove();
-          
-          // Add modal to body
           $('body').append(modalHTML);
-          
-          // Show modal
           $('#codeBlockModal').modal('show');
           
-          // Handle insert button
           $('#insertCodeBtn').off('click').on('click', function() {
             const language = $('#codeLanguage').val();
             const code = $('#codeContent').val();
@@ -438,7 +701,6 @@ export default function SummernoteEditor({
               return;
             }
             
-            // Escape HTML entities
             const escapedCode = code
               .replace(/&/g, '&amp;')
               .replace(/</g, '&lt;')
@@ -453,7 +715,6 @@ export default function SummernoteEditor({
             
             context.invoke('pasteHTML', codeBlock);
             
-            // Highlight the code
             setTimeout(() => {
               if (window.Prism) {
                 window.Prism.highlightAll();
@@ -502,11 +763,7 @@ export default function SummernoteEditor({
         prettifyHtml: true,
         spellCheck: true,
         lang: 'en-US',
-        imageShape: [],
-        imageAttributes: {
-          imageDialogLabel: 'Image Attributes',
-          imageBackendUrl: '/api/upload/image',
-        },
+        dialogsInBody: true,
         popover: {
           image: [
             ['imagesize', ['imageSize100', 'imageSize50', 'imageSize25']],
@@ -529,57 +786,80 @@ export default function SummernoteEditor({
               'color': '#374151',
             });
             
+            // Override the link button to use custom dialog
+            const $editor = $(editorRef.current).next('.note-editor');
+            $editor.find('.note-btn[data-event="showLinkDialog"]').off('click').on('click', function(e: any) {
+              e.preventDefault();
+              showCustomLinkDialog();
+            });
+            
             // Add keyboard shortcut for math
-            editable.on('keydown', function(e: KeyboardEvent) {
+            editable.on('keydown', function(e: any) {
               if ((e.ctrlKey || e.metaKey) && e.key === 'm') {
                 e.preventDefault();
-                const mathBtn = $(editorRef.current).next('.note-editor').find('.note-btn[data-name="math"]');
+                const mathBtn = $(editorRef.current).next('.note-editor').find('.note-btn').filter(function() {
+                  return $(this).attr('data-original-title') === 'Insert Math Equation (Ctrl+M)';
+                });
                 if (mathBtn.length) {
                   mathBtn.click();
                 }
               }
             });
             
-            console.log('Summernote initialized');
+            console.log('✅ Summernote initialized with custom link validation');
           },
+          
+          onCreateLink: function(url: string) {
+            console.log('Link being created:', url);
+            
+            if (!url || !url.trim()) {
+              alert('Please enter a valid URL');
+              return '';
+            }
+            
+            let validUrl = url.trim();
+            if (!validUrl.match(/^https?:\/\//i)) {
+              validUrl = 'https://' + validUrl;
+            }
+            
+            try {
+              new URL(validUrl);
+              return validUrl;
+            } catch (e) {
+              alert('Invalid URL format. Please enter a valid URL.');
+              return '';
+            }
+          },
+          
           onChange: function (contents: string) {
-            if (onChange && contents !== undefined) {
-              onChange(contents);
+            const cleanedContent = cleanLinksInContent(contents);
+            
+            if (onChange && cleanedContent !== undefined) {
+              onChange(cleanedContent);
             }
             typesetMath();
           },
+          
           onImageUpload: function (files: FileList) {
             handleImageUpload(files);
           },
+          
           onPaste: function (e: any) {
-            // Get pasted content
             const clipboardData = e.originalEvent.clipboardData || (window as any).clipboardData;
             const pastedData = clipboardData.getData('text/html') || clipboardData.getData('text/plain');
             
-            // Check if it contains LaTeX
-            if (pastedData && (pastedData.includes('$$') || pastedData.includes('$') || pastedData.includes('\\['))) {
+            if (pastedData && (pastedData.includes('$') || pastedData.includes('\\(') || pastedData.includes('\\['))) {
               e.preventDefault();
-              
-              // Process the LaTeX content
               const processedContent = processLatexContent(pastedData);
-              
-              // Insert the processed content
               const $editable = $(editorRef.current);
               $editable.summernote('pasteHTML', processedContent);
-              
-              // Render math
-              setTimeout(() => {
-                typesetMath();
-              }, 150);
+              setTimeout(() => typesetMath(), 150);
             } else {
-              // Normal paste - still render math after
-              setTimeout(() => {
-                typesetMath();
-              }, 150);
+              setTimeout(() => typesetMath(), 150);
             }
           },
+          
           onKeyup: function (e: KeyboardEvent) {
-            // Auto-detect and wrap LaTeX on certain keys
             if (e.key === '$' || e.key === ')' || e.key === ']') {
               setTimeout(() => {
                 const contents = $(editorRef.current).summernote('code');
@@ -596,7 +876,6 @@ export default function SummernoteEditor({
 
       isInitialized.current = true;
 
-      // Set initial value and render math
       if (value) {
         const processedValue = processLatexContent(value);
         $(editorRef.current).summernote('code', processedValue);
@@ -611,9 +890,8 @@ export default function SummernoteEditor({
     } catch (error) {
       console.error('Error initializing Summernote:', error);
     }
-  }, [height, placeholder, readOnly, onChange, typesetMath, processLatexContent]);
+  }, [height, placeholder, readOnly, onChange, typesetMath, processLatexContent, cleanLinksInContent, showCustomLinkDialog]);
 
-  // Update content when value changes externally
   useEffect(() => {
     if (isInitialized.current && editorRef.current && window.$) {
       const currentContent = window.$(editorRef.current).summernote('code');
@@ -867,6 +1145,35 @@ export default function SummernoteEditor({
           margin-left: 2px;
         }
 
+        /* CRITICAL: Visual indicators for broken links during editing */
+        .note-editable a:not([href])::before {
+          content: '⚠️ NO URL: ';
+          color: red;
+          font-weight: bold;
+          background: #fee;
+          padding: 2px 4px;
+          border-radius: 3px;
+        }
+
+        .note-editable a[href="#"]::before,
+        .note-editable a[href=""]::before {
+          content: '⚠️ EMPTY: ';
+          color: orange;
+          font-weight: bold;
+          background: #ffc;
+          padding: 2px 4px;
+          border-radius: 3px;
+        }
+
+        .note-editable a:empty::after {
+          content: '[No Text]';
+          color: red;
+          font-weight: bold;
+          background: #fee;
+          padding: 2px 4px;
+          border-radius: 3px;
+        }
+
         /* Enhanced Math equations styling */
         .note-editable .math-equation {
           display: inline-block;
@@ -976,7 +1283,7 @@ export default function SummernoteEditor({
           border-radius: 0.375rem;
         }
 
-        /* Code styling - Enhanced for syntax highlighting */
+        /* Code styling */
         .note-editable code {
           background: #2d2d2d;
           color: #f8f8f2;
@@ -1004,81 +1311,6 @@ export default function SummernoteEditor({
           padding: 0;
           border-radius: 0;
           display: block;
-        }
-
-        /* Prism.js theme integration */
-        .note-editable pre[class*="language-"],
-        .note-editable code[class*="language-"] {
-          color: #f8f8f2;
-          background: #2d2d2d;
-          text-shadow: 0 1px rgba(0, 0, 0, 0.3);
-          font-family: 'Courier New', 'Consolas', 'Monaco', monospace;
-          font-size: 14px;
-          line-height: 1.5;
-          tab-size: 4;
-        }
-
-        .note-editable pre[class*="language-"] {
-          padding: 1.5rem;
-          margin: 1rem 0;
-          overflow: auto;
-          border-radius: 0.5rem;
-        }
-
-        /* Syntax highlighting colors */
-        .note-editable .token.comment,
-        .note-editable .token.prolog,
-        .note-editable .token.doctype,
-        .note-editable .token.cdata {
-          color: #999;
-        }
-
-        .note-editable .token.punctuation {
-          color: #ccc;
-        }
-
-        .note-editable .token.property,
-        .note-editable .token.tag,
-        .note-editable .token.boolean,
-        .note-editable .token.number,
-        .note-editable .token.constant,
-        .note-editable .token.symbol,
-        .note-editable .token.deleted {
-          color: #f92672;
-        }
-
-        .note-editable .token.selector,
-        .note-editable .token.attr-name,
-        .note-editable .token.string,
-        .note-editable .token.char,
-        .note-editable .token.builtin,
-        .note-editable .token.inserted {
-          color: #a6e22e;
-        }
-
-        .note-editable .token.operator,
-        .note-editable .token.entity,
-        .note-editable .token.url,
-        .note-editable .language-css .token.string,
-        .note-editable .style .token.string {
-          color: #f8f8f2;
-        }
-
-        .note-editable .token.atrule,
-        .note-editable .token.attr-value,
-        .note-editable .token.keyword {
-          color: #66d9ef;
-        }
-
-        .note-editable .token.function,
-        .note-editable .token.class-name {
-          color: #e6db74;
-        }
-
-        .note-editable .token.regex,
-        .note-editable .token.important,
-        .note-editable .token.variable {
-          color: #fd971f;
         }
 
         /* Blockquote styling */
@@ -1154,11 +1386,6 @@ export default function SummernoteEditor({
           box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
         }
 
-        /* Help dialog */
-        .note-help-dialog {
-          border-radius: 0.5rem;
-        }
-
         /* Fullscreen mode */
         .note-editor.fullscreen {
           border-radius: 0;
@@ -1180,13 +1407,6 @@ export default function SummernoteEditor({
         .note-editor.note-frame.focused {
           border-color: #3b82f6;
           box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
-
-        /* Disable drag overlay */
-        .note-drag-n-drop-overlay {
-          background: rgba(59, 130, 246, 0.1);
-          border: 2px dashed #3b82f6;
-          border-radius: 0.5rem;
         }
 
         /* Print styles */

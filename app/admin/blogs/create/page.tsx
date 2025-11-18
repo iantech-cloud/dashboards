@@ -1,7 +1,7 @@
 // app/admin/blogs/create/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
@@ -94,6 +94,91 @@ export default function CreateBlogPage() {
     return result.data.url;
   };
 
+  // Comprehensive link validation and fixing
+  const validateAndFixLinks = useCallback((html: string): { 
+    cleanedHtml: string; 
+    errors: string[]; 
+    warnings: string[];
+  } => {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    
+    if (!html) {
+      return { cleanedHtml: html, errors, warnings };
+    }
+    
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    
+    const links = tempDiv.querySelectorAll('a');
+    
+    links.forEach((link, index) => {
+      const href = link.getAttribute('href');
+      const text = link.textContent?.trim();
+      const linkNum = index + 1;
+      
+      // Critical: Remove links without href
+      if (!href || href === '' || href === '#') {
+        errors.push(`Link #${linkNum}: Missing URL - will be removed`);
+        const textNode = document.createTextNode(text || '[broken link]');
+        link.parentNode?.replaceChild(textNode, link);
+        return;
+      }
+      
+      // Warning: Empty link text
+      if (!text || text === '') {
+        warnings.push(`Link #${linkNum}: Empty text - using URL as text`);
+        link.textContent = href;
+      }
+      
+      // Fix target attribute
+      const target = link.getAttribute('target');
+      if (target === '_new' || target === 'new') {
+        link.setAttribute('target', '_blank');
+        warnings.push(`Link #${linkNum}: Fixed target from "${target}" to "_blank"`);
+      }
+      
+      // Ensure proper rel for external links
+      if (target === '_blank' || link.getAttribute('target') === '_blank') {
+        const currentRel = link.getAttribute('rel') || '';
+        const relParts = currentRel.split(' ').filter(Boolean);
+        
+        if (!relParts.includes('noopener')) relParts.push('noopener');
+        if (!relParts.includes('noreferrer')) relParts.push('noreferrer');
+        
+        link.setAttribute('rel', relParts.join(' '));
+      }
+      
+      // Remove problematic attributes
+      link.removeAttribute('data-start');
+      link.removeAttribute('data-end');
+      if (link.classList.contains('cursor-pointer')) {
+        link.classList.remove('cursor-pointer');
+      }
+      
+      // Ensure protocol
+      let cleanHref = href.trim();
+      if (!cleanHref.match(/^(https?|mailto|tel):/i)) {
+        cleanHref = 'https://' + cleanHref;
+        link.setAttribute('href', cleanHref);
+        warnings.push(`Link #${linkNum}: Added https:// protocol`);
+      }
+      
+      // Validate URL format
+      try {
+        new URL(cleanHref);
+      } catch (e) {
+        errors.push(`Link #${linkNum}: Invalid URL format - "${cleanHref}"`);
+      }
+    });
+    
+    return {
+      cleanedHtml: tempDiv.innerHTML,
+      errors,
+      warnings
+    };
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -112,9 +197,30 @@ export default function CreateBlogPage() {
     }
 
     try {
+      // Validate and fix links
+      const { cleanedHtml, errors, warnings } = validateAndFixLinks(content);
+      
+      // Show errors if any critical issues found
+      if (errors.length > 0) {
+        const errorMsg = 'Link validation errors found:\n\n' + errors.join('\n');
+        const proceed = window.confirm(
+          errorMsg + '\n\nThese issues have been automatically fixed. Do you want to continue?'
+        );
+        
+        if (!proceed) {
+          setIsSubmitting(false);
+          return;
+        }
+      }
+      
+      // Show warnings if any
+      if (warnings.length > 0) {
+        console.warn('Link warnings:', warnings);
+      }
+      
       const formDataToSend = new FormData();
       formDataToSend.append('title', formData.title);
-      formDataToSend.append('content', content);
+      formDataToSend.append('content', cleanedHtml); // Use cleaned content
       formDataToSend.append('excerpt', formData.excerpt);
       formDataToSend.append('status', formData.status);
       formDataToSend.append('meta_title', formData.meta_title || formData.title);
@@ -755,6 +861,26 @@ export default function CreateBlogPage() {
           border: 1px solid #d1d5db;
           border-radius: 0.25rem;
           box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
+        }
+
+        /* Link validation indicators (for debugging) */
+        .blog-preview-content a:not([href])::before {
+          content: '⚠️ NO URL ';
+          color: red;
+          font-weight: bold;
+        }
+
+        .blog-preview-content a[href="#"]::before,
+        .blog-preview-content a[href=""]::before {
+          content: '⚠️ EMPTY URL ';
+          color: orange;
+          font-weight: bold;
+        }
+
+        .blog-preview-content a:empty::after {
+          content: '[Empty Link Text]';
+          color: red;
+          font-weight: bold;
         }
       `}</style>
     </div>

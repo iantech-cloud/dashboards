@@ -53,7 +53,7 @@ const getCachedAuthorPostsCount = unstable_cache(
 
 // Writer information
 const WRITER_INFO = {
-  name: "Web Writer",
+  name: " Ian Muiruri",
   bio: "Cybersecurity expert, C++ developer, data analyst, and emerging researcher with experience spanning software development, digital forensics, AI-driven systems, and full-stack web applications.",
   avatar: "/public/writer-avatar.png",
   expertise: [
@@ -77,7 +77,7 @@ const WRITER_INFO = {
   website: "hustlehubafrica.com",
   phone: "+254748264231",
   linkedin: "", // Leave empty for now
-  fullBio: `Web is a cybersecurity expert, C++ developer, data analyst, and emerging researcher with experience spanning software development, digital forensics, AI-driven systems, and full-stack web applications. He has worked across education, SaaS, and enterprise environments, building secure backends, cloud-hosted platforms, and automation tools for data-driven decision-making.
+  fullBio: `Ian is a cybersecurity expert, C++ developer, data analyst, and emerging researcher with experience spanning software development, digital forensics, AI-driven systems, and full-stack web applications. He has worked across education, SaaS, and enterprise environments, building secure backends, cloud-hosted platforms, and automation tools for data-driven decision-making.
 
 With a strong foundation in mathematics, engineering, and advanced computing, Ian also contributes to projects in quantum mechanics, portfolio optimization, biomedical engineering, and architectural design. He is passionate about solving real-world technological challenges, creating human-centered digital experiences, and developing scalable solutions that empower businesses and communities across Africa.`
 };
