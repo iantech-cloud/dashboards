@@ -1,5 +1,8 @@
-# HustleHub Africa - Robots.txt
-# https://hustlehubafrica.com/robots.txt
+export async function GET() {
+  const baseUrl = process.env.NEXTAUTH_URL || 'https://hustlehubafrica.com'
+  
+  const content = `# HustleHub Africa - Robots.txt
+# ${baseUrl}/robots
 
 # Allow all search engines
 User-agent: *
@@ -20,8 +23,8 @@ Allow: /auth/login
 Crawl-delay: 0.5
 
 # Sitemap location
-Sitemap: https://hustlehubafrica.com/sitemap.xml
-Sitemap: https://hustlehubafrica.com/sitemap-0.xml
+Sitemap: ${baseUrl}/sitemap
+Sitemap: ${baseUrl}/sitemap-0.xml
 
 # Specific search engine rules
 User-agent: Googlebot
@@ -51,4 +54,12 @@ User-agent: dotbot
 Disallow: /
 
 User-agent: SeznamBot
-Disallow: /
+Disallow: /`
+
+  return new Response(content, {
+    headers: {
+      'Content-Type': 'text/plain',
+      'Cache-Control': 'public, max-age=86400',
+    },
+  })
+}
