@@ -1,4 +1,4 @@
-// app/blog/[slug]/BlogContent.tsx - FIXED VERSION
+// app/blog/[slug]/BlogContent.tsx - UPDATED WITH TOC INTEGRATION
 'use client';
 
 import { useEffect, useRef } from 'react';
@@ -11,6 +11,11 @@ export default function BlogContent({ content }: BlogContentProps) {
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Add data attribute for TOC targeting
+    if (contentRef.current) {
+      contentRef.current.setAttribute('data-blog-content', 'true');
+    }
+
     // Trigger MathJax rendering when component mounts or content changes
     if (typeof window !== 'undefined' && window.MathJax) {
       // Wait a bit for DOM to be ready
@@ -41,7 +46,7 @@ export default function BlogContent({ content }: BlogContentProps) {
           color: #475569;
         }
 
-        /* ===== HEADINGS ===== */
+        /* ===== HEADINGS - UPDATED FOR TOC INTEGRATION ===== */
         .blog-content-wrapper h1,
         .blog-content-wrapper h2,
         .blog-content-wrapper h3,
@@ -57,6 +62,7 @@ export default function BlogContent({ content }: BlogContentProps) {
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
           background-clip: text;
+          scroll-margin-top: 100px; /* Added for TOC smooth scrolling */
         }
 
         .blog-content-wrapper h1 { 
@@ -69,11 +75,37 @@ export default function BlogContent({ content }: BlogContentProps) {
           font-size: 2rem;
           border-bottom: 1px solid #f0f9ff;
           padding-bottom: 0.5rem;
+          position: relative;
         }
-        .blog-content-wrapper h3 { font-size: 1.625rem; }
-        .blog-content-wrapper h4 { font-size: 1.375rem; }
+        .blog-content-wrapper h3 { 
+          font-size: 1.625rem;
+          position: relative;
+        }
+        .blog-content-wrapper h4 { 
+          font-size: 1.375rem;
+          position: relative;
+        }
         .blog-content-wrapper h5 { font-size: 1.125rem; }
         .blog-content-wrapper h6 { font-size: 1rem; }
+
+        /* Add anchor indicators for headings */
+        .blog-content-wrapper h2::before,
+        .blog-content-wrapper h3::before,
+        .blog-content-wrapper h4::before {
+          content: '#';
+          position: absolute;
+          left: -1.5rem;
+          opacity: 0;
+          color: #3b82f6;
+          font-weight: 400;
+          transition: opacity 0.2s ease;
+        }
+
+        .blog-content-wrapper h2:hover::before,
+        .blog-content-wrapper h3:hover::before,
+        .blog-content-wrapper h4:hover::before {
+          opacity: 1;
+        }
 
         /* ===== PARAGRAPHS & TEXT ===== */
         .blog-content-wrapper p {
@@ -605,6 +637,28 @@ export default function BlogContent({ content }: BlogContentProps) {
           margin-bottom: 0.5rem;
         }
 
+        /* ===== TOC INTEGRATION STYLES ===== */
+        
+        /* TOC insertion point styling */
+        .toc-insertion-point {
+          position: relative;
+        }
+
+        /* Ensure proper spacing when TOC is inserted */
+        .blog-content-wrapper h2:first-of-type {
+          margin-top: 0;
+        }
+
+        /* Highlight headings when TOC links are hovered */
+        .blog-content-wrapper h2:hover,
+        .blog-content-wrapper h3:hover,
+        .blog-content-wrapper h4:hover {
+          background: linear-gradient(135deg, #1e40af 0%, #0891b2 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        }
+
         /* ===== RESPONSIVE DESIGN ===== */
         @media (max-width: 768px) {
           .blog-content-wrapper h1 { font-size: 2rem; }
@@ -632,6 +686,13 @@ export default function BlogContent({ content }: BlogContentProps) {
           .blog-content-wrapper iframe {
             min-height: 250px;
           }
+
+          /* Hide anchor indicators on mobile */
+          .blog-content-wrapper h2::before,
+          .blog-content-wrapper h3::before,
+          .blog-content-wrapper h4::before {
+            display: none;
+          }
         }
 
         /* ===== PRINT STYLES ===== */
@@ -658,6 +719,13 @@ export default function BlogContent({ content }: BlogContentProps) {
             color: #1e293b !important;
             text-decoration: underline !important;
           }
+
+          /* Hide anchor indicators in print */
+          .blog-content-wrapper h2::before,
+          .blog-content-wrapper h3::before,
+          .blog-content-wrapper h4::before {
+            display: none;
+          }
         }
 
         /* ===== ANIMATIONS ===== */
@@ -681,6 +749,15 @@ export default function BlogContent({ content }: BlogContentProps) {
           outline: 2px solid #3b82f6;
           outline-offset: 2px;
           border-radius: 0.25rem;
+        }
+
+        /* Ensure proper focus for TOC navigation */
+        .blog-content-wrapper h2:focus,
+        .blog-content-wrapper h3:focus,
+        .blog-content-wrapper h4:focus {
+          outline: 2px solid #3b82f6;
+          outline-offset: 4px;
+          border-radius: 0.375rem;
         }
       `}</style>
     </>

@@ -1,6 +1,7 @@
-// app/blog/[slug]/page.tsx - UPDATED WITH WRITER BIO
-export const dynamic = 'force-dynamic';
-export const revalidate = 3600;
+// app/blog/[slug]/page.tsx - FIXED DYNAMIC IMPORT ERROR
+export const dynamic = 'force-static';
+export const revalidate = 3600; // Revalidate every hour
+export const dynamicParams = true;
 
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
@@ -9,20 +10,24 @@ import { connectToDatabase, BlogPost } from '../../lib/models';
 import Link from 'next/link';
 import Header from '../../components/Header';
 import Footer from '../../components/Footer';
-import BlogContent from './BlogContent';
+import BlogContentWithTOC from './BlogContentWithTOC'; // Direct import instead of dynamic
 import ShareButton from './ShareButton';
 import { WriterBio } from '../../components/writerbio';
 import { ArrowLeft, Calendar, Clock, User, Tag, Bookmark, TrendingUp } from 'lucide-react';
 import type { Metadata } from 'next';
 
-// Cached blog post query
+// Cached blog post query with optimized selections
 const getCachedBlogPost = unstable_cache(
   async (slug: string) => {
     await connectToDatabase();
     const post = await BlogPost.findOne({ slug, status: 'published' })
-      .populate('author', 'username name')
+      .populate({
+        path: 'author',
+        select: 'username name',
+      })
       .select('_id title slug content excerpt featured_image tags read_time views created_at updated_at published_at author meta_title meta_description status')
-      .lean();
+      .lean()
+      .maxTimeMS(5000); // Timeout after 5 seconds
 
     if (!post) return null;
 
@@ -35,10 +40,13 @@ const getCachedBlogPost = unstable_cache(
     };
   },
   ['blog-post'],
-  { revalidate: 3600 }
+  { 
+    revalidate: 3600,
+    tags: ['blog-posts'],
+  }
 );
 
-// Cached posts count for author
+// Cached author posts count
 const getCachedAuthorPostsCount = unstable_cache(
   async (authorId: string) => {
     await connectToDatabase();
@@ -48,14 +56,16 @@ const getCachedAuthorPostsCount = unstable_cache(
     });
   },
   ['author-posts-count'],
-  { revalidate: 3600 }
+  { 
+    revalidate: 7200, // Revalidate every 2 hours
+    tags: ['author-stats'],
+  }
 );
 
-// Writer information
 const WRITER_INFO = {
-  name: " Ian Muiruri",
+  name: "Ian Muiruri",
   bio: "Cybersecurity expert, C++ developer, data analyst, and emerging researcher with experience spanning software development, digital forensics, AI-driven systems, and full-stack web applications.",
-  avatar: "/public/writer-avatar.png",
+  avatar: "/writer-avatar.png",
   expertise: [
     "Cybersecurity",
     "Software Development", 
@@ -76,7 +86,7 @@ const WRITER_INFO = {
   tiktok: "i____devvs",
   website: "hustlehubafrica.com",
   phone: "+254748264231",
-  linkedin: "", // Leave empty for now
+  linkedin: "",
   fullBio: `Ian is a cybersecurity expert, C++ developer, data analyst, and emerging researcher with experience spanning software development, digital forensics, AI-driven systems, and full-stack web applications. He has worked across education, SaaS, and enterprise environments, building secure backends, cloud-hosted platforms, and automation tools for data-driven decision-making.
 
 With a strong foundation in mathematics, engineering, and advanced computing, Ian also contributes to projects in quantum mechanics, portfolio optimization, biomedical engineering, and architectural design. He is passionate about solving real-world technological challenges, creating human-centered digital experiences, and developing scalable solutions that empower businesses and communities across Africa.`
@@ -144,13 +154,16 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
   };
 }
 
+// Generate static params for the most popular posts
 export async function generateStaticParams() {
   try {
     await connectToDatabase();
     const posts = await BlogPost.find({ status: 'published' })
       .select('slug')
-      .limit(50)
-      .lean();
+      .sort({ views: -1, created_at: -1 }) // Prioritize popular posts
+      .limit(100) // Generate static pages for top 100 posts
+      .lean()
+      .maxTimeMS(10000);
     
     return posts.map((post) => ({
       slug: post.slug,
@@ -163,8 +176,6 @@ export async function generateStaticParams() {
 
 export default async function BlogPostPage({ params }: BlogPostPageProps) {
   const { slug } = await params;
-  
-  // Start timing for performance monitoring
   const startTime = Date.now();
   
   try {
@@ -174,6 +185,8 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
       notFound();
     }
 
+    const authorPostsCount = await getCachedAuthorPostsCount(post.author?._id || '');
+
     const formattedDate = post.created_at 
       ? new Date(post.created_at).toLocaleDateString('en-US', {
           year: 'numeric',
@@ -182,10 +195,6 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
         })
       : 'Unknown date';
 
-    // Get author's post count
-    const authorPostsCount = await getCachedAuthorPostsCount(post.author?._id || '');
-
-    // Serialize post data
     const serializedPost = {
       ...post,
       title: post.title || 'Untitled Post',
@@ -197,36 +206,35 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
       views: typeof post.views === 'number' ? post.views : 0,
     };
 
-    // Log performance
     const endTime = Date.now();
-    console.log(`🕒 Blog post "${slug}" loaded in ${endTime - startTime}ms`);
+    console.log(`✅ Blog post "${slug}" loaded in ${endTime - startTime}ms`);
 
     return (
       <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50/20 to-cyan-50/20">
-        {/* Static background elements */}
-        <div className="fixed top-0 right-0 w-96 h-96 bg-gradient-to-bl from-blue-400/5 to-transparent rounded-full blur-3xl pointer-events-none"></div>
-        <div className="fixed bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-cyan-400/5 to-transparent rounded-full blur-3xl pointer-events-none"></div>
+        {/* Background gradients - static, no animation */}
+        <div className="fixed top-0 right-0 w-96 h-96 bg-gradient-to-bl from-blue-400/5 to-transparent rounded-full blur-3xl pointer-events-none" aria-hidden="true"></div>
+        <div className="fixed bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-cyan-400/5 to-transparent rounded-full blur-3xl pointer-events-none" aria-hidden="true"></div>
 
         <Header />
         
         <main className="flex-grow py-8 relative z-10">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-            {/* Back to Blogs Link */}
+            {/* Back to Blogs */}
             <div className="mb-6">
               <Link 
                 href="/blog" 
                 className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-semibold transition-colors duration-200 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-xl border border-blue-200 hover:border-blue-300"
-                prefetch={false}
+                prefetch={true}
               >
-                <ArrowLeft className="w-5 h-5" />
+                <ArrowLeft className="w-5 h-5" aria-hidden="true" />
                 Back to All Posts
               </Link>
             </div>
 
+            {/* Main Layout */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-              {/* Main Content */}
+              {/* Main Content - 3 columns */}
               <div className="lg:col-span-3">
-                {/* Blog Post Article */}
                 <article className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl border border-white/50 overflow-hidden">
                   {/* Featured Image */}
                   {serializedPost.featured_image && (
@@ -238,19 +246,20 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
                         height={600}
                         className="w-full h-full object-cover"
                         priority
+                        quality={85}
+                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1200px"
                         placeholder="blur"
                         blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaUMk9fa&s"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent"></div>
                       
-                      {/* Stats badges */}
                       <div className="absolute bottom-4 right-4 flex gap-2">
                         <div className="bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full shadow-lg border border-white/50 flex items-center gap-2">
-                          <TrendingUp className="w-4 h-4 text-blue-600" />
+                          <TrendingUp className="w-4 h-4 text-blue-600" aria-hidden="true" />
                           <span className="text-sm font-semibold text-slate-700">{serializedPost.views} views</span>
                         </div>
                         <div className="bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full shadow-lg border border-white/50 flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-cyan-600" />
+                          <Clock className="w-4 h-4 text-cyan-600" aria-hidden="true" />
                           <span className="text-sm font-semibold text-slate-700">{serializedPost.read_time} min</span>
                         </div>
                       </div>
@@ -267,12 +276,10 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
                     {/* Author Card */}
                     <div className="flex items-center justify-between flex-wrap gap-4 mb-6 p-4 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl border border-blue-200">
                       <div className="flex items-center gap-3">
-                        {/* Author Avatar */}
                         <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-blue-500/30">
-                          <User className="w-6 h-6 text-white" />
+                          <User className="w-6 h-6 text-white" aria-hidden="true" />
                         </div>
                         
-                        {/* Author Info */}
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-base font-bold text-slate-900">{WRITER_INFO.name}</span>
@@ -280,12 +287,12 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
                           </div>
                           <div className="flex items-center gap-3 text-sm text-slate-600">
                             <div className="flex items-center gap-1.5">
-                              <Calendar className="w-4 h-4 text-blue-500" />
-                              <span>{formattedDate}</span>
+                              <Calendar className="w-4 h-4 text-blue-500" aria-hidden="true" />
+                              <time dateTime={post.created_at}>{formattedDate}</time>
                             </div>
-                            <span className="w-1 h-1 rounded-full bg-slate-400"></span>
+                            <span className="w-1 h-1 rounded-full bg-slate-400" aria-hidden="true"></span>
                             <div className="flex items-center gap-1.5">
-                              <Clock className="w-4 h-4 text-cyan-500" />
+                              <Clock className="w-4 h-4 text-cyan-500" aria-hidden="true" />
                               <span>{serializedPost.read_time} min read</span>
                             </div>
                           </div>
@@ -316,7 +323,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
                             key={index}
                             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 border border-blue-200"
                           >
-                            <Tag className="w-4 h-4" />
+                            <Tag className="w-4 h-4" aria-hidden="true" />
                             {tag}
                           </span>
                         ))}
@@ -333,11 +340,11 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
                     )}
 
                     {/* Divider */}
-                    <div className="h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent mb-6"></div>
+                    <div className="h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent mb-6" aria-hidden="true"></div>
 
-                    {/* Content */}
+                    {/* Blog Content with Inline TOC */}
                     <div className="prose prose-lg max-w-none">
-                      <BlogContent content={serializedPost.content} />
+                      <BlogContentWithTOC content={serializedPost.content} />
                     </div>
 
                     {/* Post Footer */}
@@ -345,7 +352,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
                       <div className="flex items-center justify-between flex-wrap gap-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center shadow-lg">
-                            <User className="w-5 h-5 text-white" />
+                            <User className="w-5 h-5 text-white" aria-hidden="true" />
                           </div>
                           <div>
                             <p className="text-sm text-slate-600">Written by</p>
@@ -368,16 +375,16 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
                   <Link 
                     href="/blog" 
                     className="inline-flex items-center gap-2 px-6 py-3 bg-white/80 backdrop-blur-sm text-blue-600 hover:text-blue-800 font-bold rounded-xl border-2 border-blue-200 hover:border-blue-300 transition-all duration-200 shadow-lg"
-                    prefetch={false}
+                    prefetch={true}
                   >
-                    <ArrowLeft className="w-5 h-5" />
+                    <ArrowLeft className="w-5 h-5" aria-hidden="true" />
                     Explore More Articles
                   </Link>
                 </div>
               </div>
 
-              {/* Sidebar with Writer Bio */}
-              <div className="lg:col-span-1">
+              {/* Sidebar - 1 column */}
+              <aside className="lg:col-span-1" aria-label="Author information">
                 <div className="sticky top-24 space-y-6">
                   {/* Writer Bio */}
                   <WriterBio 
@@ -399,7 +406,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
                     </p>
                   </div>
                 </div>
-              </div>
+              </aside>
             </div>
           </div>
         </main>
