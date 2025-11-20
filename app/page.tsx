@@ -28,7 +28,6 @@ export const metadata: Metadata = {
     canonical: '/',
     languages: {
       'en-KE': '/',
-      'sw-KE': '/sw',
     },
   },
   
