@@ -1,5 +1,40 @@
+// app/auth/sign-up/page.tsx - UPDATED WITH METADATA
 import { Suspense } from 'react';
 import SignUpContent from './SignUpContent';
+import type { Metadata } from 'next';
+
+// SEO Metadata for Sign Up Page
+export const metadata: Metadata = {
+  title: 'Create Your Account',
+  description: 'Join Hustle Hub Africa and start earning money online in Kenya. Sign up for paid surveys, academic writing jobs, referral programs, and multiple income streams with instant M-Pesa withdrawals.',
+  keywords: [
+    'sign up hustle hub africa',
+    'register online jobs kenya',
+    'create account earn money kenya',
+    'kenya freelance platform signup',
+    'join paid surveys kenya',
+    'academic writing registration kenya',
+    'referral program sign up kenya',
+    'mpesa withdrawals registration'
+  ],
+  robots: {
+    index: false, // Don't index signup pages for SEO
+    follow: false,
+  },
+  openGraph: {
+    title: 'Sign Up | Hustle Hub Africa',
+    description: 'Join thousands of Kenyans earning online. Create your free account and access multiple income streams including surveys, writing jobs, and referral programs.',
+    url: '/auth/sign-up',
+    type: 'website',
+  },
+  twitter: {
+    title: 'Sign Up | Hustle Hub Africa',
+    description: 'Start your earning journey today. Join Hustle Hub Africa and access various online money-making opportunities in Kenya.',
+  },
+  alternates: {
+    canonical: 'https://hustlehubafrica.com/auth/sign-up',
+  },
+};
 
 export default function SignUpPage() {
   return (
