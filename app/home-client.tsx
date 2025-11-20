@@ -31,8 +31,8 @@ const earningFeatures: EarningFeature[] = [
   { icon: '📊', name: 'Research Surveys', description: 'Share your opinions and get paid. Complete market research surveys from top brands.', link: '/dashboard/surveys' },
   { icon: '✍️', name: 'Blogging / Content Writing', description: 'Create engaging content. Write blog posts, articles, and web content for businesses globally.', link: '/dashboard/content' },
   { icon: '📈', name: 'Sales & Marketing', description: 'Promote products and services. Earn commissions through affiliate marketing and direct sales.', link: '/sales-marketing' },
-  { icon: '🎁', name: 'Spin Vouchers', description: 'Redeem and trade vouchers. Convert your spin rewards into cash or premium benefits.', link: '/vouchers' },
-  { icon: '👑', name: 'Leadership Token', description: 'Climb the leadership ranks. Earn exclusive tokens and unlock premium earning opportunities.', link: '/leadership' },
+  { icon: '🎁', name: 'Spin Vouchers', description: 'Redeem and trade vouchers. Convert your spin rewards into cash or premium benefits.', link: '/dashboard' },
+  { icon: '👑', name: 'Leadership Token', description: 'Climb the leadership ranks. Earn exclusive tokens and unlock premium earning opportunities.', link: '/dashboard' },
 ];
 
 const valuePropositions: ValueProp[] = [
@@ -490,11 +490,11 @@ const FinalCTA: React.FC = () => (
           Create Account
         </Link>
         <Link 
-          href="/demo"
+          href="/dashboard"
           className="px-10 py-4 text-lg font-bold border-2 border-white text-white rounded-full hover:bg-white hover:text-indigo-600 transition-colors block"
-          aria-label="Watch the platform demonstration video"
+          aria-label="View the platform dashboard"
         >
-          Watch Demo Video
+          View Dashboard
         </Link>
       </div>
 
