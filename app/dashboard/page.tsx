@@ -575,11 +575,21 @@ export default function DashboardPage() {
         <p className="text-center text-slate-500 mb-8 py-12 bg-white rounded-2xl shadow-md border border-slate-200">No statistics available.</p>
       )}
 
+      {/* Section Divider */}
+      <div className="my-10">
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t-2 border-gradient-to-r from-transparent via-slate-300 to-transparent"></div>
+          </div>
+        </div>
+      </div>
+
       {/* Quick Actions Grid with Enhanced Styling */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
         {/* Spin-to-Win Card */}
-        <div className="group relative bg-gradient-to-br from-red-50/50 to-pink-50/50 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-red-200/30 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:border-red-300/60">
-          <div className="absolute inset-0 bg-gradient-to-br from-red-600/10 to-pink-600/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        <div className="group relative bg-white rounded-2xl p-6 shadow-xl border-2 border-red-500 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:scale-105 hover:-translate-y-1">
+          {/* Accent bar */}
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-600"></div>
           <div className="relative z-10">
             <div className="flex items-center space-x-3 mb-4">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-600 to-rose-500 flex items-center justify-center shadow-lg shadow-red-500/40 group-hover:shadow-red-500/60 transition-all duration-300 group-hover:rotate-12">
@@ -634,19 +644,24 @@ export default function DashboardPage() {
         </div>
 
         {/* Wallet Pay Card */}
-        <div className="bg-gradient-to-br from-cyan-50/50 to-blue-50/50 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-cyan-200/30 hover:shadow-2xl transition-all duration-300 hover:border-cyan-300/60">
-          <WalletPay 
-            onDepositSuccess={() => {
-              if (user) {
-                fetchDashboardData(user.id).then(setDashboardData);
-              }
-            }} 
-          />
+        <div className="group relative bg-white rounded-2xl p-6 shadow-xl border-2 border-blue-500 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:scale-105 hover:-translate-y-1">
+          {/* Accent bar */}
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-600"></div>
+          <div className="relative z-10">
+            <WalletPay 
+              onDepositSuccess={() => {
+                if (user) {
+                  fetchDashboardData(user.id).then(setDashboardData);
+                }
+              }} 
+            />
+          </div>
         </div>
 
         {/* Referral Card */}
-        <div className="group relative bg-gradient-to-br from-teal-50/50 to-cyan-50/50 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-teal-200/30 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:border-teal-300/60">
-          <div className="absolute inset-0 bg-gradient-to-br from-teal-600/10 to-cyan-600/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        <div className="group relative bg-white rounded-2xl p-6 shadow-xl border-2 border-cyan-500 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:scale-105 hover:-translate-y-1">
+          {/* Accent bar */}
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-cyan-600"></div>
           <div className="relative z-10">
             <div className="flex items-center space-x-3 mb-4">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-teal-500/40 group-hover:shadow-teal-500/60 transition-all duration-300">
@@ -684,8 +699,17 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Section Divider */}
+      <div className="my-10">
+        <div className="w-full h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent"></div>
+      </div>
+
       {/* Financial Reports Section */}
       <div className="mb-8">
+        <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+          <BarChart3 className="w-5 h-5 mr-2 text-cyan-600" />
+          Financial Reports
+        </h2>
         <UserReports className="mt-6" />
       </div>
 
