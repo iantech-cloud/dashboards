@@ -150,12 +150,12 @@ export default function MpesaWaitingContent() {
     return () => clearTimeout(timer);
   }, [timeLeft, paymentStatus.status]);
 
-  // Polling interval - aggressive polling for faster payment detection
+  // Polling interval - matches deposit flow pattern (4 second intervals)
   useEffect(() => {
     if (paymentStatus.status !== 'processing') return;
 
-    // Poll every 1 second for faster payment detection (M-Pesa callback usually arrives within 1-2 seconds)
-    const interval = setInterval(pollPaymentStatus, 1000);
+    // Poll every 4 seconds for payment detection (consistent with deposit flow)
+    const interval = setInterval(pollPaymentStatus, 4000);
     return () => clearInterval(interval);
   }, [paymentStatus.status, pollPaymentStatus]);
 

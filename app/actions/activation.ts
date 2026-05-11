@@ -764,20 +764,21 @@ export async function initiateActivationPayment(phoneNumber: string): Promise<Ap
  */
 export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promise<ApiResponse<MpesaStatusData>> {
   try {
-    await connectToDatabase();
+    console.log('🔍 Checking M-Pesa activation payment status:', checkoutRequestId);
 
-    const session = await auth();
-    if (!session?.user?.email) {
-      return { success: false, message: 'User not authenticated' };
-    }
+    await connectToDatabase();
 
     const mpesaTransaction = await (MpesaTransaction as any).findOne({
       checkout_request_id: checkoutRequestId
     });
 
-    // ✅ FAST PATH: If payment is already completed/failed in DB, return immediately
-    if (mpesaTransaction && ['completed', 'failed', 'cancelled', 'timeout'].includes(mpesaTransaction.status)) {
-      console.log('✅ Payment status in database (final state):', mpesaTransaction.status);
+    if (!mpesaTransaction) {
+      return { success: false, message: 'Transaction not found' };
+    }
+
+    // ✅ FAST PATH: If payment is already in final state, return immediately
+    if (['completed', 'failed', 'cancelled', 'timeout'].includes(mpesaTransaction.status)) {
+      console.log('✅ Payment in final state (from DB):', mpesaTransaction.status);
       return {
         success: true,
         data: {
@@ -794,44 +795,97 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
       };
     }
 
-    // ✅ OPTIMIZED: Query M-Pesa API first for real-time status (faster callback detection)
-    console.log('🔍 Querying M-Pesa API for latest status...');
-    const apiStatus = await queryMpesaTransactionStatus(checkoutRequestId);
+    // ✅ REAL-TIME: Query M-Pesa API for fresh status (matches deposit pattern)
+    console.log('📡 Querying M-Pesa API for latest status...');
     
-    if (apiStatus.success && apiStatus.data) {
-      // Update database with API response for future queries
-      if (mpesaTransaction) {
-        const updateData: any = {
-          status: apiStatus.data.status,
-          result_code: apiStatus.data.resultCode,
-          result_desc: apiStatus.data.resultDesc,
-        };
+    try {
+      const accessToken = await getMpesaAccessToken();
+      const BusinessShortCode = process.env.MPESA_SHORTCODE;
+      const PassKey = process.env.MPESA_PASSKEY;
+      const Environment = process.env.MPESA_ENVIRONMENT || 'sandbox';
 
-        if (apiStatus.data.status === 'completed' && apiStatus.data.mpesaReceiptNumber && apiStatus.data.mpesaReceiptNumber !== 'N/A') {
-          updateData.mpesa_receipt_number = apiStatus.data.mpesaReceiptNumber;
-          updateData.completed_at = new Date();
-        } else if (apiStatus.data.status === 'failed') {
-          updateData.failed_at = new Date();
-        }
-
-        await (MpesaTransaction as any).updateOne(
-          { _id: mpesaTransaction._id },
-          { $set: updateData }
-        );
+      if (!BusinessShortCode || !PassKey) {
+        throw new Error('MPESA_SHORTCODE or MPESA_PASSKEY not found');
       }
 
-      return {
-        success: true,
-        data: {
-          ...apiStatus.data,
-          source: 'api'
-        }
-      };
-    }
+      const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+      const password = Buffer.from(`${BusinessShortCode}${PassKey}${timestamp}`).toString('base64');
 
-    // ✅ FALLBACK: Use database if API query fails
-    if (mpesaTransaction) {
-      console.log('📦 Using database fallback for status:', mpesaTransaction.status);
+      const queryPayload = {
+        BusinessShortCode: BusinessShortCode,
+        Password: password,
+        Timestamp: timestamp,
+        CheckoutRequestID: checkoutRequestId
+      };
+
+      const mpesaApiUrl = Environment === 'production'
+        ? 'https://api.safaricom.co.ke/mpesa/stkpushquery/v1/query'
+        : 'https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query';
+
+      const queryResponse = await fetch(mpesaApiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(queryPayload),
+      });
+
+      if (!queryResponse.ok) {
+        const errorText = await queryResponse.text();
+        console.error('❌ M-Pesa query API error:', errorText);
+        // Fallback to database
+        return {
+          success: true,
+          data: {
+            status: mpesaTransaction.status,
+            resultCode: mpesaTransaction.result_code?.toString(),
+            resultDesc: mpesaTransaction.result_desc,
+            source: 'database_fallback'
+          },
+          message: 'Using last known status'
+        };
+      }
+
+      const queryData: any = await queryResponse.json();
+      console.log('📨 M-Pesa query response:', queryData);
+
+      const safeResultCode = mapMpesaResultCodeToDatabase(queryData.ResultCode);
+      const mappedStatus = mapMpesaStatusToDatabase(queryData.ResultCode, queryData.ResultDesc);
+      const safeStatus = mappedStatus.status;
+
+      // Update transaction with API response
+      mpesaTransaction.status = safeStatus;
+      mpesaTransaction.result_code = safeResultCode;
+      mpesaTransaction.result_desc = queryData.ResultDesc || mappedStatus.description;
+
+      if (safeStatus === 'completed') {
+        mpesaTransaction.mpesa_receipt_number = queryData.MpesaReceiptNumber;
+        mpesaTransaction.completed_at = new Date();
+      } else if (['failed', 'cancelled', 'timeout'].includes(safeStatus)) {
+        mpesaTransaction.failed_at = new Date();
+      }
+
+      try {
+        await mpesaTransaction.save();
+        console.log('💾 Updated activation M-Pesa transaction with status:', safeStatus);
+      } catch (saveError) {
+        console.error('❌ Failed to save activation M-Pesa transaction:', saveError);
+        // Still return the API status even if save fails
+        return {
+          success: true,
+          data: {
+            status: safeStatus,
+            resultCode: safeResultCode.toString(),
+            resultDesc: queryData.ResultDesc || mappedStatus.description,
+            mpesaReceiptNumber: queryData.MpesaReceiptNumber,
+            amount: mpesaTransaction.amount_cents,
+            source: 'api_unsaved'
+          },
+          message: `Payment status: ${safeStatus} (database update failed)`
+        };
+      }
+
       return {
         success: true,
         data: {
@@ -841,19 +895,35 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
           mpesaReceiptNumber: mpesaTransaction.mpesa_receipt_number,
           amount: mpesaTransaction.amount_cents,
           isActivationPayment: mpesaTransaction.is_activation_payment,
+          completedAt: mpesaTransaction.completed_at,
+          failedAt: mpesaTransaction.failed_at,
+          source: 'api'
+        },
+        message: `Payment status: ${mpesaTransaction.status}`
+      };
+    } catch (apiError) {
+      console.error('❌ M-Pesa API query failed:', apiError);
+      // Fallback to database
+      return {
+        success: true,
+        data: {
+          status: mpesaTransaction.status,
+          resultCode: mpesaTransaction.result_code?.toString(),
+          resultDesc: mpesaTransaction.result_desc,
+          mpesaReceiptNumber: mpesaTransaction.mpesa_receipt_number,
+          amount: mpesaTransaction.amount_cents,
           source: 'database_fallback'
-        }
+        },
+        message: 'Using last known status'
       };
     }
 
+  } catch (error) {
+    console.error('💥 Check M-Pesa activation payment status error:', error);
     return { 
       success: false, 
-      message: 'Transaction not found' 
+      message: 'Failed to check payment status. Please try again.' 
     };
-
-  } catch (error) {
-    console.error('Error checking payment status:', error);
-    return { success: false, message: 'Failed to check payment status' };
   }
 }
 
