@@ -563,7 +563,7 @@ export default function AdminUsersPage() {
                             disabled={actionLoading === `activate-${user._id}`}
                             className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors"
                           >
-                            {actionLoading === `activate-${user._id}` ? 'Activating...' : 'Activate (KSH 1,000)'}
+                            {actionLoading === `activate-${user._id}` ? 'Activating...' : 'Activate (KES 100)'}
                           </button>
                         )}
 

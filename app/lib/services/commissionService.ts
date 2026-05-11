@@ -1,13 +1,13 @@
 import { connectToDatabase, Profile, Referral, DownlineUser, Transaction, ActivationPayment } from '@/app/lib/models';
 
 // Commission configuration
-// Joining / activation fee: KES 1,000
+// Joining / activation fee: KES 100 (updated from 1,000)
 // Level 0 direct referral bonus: KES 70 (flat, no tiers)
 // Level 1 indirect referral bonus: KES 10 (flat)
 export const COMMISSION_CONFIG = {
   directReferral: 7000,   // KES 70 for direct (level 0) referral
   level1: 1000,           // KES 10 for indirect (level 1) referral
-  activationFee: 100000   // KES 1,000 joining/activation fee
+  activationFee: 10000    // KES 100 joining/activation fee (updated from 100000)
 };
 
 export class CommissionService {

@@ -84,7 +84,7 @@ async function sendAdminActivationConfirmationInvoice(
     const invoiceData = {
       invoiceNumber: `ADMIN-ACT-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       originalInvoiceNumber: `MANUAL-${userProfile._id}`,
-      amount: 1000, // KSH 1,000 activation fee
+      amount: 100, // KES 100 activation fee
       paymentDate: new Date().toLocaleDateString(),
       transactionId: `ADMIN-${adminProfile._id}-${Date.now()}`,
       paymentMethod: 'admin' as const,
@@ -374,7 +374,7 @@ export async function rejectUserAccount(userId: string, rejectionReason: string)
   }
 }
 
-// Activate user account with FIXED TIERED financial logic (KSH 1,000 activation fee)
+// Activate user account with FIXED TIERED financial logic (KES 100 activation fee)
 export async function activateUserAccount(userId: string, activationNotes?: string): Promise<{
   success: boolean;
   message: string;
@@ -403,7 +403,7 @@ export async function activateUserAccount(userId: string, activationNotes?: stri
     }
 
     // Constants for activation fee split
-    const ACTIVATION_FEE_CENTS = 100000; // KSH 1,000
+    const ACTIVATION_FEE_CENTS = 10000; // KES 100
 
     // ============================================================================
     // STEP 1: Handle activation fee payment (user side)
@@ -436,7 +436,7 @@ export async function activateUserAccount(userId: string, activationNotes?: stri
       await activationTransaction.save({ session });
     } else {
       // ✅ FIXED: Admin activates without payment - NO BONUS given to user
-      // User gets activation WITHOUT paying, company keeps full KES 1,000 as profit
+      // User gets activation WITHOUT paying, company keeps full KES 100 as profit
       feeDeducted = false;
 
       // Create a reference transaction for tracking only (no money movement for user)
@@ -498,7 +498,7 @@ export async function activateUserAccount(userId: string, activationNotes?: stri
     const company = await getOrCreateCompany();
 
     // ============================================================================
-    // STEP 5: Company receives the FULL KES 1,000 activation fee
+    // STEP 5: Company receives the FULL KES 100 activation fee
     // This happens regardless of whether user paid or admin activated
     // ============================================================================
     const balanceBeforeCompanyCredit = company.wallet_balance_cents;
@@ -530,7 +530,7 @@ export async function activateUserAccount(userId: string, activationNotes?: stri
     });
     await companyRevenueTransaction.save({ session });
 
-    console.log(`✅ Company credited with KES 1,000 activation fee from ${user.username}`);
+    console.log(`✅ Company credited with KES 100 activation fee from ${user.username}`);
 
     // ============================================================================
     // STEP 6: Process referral bonuses with TIERED STRUCTURE
@@ -736,8 +736,8 @@ export async function activateUserAccount(userId: string, activationNotes?: stri
     const netCompanyRevenue = ACTIVATION_FEE_CENTS - totalBonusesPaid;
     
     console.log(`\n💰 ACTIVATION SUMMARY for ${user.username}:`);
-    console.log(`   User Payment: ${feeDeducted ? 'KES 1,000 (deducted from wallet)' : 'KES 0 (admin activated)'}`);
-    console.log(`   Company Revenue: +KES 1,000`);
+    console.log(`   User Payment: ${feeDeducted ? 'KES 100 (deducted from wallet)' : 'KES 0 (admin activated)'}`);
+    console.log(`   Company Revenue: +KES 100`);
     console.log(`   Direct Bonus Paid: -KES ${(directReferralBonus?.amount_cents || 0) / 100}`);
     console.log(`   Level 1 Bonus Paid: -KES ${(level1ReferralBonus?.amount_cents || 0) / 100}`);
     console.log(`   Company Net Profit: KES ${netCompanyRevenue / 100}`);
@@ -825,7 +825,7 @@ export async function activateUserAccount(userId: string, activationNotes?: stri
       message += `Level 1 bonus of KSH ${level1ReferralBonus.amount_cents / 100} awarded to ${level1ReferralBonus.referrer_username}. `;
     }
     if (!directReferralBonus && !level1ReferralBonus) {
-      message += `No referrer found - full KES 1,000 credited to company.`;
+      message += `No referrer found - full KES 100 credited to company.`;
     }
 
     return { success: true, message };

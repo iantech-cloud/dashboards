@@ -110,7 +110,7 @@ export default function ConfirmContent() {
                 <p className="text-sm font-semibold text-blue-800 mb-2">What happens next:</p>
                 <ol className="text-sm text-blue-700 space-y-1 list-decimal list-inside">
                   <li>You will be taken to the Account Activation page</li>
-                  <li>Enter your M-Pesa number and pay KSH 1,000</li>
+                  <li>Enter your M-Pesa number and pay KES 100</li>
                   <li>Wait for admin approval</li>
                   <li>Log in and start earning</li>
                 </ol>
