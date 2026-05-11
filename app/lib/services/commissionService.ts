@@ -1,13 +1,11 @@
 import { connectToDatabase, Profile, Referral, DownlineUser, Transaction, ActivationPayment } from '@/app/lib/models';
 
-// Commission configuration
-// Joining / activation fee: KES 1,000
-// Level 0 direct referral bonus: KES 70 (flat, no tiers)
-// Level 1 indirect referral bonus: KES 10 (flat)
+// Updated commission configuration
 export const COMMISSION_CONFIG = {
-  directReferral: 7000,   // KES 70 for direct (level 0) referral
-  level1: 1000,           // KES 10 for indirect (level 1) referral
-  activationFee: 100000   // KES 1,000 joining/activation fee
+  directReferralFirst2: 60000,  // KES 600 for first 2 referrals
+  directReferralSubsequent: 70000, // KES 700 for subsequent referrals
+  level1: 10000, // KES 100 for level 1 downline
+  activationFee: 100000 // KES 1,000 activation fee
 };
 
 export class CommissionService {
@@ -72,14 +70,28 @@ export class CommissionService {
 
   /**
    * Process direct referral commission (Level 0)
-   * Flat rate: KES 70 per direct referral
+   * First 2 referrals: KES 600
+   * Subsequent referrals: KES 700
    */
   private static async processDirectReferralCommission(
     referrer: any, 
     referredUser: any,
     referralRecord: any
   ) {
-    const commissionAmount = COMMISSION_CONFIG.directReferral; // KES 70 flat
+    // Count how many direct referrals this referrer has already had activated
+    const activatedDirectReferrals = await Referral.countDocuments({
+      referrer_id: referrer._id,
+      referral_bonus_paid: true,
+      'metadata.level': 0
+    });
+
+    // Determine commission amount based on position
+    const isFirst2 = activatedDirectReferrals < 2;
+    const commissionAmount = isFirst2 
+      ? COMMISSION_CONFIG.directReferralFirst2 
+      : COMMISSION_CONFIG.directReferralSubsequent;
+
+    const bonusTier = isFirst2 ? 'first_2' : 'subsequent';
 
     // Update referral record
     await Referral.findByIdAndUpdate(referralRecord._id, {
@@ -92,6 +104,8 @@ export class CommissionService {
       referred_user_activated_at: new Date(),
       metadata: {
         level: 0,
+        bonus_tier: bonusTier,
+        referrer_activated_count: activatedDirectReferrals
       }
     });
 
@@ -102,7 +116,7 @@ export class CommissionService {
       user_id: referrer._id,
       amount_cents: commissionAmount,
       type: 'REFERRAL',
-      description: `Direct referral bonus for ${referredUser.username}'s activation`,
+      description: `Direct referral bonus for ${referredUser.username}'s activation (${isFirst2 ? 'First 2' : 'Subsequent'})`,
       status: 'completed',
       source: 'activation',
       balance_before_cents: referrer.balance_cents,
@@ -112,6 +126,8 @@ export class CommissionService {
         referred_username: referredUser.username,
         level: 0,
         type: 'direct',
+        bonus_tier: bonusTier,
+        referrer_activated_count: activatedDirectReferrals
       }
     });
 
@@ -128,11 +144,14 @@ export class CommissionService {
       activation_status: 'activated'
     });
 
+    console.log(`✅ Direct referral commission processed: ${referrer.username} earned KES ${commissionAmount/100} (${bonusTier})`);
+
     return {
       referrer_id: referrer._id,
       referrer_username: referrer.username,
       amount_cents: commissionAmount,
       transaction_id: transaction._id,
+      bonus_tier: bonusTier,
       level: 0
     };
   }
@@ -296,8 +315,12 @@ export class CommissionService {
         referrer_id: userId
       });
 
-      // Direct referral earnings at flat KES 70 each
-      const directEarnings = activatedDirectReferrals * COMMISSION_CONFIG.directReferral;
+      // Calculate earnings by tier
+      const first2Referrals = Math.min(activatedDirectReferrals, 2);
+      const subsequentReferrals = Math.max(0, activatedDirectReferrals - 2);
+
+      const first2Earnings = first2Referrals * COMMISSION_CONFIG.directReferralFirst2;
+      const subsequentEarnings = subsequentReferrals * COMMISSION_CONFIG.directReferralSubsequent;
 
       // Get level 1 earnings
       const level1Transactions = await Transaction.find({
@@ -316,9 +339,12 @@ export class CommissionService {
         data: {
           totalDirectReferrals,
           activatedDirectReferrals,
-          directEarnings,
+          first2Referrals,
+          subsequentReferrals,
+          first2Earnings,
+          subsequentEarnings,
           level1Earnings,
-          totalEarnings: directEarnings + level1Earnings
+          totalEarnings: first2Earnings + subsequentEarnings + level1Earnings
         }
       };
 

@@ -8,12 +8,9 @@ import { connectToDatabase } from '@/app/lib/mongoose';
 import { decrypt } from '@/app/lib/encryption';
 
 let transporter: Transporter | null = null;
-let transporterUser: string | undefined = undefined;
 
 function getTransporter(): Transporter {
-  // Recreate if env vars have changed (e.g. after hot reload in dev)
-  if (!transporter || transporterUser !== process.env.GMAIL_USER) {
-    transporterUser = process.env.GMAIL_USER;
+  if (!transporter) {
     transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
@@ -422,6 +419,9 @@ export async function sendVerificationEmail(email: string, token: string) {
         </html>
       `,
     };
+
+    await getTransporter().verify();
+    console.log('✅ Email transporter verified successfully');
 
     const result = await getTransporter().sendMail(mailOptions);
     console.log('✅ Email sent successfully to:', email);

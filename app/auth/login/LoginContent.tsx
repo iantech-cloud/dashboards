@@ -513,20 +513,16 @@ export default function LoginContent({ hasExistingSession = false }: LoginConten
   const searchParams = useSearchParams();
 
   const isTimeout = searchParams.get('timeout') === 'true';
-  const isJustVerified = searchParams.get('verified') === 'true';
-  const callbackUrl = searchParams.get('callbackUrl') || '/auth/verify-login';
+  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
 
   // Handle existing session message
   useEffect(() => {
-    if (isJustVerified) {
-      setMessage('Your email has been verified! Log in below and you will be taken to the Account Activation page to pay the KSH 1,000 fee.');
-      setMessageType('success');
-    } else if (hasExistingSession) {
+    if (hasExistingSession) {
       setMessage('You are already logged in. You can continue to your dashboard or log in with a different account.');
       setMessageType('info');
     }
     setIsCheckingSession(false);
-  }, [hasExistingSession, isJustVerified]);
+  }, [hasExistingSession]);
 
   // Handle URL parameters and errors
   useEffect(() => {

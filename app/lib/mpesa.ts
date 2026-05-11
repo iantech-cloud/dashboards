@@ -1,15 +1,8 @@
 // app/lib/mpesa.ts
 import crypto from 'crypto';
 
-// Lazily validate environment variables. We do NOT run this at module top-level
-// because this module is imported transitively from many API route handlers,
-// and Next.js evaluates those routes during "Collecting page data" at build
-// time. Throwing during import would fail the production build whenever the
-// M-Pesa secrets aren't injected during that step.
-let mpesaEnvValidated = false;
+// Validate environment variables on import
 function validateEnvironment() {
-  if (mpesaEnvValidated) return;
-
   const requiredEnvVars = [
     'MPESA_CONSUMER_KEY',
     'MPESA_CONSUMER_SECRET',
@@ -19,14 +12,16 @@ function validateEnvironment() {
   ];
 
   const missing = requiredEnvVars.filter(key => !process.env[key]);
-
+  
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
 
-  mpesaEnvValidated = true;
   console.log('✅ M-Pesa environment variables validated');
 }
+
+// Run validation immediately
+validateEnvironment();
 
 // M-Pesa configuration - matching your .env exactly
 const MPESA_CONFIG = {
@@ -77,7 +72,6 @@ function generatePassword(): { password: string; timestamp: string } {
  * Get M-Pesa access token
  */
 export async function getAccessToken(): Promise<string> {
-  validateEnvironment();
   const urls = getMpesaUrls();
   
   try {
