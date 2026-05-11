@@ -2,6 +2,7 @@
 'use client';
 
 import { BarChart, Wallet, Award, Users, Settings, HelpCircle, User as UserIcon, ShoppingBag } from 'lucide-react';
+// (UserIcon now used for Profile tab; Settings icon used for Settings tab)
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
@@ -47,6 +48,12 @@ export default function BottomNav({ userName }: BottomNavProps) {
       path: '/dashboard/referrals' 
     },
     { 
+      id: 'profile', 
+      label: 'Profile', 
+      icon: UserIcon, 
+      path: '/dashboard/profile' 
+    },
+    { 
       id: 'support', 
       label: 'Support', 
       icon: HelpCircle, 
@@ -54,8 +61,8 @@ export default function BottomNav({ userName }: BottomNavProps) {
     },
     { 
       id: 'settings', 
-      label: 'Me', 
-      icon: UserIcon, 
+      label: 'Settings', 
+      icon: Settings, 
       path: '/dashboard/settings' 
     },
   ];

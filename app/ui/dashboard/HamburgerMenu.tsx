@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Menu, X, BarChart, Wallet, Award, Users, Settings, HelpCircle, User as UserIcon, ShoppingBag } from 'lucide-react';
+// (UserIcon used for Profile entry; Settings icon used for Settings entry)
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -19,8 +20,9 @@ export default function HamburgerMenu({ userName }: HamburgerMenuProps) {
     { id: 'surveys', label: 'Earn', icon: Award, path: '/dashboard/surveys' },
     { id: 'affiliate', label: 'Soko', icon: ShoppingBag, path: '/dashboard/soko' },
     { id: 'referrals', label: 'Refs', icon: Users, path: '/dashboard/referrals' },
+    { id: 'profile', label: 'Profile', icon: UserIcon, path: '/dashboard/profile' },
     { id: 'support', label: 'Support', icon: HelpCircle, path: '/dashboard/support' },
-    { id: 'settings', label: 'Settings', icon: UserIcon, path: '/dashboard/settings' },
+    { id: 'settings', label: 'Settings', icon: Settings, path: '/dashboard/settings' },
   ];
 
   const isActive = (path: string) => {
