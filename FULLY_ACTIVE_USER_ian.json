@@ -1,0 +1,70 @@
+{
+  "_id": "38ceae36-4dc8-4484-988c-659afb9cfd2f",
+  "username": "ian",
+  "phone_number": "+254791406285",
+  "email": "waiganjoian51@gmail.com",
+  "password": "$2b$10$sfCm6Ox1eda4jEZllhGlleySeNHINkFKaSpB1MPo.poqdaM/.hiei",
+  "twoFAEnabled": false,
+  "twoFASecret": null,
+  "antiPhishingCode": null,
+  "antiPhishingCodeSet": false,
+  "referral_id": "5BPD9RQZ",
+  "role": "user",
+  "is_verified": true,
+  "activation_amount_cents": 10000,
+  "activation_method": "mpesa",
+  "approval_status": "approved",
+  "status": "active",
+  "is_active": true,
+  "is_approved": true,
+  "level": 1,
+  "rank": "Active",
+  "total_earnings_cents": 0,
+  "balance_cents": 0,
+  "tasks_completed": 0,
+  "available_spins": 10,
+  "total_spins_used": 0,
+  "total_prizes_won": 0,
+  "spin_tier": "starter",
+  "spin_streak": 0,
+  "max_spin_streak": 0,
+  "total_deposits_cents": 10000,
+  "total_withdrawals_cents": 0,
+  "preferred_mpesa_number": "+254791406285",
+  "mpesa_number_verified": true,
+  "daily_deposit_limit_cents": 7000000,
+  "daily_withdrawal_limit_cents": 1500000,
+  "total_deposits_today_cents": 0,
+  "total_withdrawals_today_cents": 0,
+  "mpesa_transactions_count": 1,
+  "successful_mpesa_deposits": 1,
+  "failed_mpesa_deposits": 0,
+  "kyc_status": "approved",
+  "referral_bonus_claimed": false,
+  "profile_completed": true,
+  "completion_percentage": 100,
+  "authMethod": "credentials",
+  "twoFABackupCodes": [],
+  "last_deposit_reset": {
+    "$date": "2026-05-11T09:05:58.469Z"
+  },
+  "last_withdrawal_reset": {
+    "$date": "2026-05-11T09:05:58.469Z"
+  },
+  "created_at": {
+    "$date": "2026-05-11T09:05:58.473Z"
+  },
+  "updated_at": {
+    "$date": "2026-05-11T14:30:00.000Z"
+  },
+  "email_verified_at": {
+    "$date": "2026-05-11T09:06:27.053Z"
+  },
+  "activation_paid_at": {
+    "$date": "2026-05-11T14:25:00.000Z"
+  },
+  "admin_approved_at": {
+    "$date": "2026-05-11T14:30:00.000Z"
+  },
+  "__v": 0
+}
