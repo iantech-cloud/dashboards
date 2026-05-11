@@ -9,8 +9,14 @@ import { randomUUID } from 'crypto';
 import clientPromise from '@/app/lib/mongodb';
 
 // Environment validation
+// IMPORTANT: do NOT throw at module top-level. This module is imported
+// transitively by many API route handlers, and Next.js evaluates those
+// modules during "Collecting page data" at build time. Throwing here would
+// fail the production build whenever an env var isn't injected during that
+// step (which is common on Vercel). Instead we warn and let NextAuth surface
+// the error at request time if the secret is genuinely missing in runtime.
 if (!process.env.NEXTAUTH_SECRET) {
-  throw new Error('NEXTAUTH_SECRET environment variable is required');
+  console.warn('Warning: NEXTAUTH_SECRET environment variable is not set. Auth will fail at runtime until it is configured.');
 }
 
 if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
