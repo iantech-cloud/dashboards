@@ -232,7 +232,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 accountProvider: account?.provider
               });
 
-              const isActivationPaid = profile.approval_status !== 'pending' || profile.rank !== 'Unactivated';
+              const isActivationPaid = profile.approval_status !== 'pending' && profile.rank !== 'Unactivated';
 
               return {
                 ...token,
