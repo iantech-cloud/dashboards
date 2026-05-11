@@ -103,16 +103,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               throw new Error('Invalid password.');
             }
 
-            // ✅ FIXED: Allow login even if not verified, activation page will handle redirect
-            // Users can login but will be redirected to activation page if not activated
             console.log('[v0] User authenticated successfully:', credentials.email);
-            console.log('[v0] User verification status:', {
-              email: user.email,
-              is_verified: user.is_verified,
-              is_active: user.is_active,
-              approval_status: user.approval_status
-            });
-            
             (user as any).authMethod = 'credentials';
             return user;
           } catch (queryError: any) {
