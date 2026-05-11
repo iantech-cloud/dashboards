@@ -183,7 +183,7 @@ const AboutPage: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
-                { step: '1️⃣', title: 'Create Account', description: 'Sign up in minutes with your email and phone number. A one-time registration fee of Ksh 1,000 applies.' },
+                { step: '1️⃣', title: 'Create Account', description: 'Sign up in minutes with your email and phone number. A one-time registration fee of KES 100 applies.' },
                 { step: '2️⃣', title: 'Choose Your Hustle', description: 'Pick from 9 different earning methods that match your skills, passion, and lifestyle.' },
                 { step: '3️⃣', title: 'Start Earning', description: 'Complete daily tasks, projects, or activities and watch your income grow every day.' },
                 { step: '4️⃣', title: 'Withdraw Instantly', description: 'Request withdrawals anytime via M-Pesa, and receive your money within minutes.' }

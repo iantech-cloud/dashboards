@@ -256,7 +256,7 @@ export default function ActivateComponent() {
           <svg className="w-5 h-5 text-yellow-600 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v6a1 1 0 102 0V5zm-1 10a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
           </svg>
-          <p className="text-yellow-800 font-medium">Activation Fee: KSH 1,000</p>
+          <p className="text-yellow-800 font-medium">Activation Fee: KES 100</p>
         </div>
         <p className="text-yellow-700 text-sm mt-2">
           This one-time fee activates your account and gives you full access to the platform.
@@ -292,7 +292,7 @@ export default function ActivateComponent() {
               Initiating Payment...
             </>
           ) : (
-            'Pay KSH 1,000 with M-Pesa'
+            'Pay KES 100 with M-Pesa'
           )}
         </button>
       </form>

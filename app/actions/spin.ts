@@ -1249,34 +1249,52 @@ async function selectPrizeWithProbability(availablePrizes: SpinPrizeLean[], user
  */
 async function deductSpinCost(userId: string): Promise<{ success: boolean; message: string; cost: number }> {
   try {
-    const spinSettings = (await (SpinSettings as any).findOne({}).lean()) as SpinSettingsLean | null
-    const cost = spinSettings?.spins_cost_per_spin || 5
+    const SPIN_COST_KES = 30 // KES 30 minimum per spin
+    const SPIN_COST_CENTS = SPIN_COST_KES * 100 // 3000 cents
 
     const user = await (Profile as any).findById(userId)
     if (!user) {
-      return { success: false, message: "User not found", cost }
+      return { success: false, message: "User not found", cost: SPIN_COST_CENTS }
     }
 
     console.log(
-      `💰 Before deduction - Available spins: ${user.available_spins}, Total spins used: ${user.total_spins_used}`,
+      `💰 Before spin deduction - Balance: KES ${(user.balance_cents || 0)/100}, User: ${userId}`,
     )
 
-    if (user.available_spins < cost) {
-      return { success: false, message: "Not enough spins available", cost }
+    if ((user.balance_cents || 0) < SPIN_COST_CENTS) {
+      return { success: false, message: `Insufficient balance. Spin costs KES ${SPIN_COST_KES} and you have KES ${(user.balance_cents || 0)/100}`, cost: SPIN_COST_CENTS }
     }
 
-    user.available_spins -= cost
-    user.total_spins_used = (user.total_spins_used || 0) + cost
+    // Deduct KES 30 from user wallet
+    user.balance_cents = (user.balance_cents || 0) - SPIN_COST_CENTS
     await user.save()
 
+    // Create transaction record for spin cost
+    await Transaction.create({
+      target_type: 'user',
+      target_id: userId,
+      user_id: userId,
+      amount_cents: -SPIN_COST_CENTS, // Negative indicates deduction
+      type: 'SPIN_COST',
+      description: `Spin cost deduction (KES ${SPIN_COST_KES})`,
+      status: 'completed',
+      source: 'spin',
+      balance_before_cents: (user.balance_cents || 0) + SPIN_COST_CENTS,
+      balance_after_cents: user.balance_cents,
+      metadata: {
+        spin_cost: SPIN_COST_CENTS,
+        spin_cost_kes: SPIN_COST_KES
+      }
+    })
+
     console.log(
-      `✅ Deducted ${cost} spins from user ${userId}. Remaining: ${user.available_spins}, Total used: ${user.total_spins_used}`,
+      `✅ Deducted KES ${SPIN_COST_KES} from user ${userId}. Remaining balance: KES ${(user.balance_cents || 0)/100}`,
     )
 
-    return { success: true, message: "Spin cost deducted successfully", cost }
+    return { success: true, message: "Spin cost deducted successfully", cost: SPIN_COST_CENTS }
   } catch (error) {
     console.error("Error deducting spin cost:", error)
-    return { success: false, message: "Error deducting spin cost", cost: 5 }
+    return { success: false, message: "Error deducting spin cost", cost: 3000 }
   }
 }
 

@@ -208,7 +208,7 @@ export default function CompleteProfilePage() {
             </li>
             <li className="flex items-start">
               <span className="bg-green-100 text-green-800 rounded-full w-5 h-5 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">2</span>
-              <span>Pay KSH 1,000 activation fee</span>
+              <span>Pay KES 100 activation fee</span>
             </li>
             <li className="flex items-start">
               <span className="bg-green-100 text-green-800 rounded-full w-5 h-5 flex items-center justify-center text-xs mr-2 mt-0.5 flex-shrink-0">3</span>

@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const activationAmount = userProfile.activation_amount_cents || 100000; // 1000 KES in cents
+    const activationAmount = userProfile.activation_amount_cents || 10000; // 100 KES in cents
 
     // Create activation payment record
     const activationPayment = new (ActivationPayment as any)({

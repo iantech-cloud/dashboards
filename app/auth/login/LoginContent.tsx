@@ -519,7 +519,7 @@ export default function LoginContent({ hasExistingSession = false }: LoginConten
   // Handle existing session message
   useEffect(() => {
     if (isJustVerified) {
-      setMessage('Your email has been verified! Log in below and you will be taken to the Account Activation page to pay the KSH 1,000 fee.');
+      setMessage('Your email has been verified! Log in below and you will be taken to the Account Activation page to pay the KES 100 fee.');
       setMessageType('success');
     } else if (hasExistingSession) {
       setMessage('You are already logged in. You can continue to your dashboard or log in with a different account.');
