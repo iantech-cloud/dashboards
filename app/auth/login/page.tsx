@@ -85,9 +85,12 @@ async function LoginPageInner() {
     }
 
     // Check activation payment for both user types
-    if (!user.isActivationPaid) {
-      console.log('User - Activation not paid, redirecting to activate');
-      redirect('/auth/activate');
+    // Store email in URL so activation page can access it
+    if (!user.isActivationPaid && !user.activation_paid_at) {
+      console.log('User - Activation not paid, redirecting to activate with email:', user.email);
+      // Encode email in URL as fallback since sessionStorage won't work in server redirect
+      const activateUrl = `/auth/activate?email=${encodeURIComponent(user.email)}`;
+      redirect(activateUrl);
     }
 
     // Check if not approved

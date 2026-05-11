@@ -44,8 +44,9 @@ export default function ConfirmContent() {
           setMessage('Email verified! Redirecting to account activation...');
 
           // Go directly to the activation page — no login required
+          // Pass email in URL as fallback in case sessionStorage isn't available
           setTimeout(() => {
-            router.push('/auth/activate');
+            router.push(`/auth/activate?email=${encodeURIComponent(email)}`);
           }, 2500);
         } else {
           setStatus('error');
