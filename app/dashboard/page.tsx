@@ -431,25 +431,25 @@ export default function DashboardPage() {
       <div className="absolute bottom-0 left-0 w-72 h-72 bg-gradient-to-tr from-orange-400/10 to-transparent rounded-full blur-3xl animate-pulse delay-1000 pointer-events-none"></div>
 
       {/* Welcome Header with Bold Design */}
-      <div className="relative mb-8 bg-white rounded-2xl p-8 shadow-xl border-2 border-purple-500 overflow-hidden group hover:shadow-2xl hover:scale-105 hover:-translate-y-1 transition-all duration-300">
+      <div className="relative mb-6 bg-white rounded-2xl p-4 sm:p-6 lg:p-8 shadow-xl border-2 border-purple-500 overflow-hidden group hover:shadow-2xl hover:scale-105 hover:-translate-y-1 transition-all duration-300">
         {/* Accent bar */}
         <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-600"></div>
         
-        <div className="relative z-10 flex items-center justify-between flex-wrap gap-6">
-          <div className="flex items-center space-x-4 flex-1 min-w-0">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/50 group-hover:shadow-purple-500/70 transition-all duration-300 group-hover:scale-110 flex-shrink-0">
-              <Sparkles className="w-8 h-8 text-white" />
+        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center space-x-3 flex-1 min-w-0">
+            <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/50 group-hover:shadow-purple-500/70 transition-all duration-300 group-hover:scale-110 flex-shrink-0">
+              <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
             </div>
-            <div className="min-w-0">
-              <h2 className="text-3xl font-bold text-slate-900">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 truncate">
                 Welcome back, {profile?.username || 'User'}!
               </h2>
-              <p className="text-slate-600 mt-1 text-sm">Here's what's happening with your account today</p>
+              <p className="text-slate-600 mt-1 text-xs sm:text-sm hidden sm:block">Here's what's happening with your account today</p>
             </div>
           </div>
-          <div className="flex items-center space-x-3 bg-purple-50 px-5 py-3 rounded-xl border border-purple-200">
-            <Trophy className="w-6 h-6 text-purple-600 flex-shrink-0" />
-            <span className="text-lg font-bold text-purple-700">Level {profile?.level}</span>
+          <div className="flex items-center space-x-2 sm:space-x-3 bg-purple-50 px-3 sm:px-5 py-2 sm:py-3 rounded-xl border border-purple-200 flex-shrink-0">
+            <Trophy className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600 flex-shrink-0" />
+            <span className="text-sm sm:text-base lg:text-lg font-bold text-purple-700 whitespace-nowrap">Level {profile?.level}</span>
           </div>
         </div>
       </div>
@@ -523,12 +523,12 @@ export default function DashboardPage() {
       {/* KPI Summary Cluster - Top 4 Critical Cards */}
       {displayStats ? (
         <>
-          <div className="mb-8">
-            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
-              <Target className="w-5 h-5 mr-2 text-indigo-600" />
+          <div className="mb-6 sm:mb-8">
+            <h2 className="text-base sm:text-lg font-bold text-slate-800 mb-3 sm:mb-4 flex items-center">
+              <Target className="w-4 h-4 sm:w-5 sm:h-5 mr-2 text-indigo-600" />
               Key Performance Indicators
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-5">
               <Card title="Current Balance" value={`KES ${displayStats.availableBalance.toFixed(2)}`} icon={DollarSign} color="indigo" />
               <Card title="Total Earnings" value={`KES ${displayStats.totalEarnings.toFixed(2)}`} icon={TrendingUp} color="green" />
               <Card title="Pending Withdrawals" value={`KES ${displayStats.pendingWithdrawals.toFixed(2)}`} icon={DollarSign} color="yellow" />
@@ -537,12 +537,12 @@ export default function DashboardPage() {
           </div>
 
           {/* Quick Actions Cluster */}
-          <div className="mb-8">
-            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
-              <Zap className="w-5 h-5 mr-2 text-orange-600" />
+          <div className="mb-6 sm:mb-8">
+            <h2 className="text-base sm:text-lg font-bold text-slate-800 mb-3 sm:mb-4 flex items-center">
+              <Zap className="w-4 h-4 sm:w-5 sm:h-5 mr-2 text-orange-600" />
               Quick Actions
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-5">
               <Card title="Available Spins" value={displayStats.availableSpins.toString()} icon={RotateCw} color="red" />
               <Card title="Tasks Completed" value={profile?.tasks_completed?.toString() || '0'} icon={CheckCircle} color="cyan" />
               <Card title="Downline Earnings" value={`KES ${displayStats.downlineEarnings.toFixed(2)}`} icon={Users} color="pink" />
@@ -550,12 +550,12 @@ export default function DashboardPage() {
           </div>
 
           {/* Earnings Breakdown Cluster */}
-          <div className="mb-8">
-            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
-              <DollarSign className="w-5 h-5 mr-2 text-green-600" />
+          <div className="mb-6 sm:mb-8">
+            <h2 className="text-base sm:text-lg font-bold text-slate-800 mb-3 sm:mb-4 flex items-center">
+              <DollarSign className="w-4 h-4 sm:w-5 sm:h-5 mr-2 text-green-600" />
               Earnings Breakdown
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-5">
               <Card title="Spin Earnings" value={`KES ${(displayStats.spinEarnings || 0).toFixed(2)}`} icon={Gift} color="pink" />
               <Card title="Survey Earnings" value={`KES ${(displayStats.surveyEarnings || 0).toFixed(2)}`} icon={ClipboardCheck} color="orange" />
               <Card title="Referral Earnings" value={`KES ${displayStats.downlineEarnings.toFixed(2)}`} icon={Share2} color="blue" />
@@ -563,12 +563,12 @@ export default function DashboardPage() {
           </div>
 
           {/* Spin Performance Cluster */}
-          <div className="mb-8">
-            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
-              <RotateCw className="w-5 h-5 mr-2 text-red-600" />
+          <div className="mb-6 sm:mb-8">
+            <h2 className="text-base sm:text-lg font-bold text-slate-800 mb-3 sm:mb-4 flex items-center">
+              <RotateCw className="w-4 h-4 sm:w-5 sm:h-5 mr-2 text-red-600" />
               Spin Performance
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 lg:gap-5">
               <Card title="Total Spins" value={displayStats.totalSpins?.toString() || '0'} icon={RotateCw} color="purple" loading={spinStatsLoading} />
               <Card title="Total Wins" value={displayStats.totalWins?.toString() || '0'} icon={Gift} color="green" loading={spinStatsLoading} />
               <Card title="Win Rate" value={`${displayStats.winRate?.toFixed(1) || '0.0'}%`} icon={TrendingUp} color="blue" loading={spinStatsLoading} />
@@ -593,20 +593,20 @@ export default function DashboardPage() {
       {/* Quick Actions Grid with Enhanced Styling */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
         {/* Spin-to-Win Card */}
-        <div className="group relative bg-white rounded-2xl p-6 shadow-xl border-2 border-red-500 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:scale-105 hover:-translate-y-1">
+        <div className="group relative bg-white rounded-2xl p-4 sm:p-6 shadow-xl border-2 border-red-500 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:scale-105 hover:-translate-y-1">
           {/* Accent bar */}
           <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-600"></div>
           <div className="relative z-10">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-600 to-rose-500 flex items-center justify-center shadow-lg shadow-red-500/40 group-hover:shadow-red-500/60 transition-all duration-300 group-hover:rotate-12">
-                <Gift className="w-6 h-6 text-white" />
+            <div className="flex items-center space-x-2 sm:space-x-3 mb-4">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-red-600 to-rose-500 flex items-center justify-center shadow-lg shadow-red-500/40 group-hover:shadow-red-500/60 transition-all duration-300 group-hover:rotate-12 flex-shrink-0">
+                <Gift className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
               </div>
-              <h3 className="text-xl font-bold text-slate-900">Spin-to-Win</h3>
+              <h3 className="text-lg sm:text-xl font-bold text-slate-900">Spin-to-Win</h3>
             </div>
             
-            <div className="bg-gradient-to-r from-red-100 to-pink-100 p-4 rounded-xl mb-4 border border-red-300">
-              <p className="text-sm text-slate-600 mb-1">Available Spins</p>
-              <p className="text-3xl font-bold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent">
+            <div className="bg-gradient-to-r from-red-100 to-pink-100 p-3 sm:p-4 rounded-xl mb-4 border border-red-300">
+              <p className="text-xs sm:text-sm text-slate-600 mb-1">Available Spins</p>
+              <p className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent">
                 {displayStats?.availableSpins || profile?.available_spins || 0}
               </p>
             </div>
@@ -619,18 +619,20 @@ export default function DashboardPage() {
             <button
               onClick={handleSpinClick}
               disabled={refreshingStats || spinStatsLoading}
-              className="w-full py-3 px-6 bg-gradient-to-r from-red-600 to-rose-600 text-white font-bold rounded-xl shadow-lg shadow-red-500/40 hover:shadow-xl hover:shadow-red-500/50 transition-all duration-250 flex items-center justify-center transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-2.5 sm:py-3 px-4 sm:px-6 bg-gradient-to-r from-red-600 to-rose-600 text-white font-bold text-sm sm:text-base rounded-xl shadow-lg shadow-red-500/40 hover:shadow-xl hover:shadow-red-500/50 transition-all duration-250 flex items-center justify-center transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {refreshingStats ? (
                 <>
-                  <Loader2 className="animate-spin mr-2" size={20} />
-                  Refreshing...
+                  <Loader2 className="animate-spin mr-2" size={16} />
+                  <span className="hidden sm:inline">Refreshing...</span>
+                  <span className="sm:hidden">Loading...</span>
                 </>
               ) : (
                 <>
-                  <Gift className="mr-2" size={20} />
-                  Open Spin Wheel
-                  <ArrowRight className="ml-2" size={16} />
+                  <Gift className="mr-2" size={18} />
+                  <span className="hidden sm:inline">Open Spin Wheel</span>
+                  <span className="sm:hidden">Spin</span>
+                  <ArrowRight className="ml-2 hidden sm:inline" size={16} />
                 </>
               )}
             </button>
@@ -650,7 +652,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Wallet Pay Card */}
-        <div className="group relative bg-white rounded-2xl p-6 shadow-xl border-2 border-blue-500 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:scale-105 hover:-translate-y-1">
+        <div className="group relative bg-white rounded-2xl p-4 sm:p-6 shadow-xl border-2 border-blue-500 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:scale-105 hover:-translate-y-1">
           {/* Accent bar */}
           <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-600"></div>
           <div className="relative z-10">
@@ -665,29 +667,29 @@ export default function DashboardPage() {
         </div>
 
         {/* Referral Card */}
-        <div className="group relative bg-white rounded-2xl p-6 shadow-xl border-2 border-cyan-500 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:scale-105 hover:-translate-y-1">
+        <div className="group relative bg-white rounded-2xl p-4 sm:p-6 shadow-xl border-2 border-cyan-500 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:scale-105 hover:-translate-y-1">
           {/* Accent bar */}
           <div className="absolute left-0 top-0 bottom-0 w-1 bg-cyan-600"></div>
           <div className="relative z-10">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-teal-500/40 group-hover:shadow-teal-500/60 transition-all duration-300">
-                <Share2 className="w-6 h-6 text-white" />
+            <div className="flex items-center space-x-2 sm:space-x-3 mb-4">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-teal-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-teal-500/40 group-hover:shadow-teal-500/60 transition-all duration-300 flex-shrink-0">
+                <Share2 className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
               </div>
-              <h3 className="text-xl font-bold text-slate-900">Refer & Earn</h3>
+              <h3 className="text-lg sm:text-xl font-bold text-slate-900">Refer & Earn</h3>
             </div>
-            <p className="text-slate-600 mb-4 text-sm">Share your referral code to earn bonuses</p>
+            <p className="text-slate-600 mb-4 text-xs sm:text-sm">Share your referral code to earn bonuses</p>
             <div className="space-y-3">
               {profile?.referral_id && (
-                <div className="bg-gradient-to-br from-teal-100 to-cyan-100 p-4 rounded-2xl text-center border border-teal-300">
+                <div className="bg-gradient-to-br from-teal-100 to-cyan-100 p-3 sm:p-4 rounded-2xl text-center border border-teal-300">
                   <p className="text-xs text-teal-700 mb-2 uppercase tracking-wide font-semibold">Your Referral Code</p>
-                  <p className="text-xl font-bold bg-gradient-to-r from-teal-600 to-cyan-600 bg-clip-text text-transparent mb-3 font-mono">
+                  <p className="text-lg sm:text-xl font-bold bg-gradient-to-r from-teal-600 to-cyan-600 bg-clip-text text-transparent mb-3 font-mono break-all">
                     {profile.referral_id}
                   </p>
                   <button
                     onClick={() => handleCopyReferralCode(profile.referral_id!)}
-                    className="w-full py-2 px-4 bg-gradient-to-r from-teal-600 to-cyan-500 text-white font-semibold rounded-xl hover:from-teal-700 hover:to-cyan-600 shadow-lg shadow-teal-500/40 hover:shadow-teal-500/50 transition-all duration-250 transform hover:scale-105"
+                    className="w-full py-2 px-3 sm:px-4 text-xs sm:text-sm bg-gradient-to-r from-teal-600 to-cyan-500 text-white font-semibold rounded-xl hover:from-teal-700 hover:to-cyan-600 shadow-lg shadow-teal-500/40 hover:shadow-teal-500/50 transition-all duration-250 transform hover:scale-105"
                   >
-                    Copy Referral Code
+                    Copy Code
                   </button>
                 </div>
               )}
