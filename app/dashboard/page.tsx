@@ -430,34 +430,40 @@ export default function DashboardPage() {
       <div className="absolute top-0 right-0 w-72 h-72 bg-gradient-to-bl from-purple-400/10 to-transparent rounded-full blur-3xl animate-pulse pointer-events-none"></div>
       <div className="absolute bottom-0 left-0 w-72 h-72 bg-gradient-to-tr from-orange-400/10 to-transparent rounded-full blur-3xl animate-pulse delay-1000 pointer-events-none"></div>
 
-      {/* Welcome Header with Glassmorphism */}
-      <div className="relative mb-8 bg-gradient-to-r from-purple-600/10 to-pink-600/10 backdrop-blur-xl rounded-3xl p-8 shadow-lg border border-purple-200/30 overflow-hidden group hover:shadow-2xl transition-all duration-300">
-        <div className="absolute inset-0 bg-gradient-to-r from-purple-600/5 via-pink-600/5 to-purple-600/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-        <div className="relative z-10 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/40 group-hover:shadow-purple-500/60 transition-all duration-300 group-hover:scale-110">
+      {/* Welcome Header with Bold Design */}
+      <div className="relative mb-8 bg-white rounded-2xl p-8 shadow-xl border-2 border-purple-500 overflow-hidden group hover:shadow-2xl hover:scale-105 hover:-translate-y-1 transition-all duration-300">
+        {/* Accent bar */}
+        <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-600"></div>
+        
+        <div className="relative z-10 flex items-center justify-between flex-wrap gap-6">
+          <div className="flex items-center space-x-4 flex-1 min-w-0">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/50 group-hover:shadow-purple-500/70 transition-all duration-300 group-hover:scale-110 flex-shrink-0">
               <Sparkles className="w-8 h-8 text-white" />
             </div>
-            <div>
-              <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+            <div className="min-w-0">
+              <h2 className="text-3xl font-bold text-slate-900">
                 Welcome back, {profile?.username || 'User'}!
               </h2>
-              <p className="text-slate-600 mt-1">Here's what's happening with your account today</p>
+              <p className="text-slate-600 mt-1 text-sm">Here's what's happening with your account today</p>
             </div>
           </div>
-          <div className="hidden md:flex items-center space-x-2">
-            <Trophy className="w-6 h-6 text-orange-500" />
-            <span className="text-lg font-bold text-slate-700">Level {profile?.level}</span>
+          <div className="flex items-center space-x-3 bg-purple-50 px-5 py-3 rounded-xl border border-purple-200">
+            <Trophy className="w-6 h-6 text-purple-600 flex-shrink-0" />
+            <span className="text-lg font-bold text-purple-700">Level {profile?.level}</span>
           </div>
         </div>
       </div>
 
-      {/* Profile Overview Card with Glassmorphism */}
+      {/* Profile Overview Card */}
       {profile && (
-        <div className={`relative mb-8 bg-gradient-to-r from-teal-50/50 to-cyan-50/50 backdrop-blur-xl rounded-3xl p-6 shadow-lg border-l-4 overflow-hidden hover:shadow-xl transition-all duration-300 ${
+        <div className={`relative mb-8 bg-white rounded-2xl p-6 shadow-xl border-2 overflow-hidden group hover:shadow-2xl hover:scale-105 hover:-translate-y-1 transition-all duration-300 ${
           profile.is_approved ? 'border-emerald-500' : 'border-orange-500'
         }`}>
-          <div className="absolute inset-0 bg-gradient-to-r from-teal-600/5 via-cyan-600/5 to-teal-600/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+          {/* Accent bar */}
+          <div className={`absolute left-0 top-0 bottom-0 w-1 ${
+            profile.is_approved ? 'bg-emerald-600' : 'bg-orange-600'
+          }`}></div>
+          
           <div className="relative z-10 flex justify-between items-start flex-wrap gap-4">
             <div className="flex-1">
               <div className="flex items-center space-x-3 mb-4">
