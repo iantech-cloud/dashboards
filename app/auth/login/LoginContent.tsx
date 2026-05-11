@@ -560,6 +560,15 @@ export default function LoginContent({ hasExistingSession = false }: LoginConten
     try {
       // Fetch the latest session to determine redirect
       const response = await fetch('/api/auth/session');
+      
+      if (!response.ok) {
+        console.error('Session fetch failed with status:', response.status);
+        setMessage('Failed to retrieve session. Please try again.');
+        setMessageType('error');
+        setLoading(false);
+        return;
+      }
+
       const sessionData = await response.json();
       
       if (!sessionData?.user) {
@@ -573,7 +582,7 @@ export default function LoginContent({ hasExistingSession = false }: LoginConten
       const user = sessionData.user;
       const authMethod = user.authMethod || 'credentials';
       
-      console.log('User status:', {
+      console.log('[v0] User status after login:', {
         email: user.email,
         authMethod,
         is_verified: user.is_verified,
@@ -588,22 +597,27 @@ export default function LoginContent({ hasExistingSession = false }: LoginConten
       
       // ===== FOR GOOGLE OAUTH USERS =====
       if (authMethod === 'google') {
-        console.log('Google OAuth user detected - using OAuth flow');
+        console.log('[v0] Google OAuth user detected - checking status');
         
         // Google users skip email verification (Google already verified their email)
         // Check profile completion first
         if (!user.profile_completed) {
-          console.log('OAuth user - Profile not completed, redirecting to complete-profile');
+          console.log('[v0] OAuth user needs profile completion, redirecting');
           router.push('/auth/complete-profile');
           return;
         }
 
         // Check activation payment
         if (!user.isActivationPaid && !user.activation_paid_at) {
-          console.log('OAuth user - Activation not paid, redirecting to activate');
+          console.log('[v0] OAuth user not activated - storing email and redirecting to activate');
           // Store email in sessionStorage so activation page can work without session
           if (typeof window !== 'undefined') {
-            sessionStorage.setItem('activation_email', user.email);
+            try {
+              sessionStorage.setItem('activation_email', user.email);
+              console.log('[v0] Email stored in sessionStorage:', user.email);
+            } catch (e) {
+              console.error('[v0] Failed to store email in sessionStorage:', e);
+            }
           }
           router.push('/auth/activate');
           return;
@@ -611,44 +625,49 @@ export default function LoginContent({ hasExistingSession = false }: LoginConten
 
         // Check if approved
         if (!user.is_approved || user.approval_status === 'pending') {
-          console.log('OAuth user - Not approved, redirecting to pending-approval');
+          console.log('[v0] OAuth user not approved, redirecting to pending-approval');
           router.push('/auth/pending-approval');
           return;
         }
 
         // Check if active
         if (!user.is_active || user.status !== 'active') {
-          console.log('OAuth user - Not active, redirecting to pending-approval');
+          console.log('[v0] OAuth user not active, redirecting to pending-approval');
           router.push('/auth/pending-approval');
           return;
         }
 
         // All checks passed - redirect to appropriate dashboard
-        console.log('OAuth user - All checks passed, redirecting to dashboard');
+        console.log('[v0] OAuth user fully approved, redirecting to dashboard');
         router.push(callbackUrl);
         return;
       }
 
       // ===== FOR EMAIL/CREDENTIALS USERS =====
       if (authMethod === 'credentials') {
-        console.log('Credentials user detected - using credentials flow');
+        console.log('[v0] Credentials user detected - checking status');
         
         // Check email verification FIRST for credentials users
         if (!user.is_verified) {
-          console.log('Credentials user - Email not verified, redirecting to verify-email');
+          console.log('[v0] Credentials user email not verified, redirecting to verify-email');
           router.push('/auth/verify-email');
           return;
         }
 
         // Profile is already completed during signup for credentials users
-        console.log('Credentials user - Profile completed during signup, skipping profile check');
+        console.log('[v0] Credentials user profile completed during signup');
 
         // Check activation payment
         if (!user.isActivationPaid && !user.activation_paid_at) {
-          console.log('Credentials user - Activation not paid, redirecting to activate');
+          console.log('[v0] Credentials user not activated - storing email and redirecting to activate');
           // Store email in sessionStorage so activation page can work without session
           if (typeof window !== 'undefined') {
-            sessionStorage.setItem('activation_email', user.email);
+            try {
+              sessionStorage.setItem('activation_email', user.email);
+              console.log('[v0] Email stored in sessionStorage:', user.email);
+            } catch (e) {
+              console.error('[v0] Failed to store email in sessionStorage:', e);
+            }
           }
           router.push('/auth/activate');
           return;
@@ -656,30 +675,30 @@ export default function LoginContent({ hasExistingSession = false }: LoginConten
 
         // Check if approved
         if (!user.is_approved || user.approval_status === 'pending') {
-          console.log('Credentials user - Not approved, redirecting to pending-approval');
+          console.log('[v0] Credentials user not approved, redirecting to pending-approval');
           router.push('/auth/pending-approval');
           return;
         }
 
         // Check if active
         if (!user.is_active || user.status !== 'active') {
-          console.log('Credentials user - Not active, redirecting to pending-approval');
+          console.log('[v0] Credentials user not active, redirecting to pending-approval');
           router.push('/auth/pending-approval');
           return;
         }
 
         // All checks passed - redirect to appropriate dashboard
-        console.log('Credentials user - All checks passed, redirecting to dashboard');
+        console.log('[v0] Credentials user fully approved, redirecting to dashboard');
         router.push(callbackUrl);
         return;
       }
 
       // Fallback: redirect to dashboard
-      console.log('Unknown auth method, fallback redirect to dashboard');
+      console.log('[v0] Unknown auth method, fallback redirect to dashboard');
       router.push(callbackUrl);
     } catch (error) {
-      console.error('Error checking user status:', error);
-      setMessage('Error checking user status. Please try again.');
+      console.error('[v0] Error checking user status:', error);
+      setMessage('Error checking your account status. Please try refreshing the page.');
       setMessageType('error');
       setLoading(false);
     }
