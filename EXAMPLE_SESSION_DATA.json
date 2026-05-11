@@ -1,0 +1,81 @@
+{
+  "authenticated_fully_approved_user_session": {
+    "user": {
+      "id": "507f1f77bcf86cd799439011",
+      "email": "john@example.com",
+      "name": "john_doe",
+      "role": "user",
+      "is_verified": true,
+      "is_active": true,
+      "is_approved": true,
+      "approval_status": "approved",
+      "rank": "Active",
+      "activation_paid_at": "2024-05-11T14:20:00Z",
+      "isActivationPaid": true,
+      "status": "active",
+      "twoFAEnabled": false,
+      "authMethod": "credentials",
+      "profile_completed": true,
+      "phone_number": "254712345678"
+    },
+    "dashboardRoute": "/dashboard",
+    "expires": "2024-06-10T16:00:00.000Z"
+  },
+
+  "authenticated_verified_but_unpaid_user_session": {
+    "user": {
+      "id": "507f1f77bcf86cd799439014",
+      "email": "mike@example.com",
+      "name": "mike_johnson",
+      "role": "user",
+      "is_verified": true,
+      "is_active": false,
+      "is_approved": false,
+      "approval_status": "pending",
+      "rank": "Unactivated",
+      "activation_paid_at": null,
+      "isActivationPaid": false,
+      "status": "pending",
+      "twoFAEnabled": false,
+      "authMethod": "credentials",
+      "profile_completed": false,
+      "phone_number": "254723456789"
+    },
+    "dashboardRoute": "/dashboard",
+    "expires": "2024-06-10T16:00:00.000Z",
+    "redirectTo": "/auth/activate",
+    "reason": "User email verified but activation payment not completed"
+  },
+
+  "authenticated_paid_pending_approval_session": {
+    "user": {
+      "id": "507f1f77bcf86cd799439015",
+      "email": "sarah@example.com",
+      "name": "sarah_williams",
+      "role": "user",
+      "is_verified": true,
+      "is_active": false,
+      "is_approved": false,
+      "approval_status": "pending",
+      "rank": "Unactivated",
+      "activation_paid_at": "2024-05-11T13:30:00Z",
+      "isActivationPaid": true,
+      "status": "pending",
+      "twoFAEnabled": false,
+      "authMethod": "credentials",
+      "profile_completed": false,
+      "phone_number": "254734567890"
+    },
+    "dashboardRoute": "/dashboard",
+    "expires": "2024-06-10T16:00:00.000Z",
+    "redirectTo": "/auth/pending-approval",
+    "reason": "User payment verified but awaiting admin approval"
+  },
+
+  "unauthenticated_session": {
+    "user": null,
+    "expires": "2024-06-10T16:00:00.000Z",
+    "redirectTo": "/auth/login",
+    "reason": "No session or session expired"
+  }
+}

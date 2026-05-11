@@ -302,16 +302,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return;
     }
 
+    // Check activation status
     if (!userToCheck.isActive) {
-      console.log('Redirecting to /auth/activate');
+      console.log('👤 User not active:', {
+        isActive: userToCheck.isActive,
+        isApproved: userToCheck.isApproved,
+        rank: userToCheck.rank,
+        redirectTo: '/auth/activate'
+      });
       setTimeout(() => {
         router.push('/auth/activate');
       }, 0);
       return;
     }
 
+    // Check approval status (after activation payment made)
     if (!userToCheck.isApproved) {
-      console.log('Redirecting to /auth/pending-approval');
+      console.log('👤 User not approved:', {
+        isApproved: userToCheck.isApproved,
+        approvalStatus: userToCheck.status,
+        redirectTo: '/auth/pending-approval'
+      });
       setTimeout(() => {
         router.push('/auth/pending-approval');
       }, 0);
@@ -370,7 +381,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     if (status === 'authenticated') {
       if (session?.user?.id) {
-        console.log('✅ Session ready with user.id:', session.user.id);
+        console.log('��� Session ready with user.id:', session.user.id);
         const timer = setTimeout(() => {
           if (!user && !hasAttemptedFetch) {
             console.log('📥 Fetching user data now...');
