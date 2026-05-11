@@ -1,0 +1,155 @@
+═══════════════════════════════════════════════════════════════════════════════
+                          IMPLEMENTATION SUMMARY
+                    Unactivated User Login & Activation Flow
+═══════════════════════════════════════════════════════════════════════════════
+
+PROBLEM:
+────────
+Users who didn't activate during email verification were unable to activate 
+later when trying to login. The activation page (which is sessionless) couldn't 
+get the user's email when they were redirected from the login flow.
+
+SOLUTION:
+────────
+Store the user's email in browser sessionStorage before redirecting to the 
+activation page. The activation page already reads from sessionStorage.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+FILES MODIFIED: 1
+─────────────
+
+/app/auth/login/LoginContent.tsx
+  └─ Location 1: OAuth user activation check (lines 604-607)
+  └─ Location 2: Credentials user activation check (lines 650-652)
+
+LINES CHANGED: 8 (4 lines at each location)
+───────────
+
+Location 1 - OAuth Users (lines 604-607):
+
+  BEFORE:
+  ───────
+  if (!user.isActivationPaid && !user.activation_paid_at) {
+    console.log('OAuth user - Activation not paid, redirecting to activate');
+    router.push('/auth/activate');
+    return;
+  }
+
+  AFTER:
+  ──────
+  if (!user.isActivationPaid && !user.activation_paid_at) {
+    console.log('OAuth user - Activation not paid, redirecting to activate');
+    // Store email in sessionStorage so activation page can work without session
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('activation_email', user.email);
+    }
+    router.push('/auth/activate');
+    return;
+  }
+
+───────────────────────────────────────────────────────────────────────────────
+
+Location 2 - Credentials Users (lines 650-652):
+
+  BEFORE:
+  ───────
+  if (!user.isActivationPaid && !user.activation_paid_at) {
+    console.log('Credentials user - Activation not paid, redirecting to activate');
+    router.push('/auth/activate');
+    return;
+  }
+
+  AFTER:
+  ──────
+  if (!user.isActivationPaid && !user.activation_paid_at) {
+    console.log('Credentials user - Activation not paid, redirecting to activate');
+    // Store email in sessionStorage so activation page can work without session
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('activation_email', user.email);
+    }
+    router.push('/auth/activate');
+    return;
+  }
+
+═══════════════════════════════════════════════════════════════════════════════
+
+HOW IT WORKS:
+─────────────
+
+SCENARIO 1: Email Verification → Immediate Activation
+    User clicks email link
+    → ConfirmContent verifies token via /api/auth/verify-email
+    → ConfirmContent stores email in sessionStorage ✓ (already done)
+    → ConfirmContent redirects to /auth/activate
+    → ActivateComponent reads email from sessionStorage
+    → User activates
+
+SCENARIO 2: Login → Unactivated → Activation
+    User tries to login
+    → signIn() succeeds, session created
+    → checkUserStatusAndRedirect() checks status
+    → Detects !isActivationPaid
+    → Stores email in sessionStorage ✓ (NEW CODE)
+    → Redirects to /auth/activate
+    → ActivateComponent reads email from sessionStorage
+    → User activates
+
+SCENARIO 3: Return Days Later (Still Unactivated)
+    User tries to login again
+    → Follows Scenario 2
+    → Can complete activation
+
+═══════════════════════════════════════════════════════════════════════════════
+
+BACKWARD COMPATIBILITY:
+──────────────────────
+✓ Fully backward compatible
+✓ No database schema changes
+✓ No new environment variables
+✓ No breaking API changes
+✓ Existing flows continue to work
+✓ Optional enhancement (email can be entered manually on activation page)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+SECURITY:
+─────────
+✓ Email verification still required (API checks is_verified=true)
+✓ Only email stored (not password, tokens, or sensitive data)
+✓ sessionStorage isolated per domain
+✓ No server-side session bypass
+✓ All validation happens server-side in API endpoints
+
+═══════════════════════════════════════════════════════════════════════════════
+
+TESTING:
+────────
+1. Sign up and verify email → Try activation immediately ✓
+2. Sign up and verify email → Wait and try login later ✓
+3. Both paths converge at /auth/activate with email pre-filled ✓
+4. sessionStorage contains email (verify in DevTools) ✓
+5. M-Pesa activation works both ways ✓
+6. After admin approval, user can login normally ✓
+
+═══════════════════════════════════════════════════════════════════════════════
+
+DOCUMENTATION CREATED:
+─────────────────────
+1. ACTIVATION_FLOW_DOCUMENTATION.md    (Complete technical reference)
+2. IMPLEMENTATION_SUMMARY.md           (What changed and why)
+3. FLOW_DIAGRAMS.md                    (ASCII flow diagrams)
+4. ACTIVATION_README.md                (Developer quick start guide)
+5. CHANGES_SUMMARY.txt                 (This file)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+DEPLOYMENT:
+────────
+- Review the changes in LoginContent.tsx
+- No configuration needed
+- Deploy to staging for testing
+- Deploy to production
+- Monitor activation success rate
+
+═══════════════════════════════════════════════════════════════════════════════

@@ -491,7 +491,7 @@ async function sendActivationConfirmationInvoice(
     if (result.success) {
       console.log('✅ Payment confirmation invoice sent successfully');
     } else {
-      console.error('❌ Failed to send payment confirmation invoice:', result.error);
+      console.error('��� Failed to send payment confirmation invoice:', result.error);
     }
   } catch (error) {
     console.error('❌ Error sending payment confirmation invoice:', error);
@@ -775,7 +775,9 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
       checkout_request_id: checkoutRequestId
     });
 
-    if (mpesaTransaction && ['completed', 'failed'].includes(mpesaTransaction.status)) {
+    // ✅ FAST PATH: If payment is already completed/failed in DB, return immediately
+    if (mpesaTransaction && ['completed', 'failed', 'cancelled', 'timeout'].includes(mpesaTransaction.status)) {
+      console.log('✅ Payment status in database (final state):', mpesaTransaction.status);
       return {
         success: true,
         data: {
@@ -792,10 +794,12 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
       };
     }
 
-    console.log('🔍 Querying M-Pesa API directly for status...');
+    // ✅ OPTIMIZED: Query M-Pesa API first for real-time status (faster callback detection)
+    console.log('🔍 Querying M-Pesa API for latest status...');
     const apiStatus = await queryMpesaTransactionStatus(checkoutRequestId);
     
     if (apiStatus.success && apiStatus.data) {
+      // Update database with API response for future queries
       if (mpesaTransaction) {
         const updateData: any = {
           status: apiStatus.data.status,
@@ -825,7 +829,9 @@ export async function checkMpesaPaymentStatus(checkoutRequestId: string): Promis
       };
     }
 
+    // ✅ FALLBACK: Use database if API query fails
     if (mpesaTransaction) {
+      console.log('📦 Using database fallback for status:', mpesaTransaction.status);
       return {
         success: true,
         data: {

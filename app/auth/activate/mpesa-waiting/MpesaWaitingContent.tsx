@@ -30,6 +30,7 @@ export default function MpesaWaitingContent() {
   const [timeLeft, setTimeLeft] = useState(120); // 2 minutes in seconds
   const [pollingCount, setPollingCount] = useState(0);
   const [isActivatingAccount, setIsActivatingAccount] = useState(false);
+  const [lastPolledAt, setLastPolledAt] = useState<number>(0);
 
   // Poll for payment status using server action
   const pollPaymentStatus = useCallback(async () => {
@@ -40,13 +41,14 @@ export default function MpesaWaitingContent() {
       // { success: true, data: { status: 'completed' | 'cancelled' | 'timeout' | 'failed' | 'pending', ... } }
       const result = await checkMpesaPaymentStatus(checkoutRequestId);
       setPollingCount(prev => prev + 1);
+      setLastPolledAt(Date.now());
 
       if (result.success && result.data) {
         // Source is not used in the UI but is included in the log from your update
         const { status, resultCode, resultDesc, mpesaReceiptNumber, amount, source } = result.data;
 
         // Log for debugging
-        console.log(`🔄 Polling result (source: ${source}):`, { status, resultCode, resultDesc });
+        console.log(`🔄 Polling result (source: ${source}):`, { status, resultCode, resultDesc, pollingCount });
 
         // Update payment status based on the response
         setPaymentStatus(prev => {
@@ -58,6 +60,7 @@ export default function MpesaWaitingContent() {
           
           // Map status from API/database to our UI status
           if (status === 'completed') {
+            console.log('✅ Payment completed detected!');
             return {
               status: 'success',
               resultCode: resultCode,
@@ -101,7 +104,7 @@ export default function MpesaWaitingContent() {
     } catch (error) {
       console.error('Error polling payment status:', error);
     }
-  }, [checkoutRequestId, activationPaymentId]); // Dependencies remain the same
+  }, [checkoutRequestId, activationPaymentId, pollingCount]); // Dependencies remain the same
 
   // Activate user account after successful payment using server action
   const activateAccount = async () => {
@@ -147,12 +150,12 @@ export default function MpesaWaitingContent() {
     return () => clearTimeout(timer);
   }, [timeLeft, paymentStatus.status]);
 
-  // Polling interval
+  // Polling interval - aggressive polling for faster payment detection
   useEffect(() => {
     if (paymentStatus.status !== 'processing') return;
 
-    // NOTE: Polling frequency could be made dynamic or exponential backoff
-    const interval = setInterval(pollPaymentStatus, 3000); // Poll every 3 seconds
+    // Poll every 1 second for faster payment detection (M-Pesa callback usually arrives within 1-2 seconds)
+    const interval = setInterval(pollPaymentStatus, 1000);
     return () => clearInterval(interval);
   }, [paymentStatus.status, pollPaymentStatus]);
 
