@@ -5,6 +5,7 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { signOut, useSession } from 'next-auth/react';
 import SideNav from '@/app/ui/dashboard/sidenav';
 import BottomNav from '@/app/ui/dashboard/BottomNav';
+import HamburgerMenu from '@/app/ui/dashboard/HamburgerMenu';
 import Alert from '@/app/ui/Alert';
 import { Loader2, LogOut, FileText, Plus, BookOpen, Sparkles } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
@@ -692,7 +693,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </main>
         
-        <BottomNav userName={user.name} />
+        <HamburgerMenu userName={user.name} />
       </div>
 
       <UserChatWidget />

@@ -119,7 +119,7 @@ export default function Card({ title, value, icon: Icon, color, loading = false,
   const colors = getColorClasses(color);
 
   return (
-    <div className="group relative bg-white/70 backdrop-blur-xl rounded-2xl p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300 hover:scale-105 hover:-translate-y-1 overflow-hidden">
+    <div className="group relative bg-white/70 backdrop-blur-xl rounded-3xl p-4 sm:p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300 hover:scale-105 hover:-translate-y-1 overflow-hidden">
       {/* Background gradient glow */}
       <div className={`absolute inset-0 bg-gradient-to-br ${colors.glow} to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300`}></div>
       
@@ -128,8 +128,8 @@ export default function Card({ title, value, icon: Icon, color, loading = false,
 
       <div className="relative z-10">
         <div className="flex items-center justify-between mb-4">
-          <div className={`p-3 rounded-xl bg-gradient-to-br ${colors.bg} shadow-lg ${colors.shadow} group-hover:${colors.hover} group-hover:scale-110 transition-all duration-300`}>
-            <Icon className="w-6 h-6 text-white" />
+          <div className={`p-3 rounded-xl bg-gradient-to-br ${colors.bg} shadow-lg ${colors.shadow} group-hover:${colors.hover} group-hover:scale-110 transition-all duration-300 flex-shrink-0`}>
+            <Icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
           </div>
           
           {trend && (
@@ -150,17 +150,17 @@ export default function Card({ title, value, icon: Icon, color, loading = false,
         </div>
 
         <div className="space-y-2">
-          <p className="text-sm font-medium text-slate-600 group-hover:text-slate-700 transition-colors duration-300">
+          <p className="text-xs sm:text-sm font-medium text-slate-600 group-hover:text-slate-700 transition-colors duration-300">
             {title}
           </p>
           
           {loading ? (
             <div className="flex items-center space-x-2">
-              <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-              <span className="text-lg font-bold text-slate-400">Loading...</span>
+              <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin text-slate-400" />
+              <span className="text-sm sm:text-lg font-bold text-slate-400">Loading...</span>
             </div>
           ) : (
-            <p className="text-2xl font-bold text-slate-900 group-hover:text-slate-950 transition-colors duration-300">
+            <p className="text-lg sm:text-2xl font-bold text-slate-900 group-hover:text-slate-950 transition-colors duration-300 break-words">
               {value}
             </p>
           )}
