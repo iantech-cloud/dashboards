@@ -17,6 +17,16 @@ if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
   console.warn('Warning: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not configured. Google sign-in will fail.');
 }
 
+// For development, NEXTAUTH_URL can be inferred from NODE_ENV
+// For production, it should be explicitly set in environment variables
+if (!process.env.NEXTAUTH_URL) {
+  if (process.env.NODE_ENV === 'development') {
+    console.warn('Warning: NEXTAUTH_URL not set. CSRF validation may fail in development.');
+  } else {
+    console.warn('Error: NEXTAUTH_URL environment variable is required for production.');
+  }
+}
+
 function generateReferralId(): string {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
 }
@@ -36,6 +46,9 @@ function getDashboardRoute(role: string): string {
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: process.env.NEXTAUTH_SECRET,
   adapter: MongoDBAdapter(clientPromise),
+  
+  // Trust the host - required for CSRF validation in development and production
+  trustHost: true,
   
   session: {
     strategy: 'jwt' as const,
