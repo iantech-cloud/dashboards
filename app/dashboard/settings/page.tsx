@@ -47,14 +47,20 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const fetchMpesaRequests = async () => {
-      const response = await fetch('/api/mpesa-change-requests', {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setMpesaRequests(data);
+      try {
+        const response = await fetch('/api/mpesa-change-requests', {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setMpesaRequests(data);
+        }
+        // 401 = not authenticated yet; silently ignore — the layout already enforces auth
+      } catch (error) {
+        // Network error — silently ignore on initial load
       }
     };
     
