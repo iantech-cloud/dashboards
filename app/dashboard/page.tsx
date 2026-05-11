@@ -514,27 +514,65 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Stats Grid with Modern Cards */}
+      {/* KPI Summary Cluster - Top 4 Critical Cards */}
       {displayStats ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
-          <Card title="Current Balance" value={`KES ${displayStats.availableBalance.toFixed(2)}`} icon={DollarSign} color="bg-gradient-to-br from-purple-600 to-purple-700" />
-          <Card title="Total Earnings" value={`KES ${displayStats.totalEarnings.toFixed(2)}`} icon={TrendingUp} color="bg-gradient-to-br from-emerald-500 to-teal-600" />
-          <Card title="Pending Withdrawals" value={`KES ${displayStats.pendingWithdrawals.toFixed(2)}`} icon={DollarSign} color="bg-gradient-to-br from-amber-500 to-orange-600" />
-          <Card title="Downline Earnings" value={`KES ${displayStats.downlineEarnings.toFixed(2)}`} icon={Users} color="bg-gradient-to-br from-pink-600 to-rose-600" />
-          <Card title="Tasks Completed" value={profile?.tasks_completed?.toString() || '0'} icon={CheckCircle} color="bg-gradient-to-br from-cyan-500 to-blue-600" />
-          <Card title="Available Spins" value={displayStats.availableSpins.toString()} icon={RotateCw} color="bg-gradient-to-br from-red-500 to-red-600" />
-          <Card title="Spin Earnings" value={`KES ${(displayStats.spinEarnings || 0).toFixed(2)}`} icon={Gift} color="bg-gradient-to-br from-pink-500 to-rose-500" />
-          <Card title="Survey Earnings" value={`KES ${(displayStats.surveyEarnings || 0).toFixed(2)}`} icon={ClipboardCheck} color="bg-gradient-to-br from-orange-500 to-amber-600" />
-          <Card title="Level/Rank" value={`Level ${displayStats.level} (${displayStats.rank})`} icon={CheckCircle} color="bg-gradient-to-br from-cyan-600 to-teal-600" />
-          <Card title="Total Spins" value={displayStats.totalSpins?.toString() || '0'} icon={RotateCw} color="bg-gradient-to-br from-purple-600 to-indigo-600" loading={spinStatsLoading} />
-          <Card title="Total Wins" value={displayStats.totalWins?.toString() || '0'} icon={Gift} color="bg-gradient-to-br from-emerald-600 to-green-600" loading={spinStatsLoading} />
-          <Card title="Win Rate" value={`${displayStats.winRate?.toFixed(1) || '0.0'}%`} icon={TrendingUp} color="bg-gradient-to-br from-blue-600 to-indigo-600" loading={spinStatsLoading} />
-          <Card title="Current Streak" value={displayStats.currentStreak?.toString() || '0'} icon={CheckCircle} color="bg-gradient-to-br from-orange-600 to-red-600" loading={spinStatsLoading} />
-          <Card title="Best Streak" value={displayStats.bestStreak?.toString() || '0'} icon={TrendingUp} color="bg-gradient-to-br from-amber-500 to-yellow-600" loading={spinStatsLoading} />
-          <Card title="Spins Used" value={displayStats.totalSpinsUsed?.toString() || '0'} icon={RotateCw} color="bg-gradient-to-br from-slate-600 to-slate-700" loading={spinStatsLoading} />
-        </div>
+        <>
+          <div className="mb-8">
+            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+              <Target className="w-5 h-5 mr-2 text-indigo-600" />
+              Key Performance Indicators
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              <Card title="Current Balance" value={`KES ${displayStats.availableBalance.toFixed(2)}`} icon={DollarSign} color="indigo" />
+              <Card title="Total Earnings" value={`KES ${displayStats.totalEarnings.toFixed(2)}`} icon={TrendingUp} color="green" />
+              <Card title="Pending Withdrawals" value={`KES ${displayStats.pendingWithdrawals.toFixed(2)}`} icon={DollarSign} color="yellow" />
+              <Card title="Level/Rank" value={`Level ${displayStats.level} (${displayStats.rank})`} icon={Trophy} color="purple" />
+            </div>
+          </div>
+
+          {/* Quick Actions Cluster */}
+          <div className="mb-8">
+            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+              <Zap className="w-5 h-5 mr-2 text-orange-600" />
+              Quick Actions
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              <Card title="Available Spins" value={displayStats.availableSpins.toString()} icon={RotateCw} color="red" />
+              <Card title="Tasks Completed" value={profile?.tasks_completed?.toString() || '0'} icon={CheckCircle} color="cyan" />
+              <Card title="Downline Earnings" value={`KES ${displayStats.downlineEarnings.toFixed(2)}`} icon={Users} color="pink" />
+            </div>
+          </div>
+
+          {/* Earnings Breakdown Cluster */}
+          <div className="mb-8">
+            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+              <DollarSign className="w-5 h-5 mr-2 text-green-600" />
+              Earnings Breakdown
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              <Card title="Spin Earnings" value={`KES ${(displayStats.spinEarnings || 0).toFixed(2)}`} icon={Gift} color="pink" />
+              <Card title="Survey Earnings" value={`KES ${(displayStats.surveyEarnings || 0).toFixed(2)}`} icon={ClipboardCheck} color="orange" />
+              <Card title="Referral Earnings" value={`KES ${displayStats.downlineEarnings.toFixed(2)}`} icon={Share2} color="blue" />
+            </div>
+          </div>
+
+          {/* Spin Performance Cluster */}
+          <div className="mb-8">
+            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+              <RotateCw className="w-5 h-5 mr-2 text-red-600" />
+              Spin Performance
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
+              <Card title="Total Spins" value={displayStats.totalSpins?.toString() || '0'} icon={RotateCw} color="purple" loading={spinStatsLoading} />
+              <Card title="Total Wins" value={displayStats.totalWins?.toString() || '0'} icon={Gift} color="green" loading={spinStatsLoading} />
+              <Card title="Win Rate" value={`${displayStats.winRate?.toFixed(1) || '0.0'}%`} icon={TrendingUp} color="blue" loading={spinStatsLoading} />
+              <Card title="Current Streak" value={displayStats.currentStreak?.toString() || '0'} icon={CheckCircle} color="orange" loading={spinStatsLoading} />
+              <Card title="Best Streak" value={displayStats.bestStreak?.toString() || '0'} icon={Trophy} color="yellow" loading={spinStatsLoading} />
+            </div>
+          </div>
+        </>
       ) : (
-        <p className="text-center text-slate-500 mb-8 py-8 bg-white/70 backdrop-blur-xl rounded-2xl">No statistics available.</p>
+        <p className="text-center text-slate-500 mb-8 py-12 bg-white rounded-2xl shadow-md border border-slate-200">No statistics available.</p>
       )}
 
       {/* Quick Actions Grid with Enhanced Styling */}

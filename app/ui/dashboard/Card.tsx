@@ -8,7 +8,7 @@ interface CardProps {
   title: string;
   value: string | number;
   icon: LucideIcon;
-  color: string;
+  color: 'indigo' | 'green' | 'blue' | 'yellow' | 'purple' | 'teal' | 'red' | 'pink' | 'orange' | 'cyan' | 'gray';
   loading?: boolean;
   trend?: {
     value: number;
@@ -17,118 +17,37 @@ interface CardProps {
 }
 
 export default function Card({ title, value, icon: Icon, color, loading = false, trend }: CardProps) {
-  // Extract color name from Tailwind class
-  const getColorClasses = (colorClass: string) => {
-    if (colorClass.includes('indigo')) {
-      return {
-        bg: 'from-indigo-600 to-indigo-500',
-        shadow: 'shadow-indigo-500/30',
-        hover: 'hover:shadow-indigo-500/40',
-        glow: 'from-indigo-500/20',
-      };
-    }
-    if (colorClass.includes('green')) {
-      return {
-        bg: 'from-green-600 to-green-500',
-        shadow: 'shadow-green-500/30',
-        hover: 'hover:shadow-green-500/40',
-        glow: 'from-green-500/20',
-      };
-    }
-    if (colorClass.includes('blue')) {
-      return {
-        bg: 'from-blue-600 to-blue-500',
-        shadow: 'shadow-blue-500/30',
-        hover: 'hover:shadow-blue-500/40',
-        glow: 'from-blue-500/20',
-      };
-    }
-    if (colorClass.includes('yellow')) {
-      return {
-        bg: 'from-yellow-600 to-yellow-500',
-        shadow: 'shadow-yellow-500/30',
-        hover: 'hover:shadow-yellow-500/40',
-        glow: 'from-yellow-500/20',
-      };
-    }
-    if (colorClass.includes('purple')) {
-      return {
-        bg: 'from-purple-600 to-purple-500',
-        shadow: 'shadow-purple-500/30',
-        hover: 'hover:shadow-purple-500/40',
-        glow: 'from-purple-500/20',
-      };
-    }
-    if (colorClass.includes('teal')) {
-      return {
-        bg: 'from-teal-600 to-teal-500',
-        shadow: 'shadow-teal-500/30',
-        hover: 'hover:shadow-teal-500/40',
-        glow: 'from-teal-500/20',
-      };
-    }
-    if (colorClass.includes('red')) {
-      return {
-        bg: 'from-red-600 to-red-500',
-        shadow: 'shadow-red-500/30',
-        hover: 'hover:shadow-red-500/40',
-        glow: 'from-red-500/20',
-      };
-    }
-    if (colorClass.includes('pink')) {
-      return {
-        bg: 'from-pink-600 to-pink-500',
-        shadow: 'shadow-pink-500/30',
-        hover: 'hover:shadow-pink-500/40',
-        glow: 'from-pink-500/20',
-      };
-    }
-    if (colorClass.includes('orange')) {
-      return {
-        bg: 'from-orange-600 to-orange-500',
-        shadow: 'shadow-orange-500/30',
-        hover: 'hover:shadow-orange-500/40',
-        glow: 'from-orange-500/20',
-      };
-    }
-    if (colorClass.includes('cyan')) {
-      return {
-        bg: 'from-cyan-600 to-cyan-500',
-        shadow: 'shadow-cyan-500/30',
-        hover: 'hover:shadow-cyan-500/40',
-        glow: 'from-cyan-500/20',
-      };
-    }
-    if (colorClass.includes('gray')) {
-      return {
-        bg: 'from-gray-600 to-gray-500',
-        shadow: 'shadow-gray-500/30',
-        hover: 'hover:shadow-gray-500/40',
-        glow: 'from-gray-500/20',
-      };
-    }
+  // Map color names to Tailwind classes for bold, saturated colors
+  const getColorClasses = (colorName: string) => {
+    if (colorName === 'indigo') return { bg: 'bg-indigo-600', border: 'border-indigo-500', shadow: 'shadow-indigo-600/40', text: 'text-indigo-600', light: 'bg-indigo-50', lightBorder: 'border-indigo-200' };
+    if (colorName === 'green') return { bg: 'bg-green-600', border: 'border-green-500', shadow: 'shadow-green-600/40', text: 'text-green-600', light: 'bg-green-50', lightBorder: 'border-green-200' };
+    if (colorName === 'blue') return { bg: 'bg-blue-600', border: 'border-blue-500', shadow: 'shadow-blue-600/40', text: 'text-blue-600', light: 'bg-blue-50', lightBorder: 'border-blue-200' };
+    if (colorName === 'yellow') return { bg: 'bg-yellow-500', border: 'border-yellow-400', shadow: 'shadow-yellow-500/40', text: 'text-yellow-600', light: 'bg-yellow-50', lightBorder: 'border-yellow-200' };
+    if (colorName === 'purple') return { bg: 'bg-purple-600', border: 'border-purple-500', shadow: 'shadow-purple-600/40', text: 'text-purple-600', light: 'bg-purple-50', lightBorder: 'border-purple-200' };
+    if (colorName === 'teal') return { bg: 'bg-teal-600', border: 'border-teal-500', shadow: 'shadow-teal-600/40', text: 'text-teal-600', light: 'bg-teal-50', lightBorder: 'border-teal-200' };
+    if (colorName === 'red') return { bg: 'bg-red-600', border: 'border-red-500', shadow: 'shadow-red-600/40', text: 'text-red-600', light: 'bg-red-50', lightBorder: 'border-red-200' };
+    if (colorName === 'pink') return { bg: 'bg-pink-600', border: 'border-pink-500', shadow: 'shadow-pink-600/40', text: 'text-pink-600', light: 'bg-pink-50', lightBorder: 'border-pink-200' };
+    if (colorName === 'orange') return { bg: 'bg-orange-600', border: 'border-orange-500', shadow: 'shadow-orange-600/40', text: 'text-orange-600', light: 'bg-orange-50', lightBorder: 'border-orange-200' };
+    if (colorName === 'cyan') return { bg: 'bg-cyan-600', border: 'border-cyan-500', shadow: 'shadow-cyan-600/40', text: 'text-cyan-600', light: 'bg-cyan-50', lightBorder: 'border-cyan-200' };
+    if (colorName === 'gray') return { bg: 'bg-gray-700', border: 'border-gray-600', shadow: 'shadow-gray-700/40', text: 'text-gray-700', light: 'bg-gray-50', lightBorder: 'border-gray-200' };
+    
     // Default to blue
-    return {
-      bg: 'from-blue-600 to-blue-500',
-      shadow: 'shadow-blue-500/30',
-      hover: 'hover:shadow-blue-500/40',
-      glow: 'from-blue-500/20',
-    };
+    return { bg: 'bg-blue-600', border: 'border-blue-500', shadow: 'shadow-blue-600/40', text: 'text-blue-600', light: 'bg-blue-50', lightBorder: 'border-blue-200' };
   };
 
   const colors = getColorClasses(color);
 
   return (
-    <div className="group relative bg-white/70 backdrop-blur-xl rounded-3xl p-4 sm:p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300 hover:scale-105 hover:-translate-y-1 overflow-hidden">
-      {/* Background gradient glow */}
-      <div className={`absolute inset-0 bg-gradient-to-br ${colors.glow} to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300`}></div>
+    <div className={`group relative bg-white rounded-2xl p-5 sm:p-6 shadow-xl border-2 ${colors.border} ${colors.shadow} hover:shadow-2xl transition-all duration-300 hover:scale-105 hover:-translate-y-1 overflow-hidden`}>
+      {/* Accent bar on left */}
+      <div className={`absolute left-0 top-0 bottom-0 w-1 ${colors.bg}`}></div>
       
-      {/* Animated shimmer effect */}
-      <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+      {/* Animated shimmer effect on hover */}
+      <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
 
       <div className="relative z-10">
         <div className="flex items-center justify-between mb-4">
-          <div className={`p-3 rounded-xl bg-gradient-to-br ${colors.bg} shadow-lg ${colors.shadow} group-hover:${colors.hover} group-hover:scale-110 transition-all duration-300 flex-shrink-0`}>
+          <div className={`p-3 rounded-xl ${colors.bg} shadow-lg ${colors.shadow} group-hover:scale-110 transition-all duration-300 flex-shrink-0`}>
             <Icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
           </div>
           
@@ -149,8 +68,8 @@ export default function Card({ title, value, icon: Icon, color, loading = false,
           )}
         </div>
 
-        <div className="space-y-2">
-          <p className="text-xs sm:text-sm font-medium text-slate-600 group-hover:text-slate-700 transition-colors duration-300">
+        <div className="space-y-1">
+          <p className={`text-xs sm:text-sm font-semibold ${colors.text} uppercase tracking-wide opacity-75`}>
             {title}
           </p>
           
@@ -160,15 +79,15 @@ export default function Card({ title, value, icon: Icon, color, loading = false,
               <span className="text-sm sm:text-lg font-bold text-slate-400">Loading...</span>
             </div>
           ) : (
-            <p className="text-lg sm:text-2xl font-bold text-slate-900 group-hover:text-slate-950 transition-colors duration-300 break-words">
+            <p className="text-2xl sm:text-3xl font-bold text-slate-900 break-words">
               {value}
             </p>
           )}
         </div>
       </div>
 
-      {/* Corner accent */}
-      <div className="absolute bottom-0 right-0 w-24 h-24 bg-gradient-to-tl from-slate-100/50 to-transparent rounded-tl-full opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+      {/* Bottom accent line */}
+      <div className={`absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r ${colors.bg} opacity-50 group-hover:opacity-100 transition-opacity duration-300`}></div>
     </div>
   );
 }
