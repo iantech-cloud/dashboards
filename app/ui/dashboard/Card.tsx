@@ -38,23 +38,18 @@ export default function Card({ title, value, icon: Icon, color, loading = false,
   const colors = getColorClasses(color);
 
   return (
-    <div className={`group relative bg-white rounded-2xl p-5 sm:p-6 shadow-xl border-2 ${colors.border} ${colors.shadow} hover:shadow-2xl transition-all duration-300 hover:scale-105 hover:-translate-y-1 overflow-hidden`}>
-      {/* Accent bar on left */}
-      <div className={`absolute left-0 top-0 bottom-0 w-1 ${colors.bg}`}></div>
-      
+    <div className={`group relative ${colors.bg} rounded-2xl p-4 sm:p-6 shadow-lg ${colors.shadow} hover:shadow-2xl transition-all duration-300 hover:scale-105 hover:-translate-y-1 overflow-hidden`}>
       {/* Animated shimmer effect on hover */}
-      <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
+      <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
 
       <div className="relative z-10">
         <div className="flex items-center justify-between mb-4">
-          <div className={`p-3 rounded-xl ${colors.bg} shadow-lg ${colors.shadow} group-hover:scale-110 transition-all duration-300 flex-shrink-0`}>
+          <div className="p-2 sm:p-3 rounded-xl bg-white/20 backdrop-blur-sm hover:bg-white/30 transition-all duration-300 flex-shrink-0">
             <Icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
           </div>
           
           {trend && (
-            <div className={`flex items-center space-x-1 text-sm font-semibold ${
-              trend.isPositive ? 'text-green-600' : 'text-red-600'
-            }`}>
+            <div className="flex items-center space-x-1 text-sm font-semibold text-white/90">
               <svg 
                 className={`w-4 h-4 ${trend.isPositive ? '' : 'rotate-180'}`} 
                 fill="none" 
@@ -68,26 +63,23 @@ export default function Card({ title, value, icon: Icon, color, loading = false,
           )}
         </div>
 
-        <div className="space-y-1">
-          <p className={`text-xs sm:text-sm font-semibold ${colors.text} uppercase tracking-wide opacity-75`}>
+        <div className="space-y-2">
+          <p className="text-xs sm:text-sm font-semibold text-white/80 uppercase tracking-wider">
             {title}
           </p>
           
           {loading ? (
             <div className="flex items-center space-x-2">
-              <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin text-slate-400" />
-              <span className="text-sm sm:text-lg font-bold text-slate-400">Loading...</span>
+              <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin text-white/60" />
+              <span className="text-sm sm:text-base font-bold text-white/60">Loading...</span>
             </div>
           ) : (
-            <p className="text-2xl sm:text-3xl font-bold text-slate-900 break-words">
+            <p className="text-2xl sm:text-3xl font-bold text-white break-words">
               {value}
             </p>
           )}
         </div>
       </div>
-
-      {/* Bottom accent line */}
-      <div className={`absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r ${colors.bg} opacity-50 group-hover:opacity-100 transition-opacity duration-300`}></div>
     </div>
   );
 }
