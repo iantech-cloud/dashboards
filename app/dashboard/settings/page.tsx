@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import Alert from '@/app/ui/Alert';
+import PasswordInput from '@/app/ui/PasswordInput';
 import { useDashboard } from '../DashboardContext';
 import TwoFactorAuth from './TwoFactorAuth';
 import AntiPhishingCode from './AntiPhishingCode';
@@ -484,36 +485,33 @@ export default function SettingsPage() {
         {!needsPasswordVerification ? (
           <>
             <div className="mb-4">
-              <label className="block font-medium mb-1">Current Password</label>
-              <input
-                type="password"
+              <PasswordInput
+                label="Current Password"
                 value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                onChange={setCurrentPassword}
                 placeholder="Enter current password"
+                required
               />
             </div>
             <div className="mb-4">
-              <label className="block font-medium mb-1">New Password</label>
-              <input
-                type="password"
+              <PasswordInput
+                label="New Password"
                 value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                onChange={setNewPassword}
                 placeholder="Enter new password (min. 8 characters)"
+                required
               />
               <p className="text-xs text-gray-500 mt-1">
                 Password must contain uppercase, lowercase, and numbers
               </p>
             </div>
             <div className="mb-4">
-              <label className="block font-medium mb-1">Confirm New Password</label>
-              <input
-                type="password"
+              <PasswordInput
+                label="Confirm New Password"
                 value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                onChange={setConfirmPassword}
                 placeholder="Confirm new password"
+                required
               />
             </div>
           </>
