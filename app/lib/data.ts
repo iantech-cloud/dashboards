@@ -83,6 +83,12 @@ export async function fetchDashboardData(userId: string): Promise<DashboardData>
     // 1. Fetch Profile and Balance/Earnings. Use .lean<Type>() for safety and performance
     const profilePromise = Profile.findById(userId).lean<ProfileLean>();
 
+    // Compute start of today (server local time) and start of tomorrow for date range queries
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+
     // 2. Fetch Aggregated Statistics
     const statsCalcPromises = Promise.all([
       // A. Total pending withdrawals
@@ -94,25 +100,45 @@ export async function fetchDashboardData(userId: string): Promise<DashboardData>
       Referral.countDocuments({ referrer_id: userId }),
       // C. Downline count
       DownlineUser.countDocuments({ main_user_id: userId }),
-      // D. Direct Referral Earnings
+      // D. Direct Referral Earnings (lifetime)
       Earning.aggregate([
         { $match: { user_id: userId, type: 'REFERRAL' } },
         { $group: { _id: null, direct_referral_earnings_cents: { $sum: '$amount_cents' } } }
       ]),
-      // E. Downline Earnings
+      // E. Downline Earnings (lifetime)
       Earning.aggregate([
         { $match: { user_id: userId, type: 'DOWNLINE' } },
         { $group: { _id: null, downline_earnings_cents: { $sum: '$amount_cents' } } }
       ]),
-      // F. Spin Earnings
+      // F. Spin Earnings / Spin Wallet (lifetime SPIN_WIN transactions)
       Transaction.aggregate([
         { $match: { user_id: userId, type: 'SPIN_WIN' } },
         { $group: { _id: null, spin_earnings_cents: { $sum: '$amount_cents' } } }
       ]),
-      // G. Survey Earnings
+      // G. Survey Earnings (lifetime)
       Transaction.aggregate([
         { $match: { user_id: userId, type: 'SURVEY' } },
         { $group: { _id: null, survey_earnings_cents: { $sum: '$amount_cents' } } }
+      ]),
+      // H. Task Earnings (lifetime) — from Earning collection (type=TASK)
+      Earning.aggregate([
+        { $match: { user_id: userId, type: 'TASK' } },
+        { $group: { _id: null, task_earnings_cents: { $sum: '$amount_cents' } } }
+      ]),
+      // I. Bonus Earnings (lifetime) — from Earning collection (type=BONUS)
+      Earning.aggregate([
+        { $match: { user_id: userId, type: 'BONUS' } },
+        { $group: { _id: null, bonus_earnings_cents: { $sum: '$amount_cents' } } }
+      ]),
+      // J. Today's Earnings — sum of all Earning rows created today
+      Earning.aggregate([
+        { $match: { user_id: userId, created_at: { $gte: startOfToday, $lt: startOfTomorrow } } },
+        { $group: { _id: null, today_earnings_cents: { $sum: '$amount_cents' } } }
+      ]),
+      // K. Today's Withdrawals — sum of withdrawals created today (any status not rejected)
+      Withdrawal.aggregate([
+        { $match: { user_id: userId, status: { $ne: 'rejected' }, created_at: { $gte: startOfToday, $lt: startOfTomorrow } } },
+        { $group: { _id: null, today_withdrawals_cents: { $sum: '$amount_cents' }, count: { $sum: 1 } } }
       ]),
     ]);
 
@@ -156,6 +182,10 @@ export async function fetchDashboardData(userId: string): Promise<DashboardData>
       downlineEarningsAgg,
       spinEarningsAgg,
       surveyEarningsAgg,
+      taskEarningsAgg,
+      bonusEarningsAgg,
+      todayEarningsAgg,
+      todayWithdrawalsAgg,
     ] = statsCalcAggregates;
 
     // profileData is a plain JavaScript object because of .lean()
@@ -179,6 +209,11 @@ export async function fetchDashboardData(userId: string): Promise<DashboardData>
       downline_earnings_cents: downlineEarningsAgg[0]?.downline_earnings_cents || 0,
       spin_earnings_cents: spinEarningsAgg[0]?.spin_earnings_cents || 0,
       survey_earnings_cents: surveyEarningsAgg[0]?.survey_earnings_cents || 0,
+      task_earnings_cents: taskEarningsAgg[0]?.task_earnings_cents || 0,
+      bonus_earnings_cents: bonusEarningsAgg[0]?.bonus_earnings_cents || 0,
+      today_earnings_cents: todayEarningsAgg[0]?.today_earnings_cents || 0,
+      today_withdrawals_cents: todayWithdrawalsAgg[0]?.today_withdrawals_cents || 0,
+      today_withdrawals_count: todayWithdrawalsAgg[0]?.count || 0,
     };
 
     // 1. Construct Profile (Convert MongoDB Date objects to ISO strings)
@@ -213,9 +248,15 @@ export async function fetchDashboardData(userId: string): Promise<DashboardData>
       downlineEarnings: centsToUnits(statsCalcData.downline_earnings_cents),
       level: profileData.level,
       rank: profileData.rank,
-      availableSpins: profileData.available_spins, // This was missing!
+      availableSpins: profileData.available_spins,
       surveyEarnings: centsToUnits(statsCalcData.survey_earnings_cents),
       spinEarnings: centsToUnits(statsCalcData.spin_earnings_cents),
+      // New per-wallet & daily stats
+      taskEarnings: centsToUnits(statsCalcData.task_earnings_cents),
+      bonusEarnings: centsToUnits(statsCalcData.bonus_earnings_cents),
+      todayEarnings: centsToUnits(statsCalcData.today_earnings_cents),
+      todayWithdrawals: centsToUnits(statsCalcData.today_withdrawals_cents),
+      todayWithdrawalsCount: Number(statsCalcData.today_withdrawals_count),
     };
 
     console.log('🎯 Final stats.availableSpins:', stats.availableSpins);

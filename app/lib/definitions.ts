@@ -170,21 +170,29 @@ export const COMMISSION_CONFIG: CommissionConfig = {
   activationAmount: 100000 // in cents (1000 KSH)
 };
 
-// Updated Stats interface (includes referral stats)
+// Updated Stats interface (includes referral stats and per-source wallet aggregations)
 export interface Stats {
-  totalEarnings: number;
-  availableBalance: number;
-  pendingWithdrawals: number;
-  referralCount: number;
-  directReferralEarnings: number;
-  downlineCount: number;
-  downlineEarnings: number;
-  level: number;
-  rank: string;
-  availableSpins: number;
-  activeReferrals?: number;
-  pendingReferrals?: number;
-  totalReferralEarnings?: number;
+  totalEarnings: number;
+  availableBalance: number;
+  pendingWithdrawals: number;
+  referralCount: number;
+  directReferralEarnings: number;
+  downlineCount: number;
+  downlineEarnings: number;
+  level: number;
+  rank: string;
+  availableSpins: number;
+  activeReferrals?: number;
+  pendingReferrals?: number;
+  totalReferralEarnings?: number;
+  // Per-source wallet & daily aggregations
+  spinEarnings?: number;
+  surveyEarnings?: number;
+  taskEarnings?: number;
+  bonusEarnings?: number;
+  todayEarnings?: number;
+  todayWithdrawals?: number;
+  todayWithdrawalsCount?: number;
 }
 
 export interface Receipt {
