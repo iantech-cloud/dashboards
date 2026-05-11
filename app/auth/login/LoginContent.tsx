@@ -601,6 +601,10 @@ export default function LoginContent({ hasExistingSession = false }: LoginConten
         // Check activation payment
         if (!user.isActivationPaid && !user.activation_paid_at) {
           console.log('OAuth user - Activation not paid, redirecting to activate');
+          // Store email in sessionStorage so activation page can work without session
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem('activation_email', user.email);
+          }
           router.push('/auth/activate');
           return;
         }
@@ -642,6 +646,10 @@ export default function LoginContent({ hasExistingSession = false }: LoginConten
         // Check activation payment
         if (!user.isActivationPaid && !user.activation_paid_at) {
           console.log('Credentials user - Activation not paid, redirecting to activate');
+          // Store email in sessionStorage so activation page can work without session
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem('activation_email', user.email);
+          }
           router.push('/auth/activate');
           return;
         }
