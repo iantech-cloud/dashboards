@@ -430,34 +430,40 @@ export default function DashboardPage() {
       <div className="absolute top-0 right-0 w-72 h-72 bg-gradient-to-bl from-purple-400/10 to-transparent rounded-full blur-3xl animate-pulse pointer-events-none"></div>
       <div className="absolute bottom-0 left-0 w-72 h-72 bg-gradient-to-tr from-orange-400/10 to-transparent rounded-full blur-3xl animate-pulse delay-1000 pointer-events-none"></div>
 
-      {/* Welcome Header with Glassmorphism */}
-      <div className="relative mb-8 bg-gradient-to-r from-purple-600/10 to-pink-600/10 backdrop-blur-xl rounded-3xl p-8 shadow-lg border border-purple-200/30 overflow-hidden group hover:shadow-2xl transition-all duration-300">
-        <div className="absolute inset-0 bg-gradient-to-r from-purple-600/5 via-pink-600/5 to-purple-600/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-        <div className="relative z-10 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/40 group-hover:shadow-purple-500/60 transition-all duration-300 group-hover:scale-110">
+      {/* Welcome Header with Bold Design */}
+      <div className="relative mb-8 bg-white rounded-2xl p-8 shadow-xl border-2 border-purple-500 overflow-hidden group hover:shadow-2xl hover:scale-105 hover:-translate-y-1 transition-all duration-300">
+        {/* Accent bar */}
+        <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-600"></div>
+        
+        <div className="relative z-10 flex items-center justify-between flex-wrap gap-6">
+          <div className="flex items-center space-x-4 flex-1 min-w-0">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/50 group-hover:shadow-purple-500/70 transition-all duration-300 group-hover:scale-110 flex-shrink-0">
               <Sparkles className="w-8 h-8 text-white" />
             </div>
-            <div>
-              <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+            <div className="min-w-0">
+              <h2 className="text-3xl font-bold text-slate-900">
                 Welcome back, {profile?.username || 'User'}!
               </h2>
-              <p className="text-slate-600 mt-1">Here's what's happening with your account today</p>
+              <p className="text-slate-600 mt-1 text-sm">Here's what's happening with your account today</p>
             </div>
           </div>
-          <div className="hidden md:flex items-center space-x-2">
-            <Trophy className="w-6 h-6 text-orange-500" />
-            <span className="text-lg font-bold text-slate-700">Level {profile?.level}</span>
+          <div className="flex items-center space-x-3 bg-purple-50 px-5 py-3 rounded-xl border border-purple-200">
+            <Trophy className="w-6 h-6 text-purple-600 flex-shrink-0" />
+            <span className="text-lg font-bold text-purple-700">Level {profile?.level}</span>
           </div>
         </div>
       </div>
 
-      {/* Profile Overview Card with Glassmorphism */}
+      {/* Profile Overview Card */}
       {profile && (
-        <div className={`relative mb-8 bg-gradient-to-r from-teal-50/50 to-cyan-50/50 backdrop-blur-xl rounded-3xl p-6 shadow-lg border-l-4 overflow-hidden hover:shadow-xl transition-all duration-300 ${
+        <div className={`relative mb-8 bg-white rounded-2xl p-6 shadow-xl border-2 overflow-hidden group hover:shadow-2xl hover:scale-105 hover:-translate-y-1 transition-all duration-300 ${
           profile.is_approved ? 'border-emerald-500' : 'border-orange-500'
         }`}>
-          <div className="absolute inset-0 bg-gradient-to-r from-teal-600/5 via-cyan-600/5 to-teal-600/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+          {/* Accent bar */}
+          <div className={`absolute left-0 top-0 bottom-0 w-1 ${
+            profile.is_approved ? 'bg-emerald-600' : 'bg-orange-600'
+          }`}></div>
+          
           <div className="relative z-10 flex justify-between items-start flex-wrap gap-4">
             <div className="flex-1">
               <div className="flex items-center space-x-3 mb-4">
@@ -514,34 +520,82 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Stats Grid with Modern Cards */}
+      {/* KPI Summary Cluster - Top 4 Critical Cards */}
       {displayStats ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
-          <Card title="Current Balance" value={`KES ${displayStats.availableBalance.toFixed(2)}`} icon={DollarSign} color="bg-gradient-to-br from-purple-600 to-purple-700" />
-          <Card title="Total Earnings" value={`KES ${displayStats.totalEarnings.toFixed(2)}`} icon={TrendingUp} color="bg-gradient-to-br from-emerald-500 to-teal-600" />
-          <Card title="Pending Withdrawals" value={`KES ${displayStats.pendingWithdrawals.toFixed(2)}`} icon={DollarSign} color="bg-gradient-to-br from-amber-500 to-orange-600" />
-          <Card title="Downline Earnings" value={`KES ${displayStats.downlineEarnings.toFixed(2)}`} icon={Users} color="bg-gradient-to-br from-pink-600 to-rose-600" />
-          <Card title="Tasks Completed" value={profile?.tasks_completed?.toString() || '0'} icon={CheckCircle} color="bg-gradient-to-br from-cyan-500 to-blue-600" />
-          <Card title="Available Spins" value={displayStats.availableSpins.toString()} icon={RotateCw} color="bg-gradient-to-br from-red-500 to-red-600" />
-          <Card title="Spin Earnings" value={`KES ${(displayStats.spinEarnings || 0).toFixed(2)}`} icon={Gift} color="bg-gradient-to-br from-pink-500 to-rose-500" />
-          <Card title="Survey Earnings" value={`KES ${(displayStats.surveyEarnings || 0).toFixed(2)}`} icon={ClipboardCheck} color="bg-gradient-to-br from-orange-500 to-amber-600" />
-          <Card title="Level/Rank" value={`Level ${displayStats.level} (${displayStats.rank})`} icon={CheckCircle} color="bg-gradient-to-br from-cyan-600 to-teal-600" />
-          <Card title="Total Spins" value={displayStats.totalSpins?.toString() || '0'} icon={RotateCw} color="bg-gradient-to-br from-purple-600 to-indigo-600" loading={spinStatsLoading} />
-          <Card title="Total Wins" value={displayStats.totalWins?.toString() || '0'} icon={Gift} color="bg-gradient-to-br from-emerald-600 to-green-600" loading={spinStatsLoading} />
-          <Card title="Win Rate" value={`${displayStats.winRate?.toFixed(1) || '0.0'}%`} icon={TrendingUp} color="bg-gradient-to-br from-blue-600 to-indigo-600" loading={spinStatsLoading} />
-          <Card title="Current Streak" value={displayStats.currentStreak?.toString() || '0'} icon={CheckCircle} color="bg-gradient-to-br from-orange-600 to-red-600" loading={spinStatsLoading} />
-          <Card title="Best Streak" value={displayStats.bestStreak?.toString() || '0'} icon={TrendingUp} color="bg-gradient-to-br from-amber-500 to-yellow-600" loading={spinStatsLoading} />
-          <Card title="Spins Used" value={displayStats.totalSpinsUsed?.toString() || '0'} icon={RotateCw} color="bg-gradient-to-br from-slate-600 to-slate-700" loading={spinStatsLoading} />
-        </div>
+        <>
+          <div className="mb-8">
+            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+              <Target className="w-5 h-5 mr-2 text-indigo-600" />
+              Key Performance Indicators
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              <Card title="Current Balance" value={`KES ${displayStats.availableBalance.toFixed(2)}`} icon={DollarSign} color="indigo" />
+              <Card title="Total Earnings" value={`KES ${displayStats.totalEarnings.toFixed(2)}`} icon={TrendingUp} color="green" />
+              <Card title="Pending Withdrawals" value={`KES ${displayStats.pendingWithdrawals.toFixed(2)}`} icon={DollarSign} color="yellow" />
+              <Card title="Level/Rank" value={`Level ${displayStats.level} (${displayStats.rank})`} icon={Trophy} color="purple" />
+            </div>
+          </div>
+
+          {/* Quick Actions Cluster */}
+          <div className="mb-8">
+            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+              <Zap className="w-5 h-5 mr-2 text-orange-600" />
+              Quick Actions
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              <Card title="Available Spins" value={displayStats.availableSpins.toString()} icon={RotateCw} color="red" />
+              <Card title="Tasks Completed" value={profile?.tasks_completed?.toString() || '0'} icon={CheckCircle} color="cyan" />
+              <Card title="Downline Earnings" value={`KES ${displayStats.downlineEarnings.toFixed(2)}`} icon={Users} color="pink" />
+            </div>
+          </div>
+
+          {/* Earnings Breakdown Cluster */}
+          <div className="mb-8">
+            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+              <DollarSign className="w-5 h-5 mr-2 text-green-600" />
+              Earnings Breakdown
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              <Card title="Spin Earnings" value={`KES ${(displayStats.spinEarnings || 0).toFixed(2)}`} icon={Gift} color="pink" />
+              <Card title="Survey Earnings" value={`KES ${(displayStats.surveyEarnings || 0).toFixed(2)}`} icon={ClipboardCheck} color="orange" />
+              <Card title="Referral Earnings" value={`KES ${displayStats.downlineEarnings.toFixed(2)}`} icon={Share2} color="blue" />
+            </div>
+          </div>
+
+          {/* Spin Performance Cluster */}
+          <div className="mb-8">
+            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+              <RotateCw className="w-5 h-5 mr-2 text-red-600" />
+              Spin Performance
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
+              <Card title="Total Spins" value={displayStats.totalSpins?.toString() || '0'} icon={RotateCw} color="purple" loading={spinStatsLoading} />
+              <Card title="Total Wins" value={displayStats.totalWins?.toString() || '0'} icon={Gift} color="green" loading={spinStatsLoading} />
+              <Card title="Win Rate" value={`${displayStats.winRate?.toFixed(1) || '0.0'}%`} icon={TrendingUp} color="blue" loading={spinStatsLoading} />
+              <Card title="Current Streak" value={displayStats.currentStreak?.toString() || '0'} icon={CheckCircle} color="orange" loading={spinStatsLoading} />
+              <Card title="Best Streak" value={displayStats.bestStreak?.toString() || '0'} icon={Trophy} color="yellow" loading={spinStatsLoading} />
+            </div>
+          </div>
+        </>
       ) : (
-        <p className="text-center text-slate-500 mb-8 py-8 bg-white/70 backdrop-blur-xl rounded-2xl">No statistics available.</p>
+        <p className="text-center text-slate-500 mb-8 py-12 bg-white rounded-2xl shadow-md border border-slate-200">No statistics available.</p>
       )}
 
+      {/* Section Divider */}
+      <div className="my-10">
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t-2 border-gradient-to-r from-transparent via-slate-300 to-transparent"></div>
+          </div>
+        </div>
+      </div>
+
       {/* Quick Actions Grid with Enhanced Styling */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
         {/* Spin-to-Win Card */}
-        <div className="group relative bg-gradient-to-br from-red-50/50 to-pink-50/50 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-red-200/30 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:border-red-300/60">
-          <div className="absolute inset-0 bg-gradient-to-br from-red-600/10 to-pink-600/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        <div className="group relative bg-white rounded-2xl p-6 shadow-xl border-2 border-red-500 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:scale-105 hover:-translate-y-1">
+          {/* Accent bar */}
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-600"></div>
           <div className="relative z-10">
             <div className="flex items-center space-x-3 mb-4">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-600 to-rose-500 flex items-center justify-center shadow-lg shadow-red-500/40 group-hover:shadow-red-500/60 transition-all duration-300 group-hover:rotate-12">
@@ -596,19 +650,24 @@ export default function DashboardPage() {
         </div>
 
         {/* Wallet Pay Card */}
-        <div className="bg-gradient-to-br from-cyan-50/50 to-blue-50/50 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-cyan-200/30 hover:shadow-2xl transition-all duration-300 hover:border-cyan-300/60">
-          <WalletPay 
-            onDepositSuccess={() => {
-              if (user) {
-                fetchDashboardData(user.id).then(setDashboardData);
-              }
-            }} 
-          />
+        <div className="group relative bg-white rounded-2xl p-6 shadow-xl border-2 border-blue-500 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:scale-105 hover:-translate-y-1">
+          {/* Accent bar */}
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-600"></div>
+          <div className="relative z-10">
+            <WalletPay 
+              onDepositSuccess={() => {
+                if (user) {
+                  fetchDashboardData(user.id).then(setDashboardData);
+                }
+              }} 
+            />
+          </div>
         </div>
 
         {/* Referral Card */}
-        <div className="group relative bg-gradient-to-br from-teal-50/50 to-cyan-50/50 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-teal-200/30 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:border-teal-300/60">
-          <div className="absolute inset-0 bg-gradient-to-br from-teal-600/10 to-cyan-600/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        <div className="group relative bg-white rounded-2xl p-6 shadow-xl border-2 border-cyan-500 hover:shadow-2xl transition-all duration-300 overflow-hidden hover:scale-105 hover:-translate-y-1">
+          {/* Accent bar */}
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-cyan-600"></div>
           <div className="relative z-10">
             <div className="flex items-center space-x-3 mb-4">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-teal-500/40 group-hover:shadow-teal-500/60 transition-all duration-300">
@@ -646,8 +705,17 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Section Divider */}
+      <div className="my-10">
+        <div className="w-full h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent"></div>
+      </div>
+
       {/* Financial Reports Section */}
       <div className="mb-8">
+        <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+          <BarChart3 className="w-5 h-5 mr-2 text-cyan-600" />
+          Financial Reports
+        </h2>
         <UserReports className="mt-6" />
       </div>
 
