@@ -1,68 +1,51 @@
 // app/lib/mongodb.ts
 import { MongoClient } from 'mongodb'
 
-// The default export is a lazy `Promise<MongoClient>`-shaped value: we keep
-// the same `import clientPromise from "@/app/lib/mongodb"` ergonomics for
-// existing call sites, but we defer reading `MONGODB_URI` and creating the
-// connection until the first time the promise is `.then()`-ed / `await`-ed.
+// We export a real Promise<MongoClient> so MongoDBAdapter (which does
+// `instanceof Promise` / awaits the value directly) works correctly.
 //
-// This makes simply importing this module side-effect-free, which is critical
-// during Next.js' "Collecting page data" build step on Vercel — where route
-// modules are loaded but env vars may not yet be available.
-
-const options = {}
+// The Promise is created lazily — on first import — so that simply
+// importing this module during Next.js' build-time "Collecting page data"
+// step does NOT throw when MONGODB_URI is missing.  The throw is deferred
+// to runtime when the promise actually settles.
 
 let cachedPromise: Promise<MongoClient> | undefined
 
-function createClientPromise(): Promise<MongoClient> {
-  const uri = process.env.MONGODB_URI
-  if (!uri) {
-    throw new Error('Invalid/Missing environment variable: "MONGODB_URI"')
+function getClientPromise(): Promise<MongoClient> {
+  if (cachedPromise) return cachedPromise
+
+  if (!process.env.MONGODB_URI) {
+    // Return a rejection so callers get a clear error at runtime
+    // rather than a cryptic "Configuration" NextAuth error.
+    cachedPromise = Promise.reject(
+      new Error('Invalid/Missing environment variable: "MONGODB_URI"')
+    )
+    return cachedPromise
   }
+
+  const uri = process.env.MONGODB_URI
 
   if (process.env.NODE_ENV === 'development') {
-    // In development, reuse the connection across HMR reloads.
-    const globalWithMongo = global as typeof globalThis & {
+    // Reuse the connection across HMR reloads in dev.
+    const g = global as typeof globalThis & {
       _mongoClientPromise?: Promise<MongoClient>
     }
-
-    if (!globalWithMongo._mongoClientPromise) {
-      const client = new MongoClient(uri, options)
-      globalWithMongo._mongoClientPromise = client.connect()
+    if (!g._mongoClientPromise) {
+      const client = new MongoClient(uri)
+      g._mongoClientPromise = client.connect()
     }
-    return globalWithMongo._mongoClientPromise
+    cachedPromise = g._mongoClientPromise
+    return cachedPromise
   }
 
-  // Production: single shared client per server instance.
-  const client = new MongoClient(uri, options)
-  return client.connect()
-}
-
-function getClientPromise(): Promise<MongoClient> {
-  if (!cachedPromise) {
-    cachedPromise = createClientPromise()
-  }
+  // Production: single shared connection per server instance.
+  const client = new MongoClient(uri)
+  cachedPromise = client.connect()
   return cachedPromise
 }
 
-// Thenable proxy: behaves like `Promise<MongoClient>` for any code that does
-// `await clientPromise` or `clientPromise.then(...)` without forcing a
-// connection at module load time.
-const clientPromise = {
-  then<TResult1 = MongoClient, TResult2 = never>(
-    onfulfilled?: ((value: MongoClient) => TResult1 | PromiseLike<TResult1>) | null,
-    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-  ): Promise<TResult1 | TResult2> {
-    return getClientPromise().then(onfulfilled, onrejected)
-  },
-  catch<TResult = never>(
-    onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null,
-  ): Promise<MongoClient | TResult> {
-    return getClientPromise().catch(onrejected)
-  },
-  finally(onfinally?: (() => void) | null): Promise<MongoClient> {
-    return getClientPromise().finally(onfinally)
-  },
-} as unknown as Promise<MongoClient>
+// Export a real Promise created eagerly on first module evaluation.
+// This satisfies MongoDBAdapter which expects a genuine Promise<MongoClient>.
+const clientPromise: Promise<MongoClient> = getClientPromise()
 
 export default clientPromise
