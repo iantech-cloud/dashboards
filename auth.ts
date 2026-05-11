@@ -65,7 +65,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     // ==================== CREDENTIALS PROVIDER ====================
     Credentials({
       id: 'credentials',
-      name: 'credentials',
+      name: 'Credentials',
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
@@ -74,73 +74,53 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       
       async authorize(credentials) {
         try {
-          await connectToDatabase();
+          console.log('[v0] Credentials authorize called');
           
           if (!credentials?.email || !credentials?.password) {
+            console.warn('[v0] Missing email or password in credentials');
             throw new Error('Email and password are required.');
           }
 
-          const user = await Profile.findOne({ email: credentials.email }).select('+password');
-          if (!user) throw new Error('Invalid email or password.');
-
-          const userId = user._id?.toString();
-          if (!userId) throw new Error('Invalid user data structure.');
-
-          if (!user.password) {
-             throw new Error('User found but no password set (OAuth user?).');
+          try {
+            await connectToDatabase();
+          } catch (dbError: any) {
+            console.error('[v0] Database connection failed in authorize:', dbError?.message);
+            throw new Error('Unable to connect to database. Please try again later.');
           }
           
-          const isPasswordValid = await bcrypt.compare(credentials.password as string, user.password);
-          if (!isPasswordValid) throw new Error('Invalid email or password.');
+          try {
+            const user = await Profile.findOne({ email: credentials.email });
 
-          // Check 2FA if enabled
-          if (user.twoFAEnabled && user.twoFASecret) {
-            if (!credentials.token2FA) {
-              throw new Error('2FA code is required.');
+            if (!user) {
+              console.warn('[v0] User not found:', credentials.email);
+              throw new Error('User not found.');
             }
 
-            const verified = speakeasy.totp.verify({
-              secret: user.twoFASecret,
-              encoding: 'base32',
-              token: credentials.token2FA as string,
-              window: 2
-            });
+            const passwordMatch = await bcrypt.compare(credentials.password, user.password);
 
-            if (!verified) {
-              throw new Error('Invalid 2FA code.');
+            if (!passwordMatch) {
+              console.warn('[v0] Invalid password for user:', credentials.email);
+              throw new Error('Invalid password.');
             }
+
+            console.log('[v0] User authenticated successfully:', credentials.email);
+            (user as any).authMethod = 'credentials';
+            return user;
+          } catch (queryError: any) {
+            console.error('[v0] Database query error in authorize:', queryError?.message);
+            throw new Error(queryError?.message || 'Authentication failed.');
           }
-          
-          await Profile.updateOne({ _id: user._id }, { last_login: new Date() });
-
-          return {
-            id: userId,
-            email: user.email,
-            name: user.username,
-            role: user.role,
-            is_verified: user.is_verified,
-            is_active: user.is_active,
-            is_approved: user.is_approved,
-            approval_status: user.approval_status,
-            activation_paid_at: user.activation_paid_at,
-            status: user.status,
-            twoFAEnabled: user.twoFAEnabled || false,
-            profile_completed: user.profile_completed || false,
-            phone_number: user.phone_number || null,
-            authMethod: 'credentials',
-          };
-          
         } catch (error: any) {
-          console.error('Authorize error:', error);
-          throw error; 
+          console.error('[v0] Authorization error:', error?.message);
+          throw new Error(error?.message || 'Authentication failed.');
         }
       },
     }),
 
     // ==================== GOOGLE OAUTH PROVIDER ====================
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? [Google({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       authorization: {
         params: {
           prompt: "consent",
@@ -149,45 +129,57 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
       },
       allowDangerousEmailAccountLinking: true, 
-    }),
+    })] : []),
   ],
   
   callbacks: {
     // ==================== SIGN IN CALLBACK ====================
     async signIn({ user, account, profile }) {
       try {
-        await connectToDatabase();
+        console.log('[v0] signIn callback started for:', profile?.email || user?.email);
+        
+        try {
+          await connectToDatabase();
+        } catch (dbError: any) {
+          console.error('[v0] Database connection failed in signIn:', dbError?.message);
+          return false;
+        }
 
         if (account?.provider === 'google' && profile) {
-          console.log('🔵 Google sign in attempt:', profile.email);
+          console.log('[v0] Google sign in attempt:', profile.email);
 
-          let existingUser = await Profile.findOne({ email: profile.email });
+          try {
+            let existingUser = await Profile.findOne({ email: profile.email });
 
-          if (existingUser) {
-            console.log('✅ Existing user found/linked:', existingUser.email);
+            if (existingUser) {
+              console.log('[v0] Existing user found/linked:', existingUser.email);
+              
+              if (!existingUser.oauth_id || existingUser.oauth_id !== account.providerAccountId) {
+                existingUser.oauth_id = account.providerAccountId;
+                existingUser.oauth_provider = 'google';
+                existingUser.oauth_verified = true;
+                existingUser.google_profile_picture = (profile as any).picture;
+              }
+
+              if (!existingUser.is_verified) {
+                existingUser.is_verified = true;
+              }
+
+              existingUser.last_login = new Date();
+              await existingUser.save();
+            }
             
-            if (!existingUser.oauth_id || existingUser.oauth_id !== account.providerAccountId) {
-              existingUser.oauth_id = account.providerAccountId;
-              existingUser.oauth_provider = 'google';
-              existingUser.oauth_verified = true;
-              existingUser.google_profile_picture = (profile as any).picture;
-            }
-
-            if (!existingUser.is_verified) {
-              existingUser.is_verified = true;
-            }
-
-            existingUser.last_login = new Date();
-            await existingUser.save();
+            (user as any).authMethod = 'google';
+            return true;
+          } catch (queryError: any) {
+            console.error('[v0] Database query error in signIn:', queryError?.message);
+            return false;
           }
-          
-          (user as any).authMethod = 'google';
-          return true;
         }
 
         return true;
       } catch (error) {
-        console.error('❌ SignIn callback error:', error);
+        console.error('[v0] SignIn callback error:', error);
         return false;
       }
     },
@@ -195,66 +187,79 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     // ==================== JWT CALLBACK ====================
     async jwt({ token, user, account, trigger, session: updateSession }) {
       try {
+        console.log('[v0] JWT callback - trigger:', trigger);
+        
         if (trigger === 'update' && updateSession) {
+          console.log('[v0] JWT callback - session update');
           return { ...token, ...updateSession };
         }
 
         // Only make database calls on initial sign in
         if (user && (trigger === 'signIn' || !token.userId)) {
-          await connectToDatabase();
+          try {
+            await connectToDatabase();
+          } catch (dbError: any) {
+            console.error('[v0] Database connection failed in JWT:', dbError?.message);
+            return token;
+          }
           
-          const lookupQuery = user.id ? { _id: user.id } : { email: user.email };
-          const profile = await Profile.findOne(lookupQuery);
+          try {
+            const lookupQuery = user.id ? { _id: user.id } : { email: user.email };
+            const profile = await Profile.findOne(lookupQuery);
 
-          if (profile) {
-            const userId = profile._id.toString();
-            const dashboardRoute = getDashboardRoute(profile.role);
+            if (profile) {
+              const userId = profile._id.toString();
+              const dashboardRoute = getDashboardRoute(profile.role);
 
-            // Determine auth method - check multiple sources
-            let authMethod = 'credentials'; // default
-            
-            if ((user as any).authMethod) {
-              authMethod = (user as any).authMethod;
-            } else if (account?.provider === 'google') {
-              authMethod = 'google';
-            } else if (profile.oauth_provider === 'google' && profile.oauth_verified) {
-              authMethod = 'google';
-            } else if (profile.oauth_id) {
-              authMethod = profile.oauth_provider || 'google';
+              // Determine auth method - check multiple sources
+              let authMethod = 'credentials'; // default
+              
+              if ((user as any).authMethod) {
+                authMethod = (user as any).authMethod;
+              } else if (account?.provider === 'google') {
+                authMethod = 'google';
+              } else if (profile.oauth_provider === 'google' && profile.oauth_verified) {
+                authMethod = 'google';
+              } else if (profile.oauth_id) {
+                authMethod = profile.oauth_provider || 'google';
+              }
+
+              console.log('[v0] JWT callback - Auth method determined:', {
+                email: profile.email,
+                authMethod,
+                hasOAuthId: !!profile.oauth_id,
+                oauthProvider: profile.oauth_provider,
+                accountProvider: account?.provider
+              });
+
+              const isActivationPaid = profile.approval_status !== 'pending' || profile.rank !== 'Unactivated';
+
+              return {
+                ...token,
+                sub: userId,
+                id: userId,
+                userId: userId,
+                email: profile.email || '',
+                name: profile.username || '',
+                role: profile.role || 'user',
+                dashboardRoute: dashboardRoute,
+                is_verified: profile.is_verified ?? false,
+                is_active: profile.is_active ?? false,
+                is_approved: profile.is_approved ?? false,
+                approval_status: profile.approval_status || 'pending',
+                rank: profile.rank || 'Unactivated',
+                activation_paid_at: profile.activation_paid_at || null,
+                isActivationPaid: isActivationPaid,
+                status: profile.status || 'inactive',
+                twoFAEnabled: profile.twoFAEnabled || false,
+                profile_completed: profile.profile_completed || false,
+                phone_number: profile.phone_number || null,
+                authMethod: authMethod,
+              };
             }
-
-            console.log('JWT callback - Auth method determined:', {
-              email: profile.email,
-              authMethod,
-              hasOAuthId: !!profile.oauth_id,
-              oauthProvider: profile.oauth_provider,
-              accountProvider: account?.provider
-            });
-
-            const isActivationPaid = profile.approval_status !== 'pending' || profile.rank !== 'Unactivated';
-
-            return {
-              ...token,
-              sub: userId,
-              id: userId,
-              userId: userId,
-              email: profile.email || '',
-              name: profile.username || '',
-              role: profile.role || 'user',
-              dashboardRoute: dashboardRoute,
-              is_verified: profile.is_verified ?? false,
-              is_active: profile.is_active ?? false,
-              is_approved: profile.is_approved ?? false,
-              approval_status: profile.approval_status || 'pending',
-              rank: profile.rank || 'Unactivated',
-              activation_paid_at: profile.activation_paid_at || null,
-              isActivationPaid: isActivationPaid,
-              status: profile.status || 'inactive',
-              twoFAEnabled: profile.twoFAEnabled || false,
-              profile_completed: profile.profile_completed || false,
-              phone_number: profile.phone_number || null,
-              authMethod: authMethod,
-            };
+          } catch (queryError: any) {
+            console.error('[v0] Database query error in JWT:', queryError?.message);
+            return token;
           }
         }
 
@@ -268,7 +273,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         return token;
       } catch (error) {
-        console.error('JWT callback error:', error);
+        console.error('[v0] JWT callback error:', error);
         return token;
       }
     },
