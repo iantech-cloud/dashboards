@@ -43,17 +43,23 @@ export default function ActivateComponent() {
           setActivationStatus(result.data);
           
           // Redirect if already activated
-          if (result.data.activation_paid) {
+          if (result.data?.activation_paid) {
             router.push('/dashboard');
           }
         } else {
+          // 'User not authenticated' means they arrived here without a session.
+          // Redirect them to login — after login verify-login will route back here.
+          if (result.message === 'User not authenticated') {
+            router.push('/auth/login?callbackUrl=/auth/activate');
+            return;
+          }
           setMessageType('error');
           setMessage(result.message || 'Failed to check activation status');
         }
       } catch (error) {
         console.error('Error checking activation status:', error);
         setMessageType('error');
-        setMessage('Failed to check activation status');
+        setMessage('Failed to check activation status. Please try refreshing.');
       }
     }
 

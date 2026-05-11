@@ -44,7 +44,8 @@ export default function ConfirmContent() {
           
           console.log('Email verification successful for:', data.user?.email);
           
-          // Send initial payment invoice and redirect to activation page
+          // Send initial payment invoice then redirect to LOGIN (not activate directly)
+          // The user must log in first; verify-login will redirect to /auth/activate
           await handleSendInitialInvoice(data.user);
           
         } else {
@@ -96,30 +97,30 @@ export default function ConfirmContent() {
         if (result.success) {
           console.log('✅ Initial payment invoice sent successfully');
           setStatus('success');
-          setMessage('Email verified! Payment invoice has been sent to your email. Redirecting to activation...');
+          setMessage('Email verified! Payment invoice has been sent to your email. Please log in to continue to account activation.');
           
-          // Redirect to activation page after a brief delay
+          // Redirect to login — verify-login will route them to /auth/activate automatically
           setTimeout(() => {
-            router.push('/auth/activate');
-          }, 2000);
+            router.push('/auth/login?verified=true');
+          }, 3000);
         } else {
           console.error('❌ Failed to send initial payment invoice:', result.error);
-          // Still redirect to activation page even if email fails
+          // Still redirect to login even if invoice email fails
           setStatus('success');
-          setMessage('Email verified! Redirecting to activation page...');
+          setMessage('Email verified! Please log in to continue to account activation.');
           setTimeout(() => {
-            router.push('/auth/activate');
-          }, 2000);
+            router.push('/auth/login?verified=true');
+          }, 3000);
         }
 
       } catch (error) {
         console.error('❌ Error sending initial payment invoice:', error);
-        // Still redirect to activation page even if email fails
+        // Still redirect to login even if invoice email fails
         setStatus('success');
-        setMessage('Email verified! Redirecting to activation page...');
+        setMessage('Email verified! Please log in to continue to account activation.');
         setTimeout(() => {
-          router.push('/auth/activate');
-        }, 2000);
+          router.push('/auth/login?verified=true');
+        }, 3000);
       }
     }
 
@@ -184,7 +185,7 @@ export default function ConfirmContent() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">Ready for Activation!</h2>
+              <h2 className="text-2xl font-bold text-gray-800 mb-2">Email Verified!</h2>
               <p className="text-gray-600 mb-4">{message}</p>
               
               {userEmail && (
@@ -195,30 +196,31 @@ export default function ConfirmContent() {
               
               <div className="rounded-lg bg-green-50 border border-green-200 p-3 mb-4">
                 <p className="text-sm text-green-700 mb-2">
-                  ✅ Your email has been verified and payment invoice sent!
+                  Your email has been verified and an activation invoice has been sent!
                 </p>
                 <p className="text-sm text-green-600">
-                  Check your email for the invoice with payment instructions to activate your account.
+                  Log in below to continue to the Account Activation page where you will pay the KSH 1,000 activation fee.
                 </p>
               </div>
 
               <div className="space-y-3">
                 <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
-                  <p className="text-sm text-blue-700 font-medium mb-1">What's Next?</p>
-                  <ul className="text-sm text-blue-600 text-left space-y-1">
-                    <li>• Check your email for the payment invoice</li>
-                    <li>• Complete the payment of <strong>Ksh 1,000</strong> to activate your account</li>
-                    <li>• Start earning immediately after activation</li>
-                  </ul>
+                  <p className="text-sm text-blue-700 font-medium mb-1">Next Steps:</p>
+                  <ol className="text-sm text-blue-600 text-left space-y-1 list-decimal list-inside">
+                    <li>Log in with your credentials</li>
+                    <li>You will be taken to the Account Activation page</li>
+                    <li>Pay KSH 1,000 via M-Pesa to activate your account</li>
+                    <li>Wait for admin approval, then start earning</li>
+                  </ol>
                 </div>
 
-                <p className="text-sm text-gray-500">Redirecting to activation page...</p>
+                <p className="text-sm text-gray-500">Redirecting to login in a moment...</p>
                 
                 <Link
-                  href="/auth/activate"
+                  href="/auth/login?verified=true"
                   className="inline-block w-full py-2 px-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
                 >
-                  Go to Activation Now
+                  Log In to Continue
                 </Link>
               </div>
             </>
