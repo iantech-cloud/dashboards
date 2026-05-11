@@ -302,18 +302,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return;
     }
 
+    // ✅ FIXED: Redirect to /auth/activate (not /activate) for unactivated users
     if (!userToCheck.isActive) {
-      console.log('Redirecting to /activate');
+      console.log('Redirecting to /auth/activate (unactivated user)');
       setTimeout(() => {
-        router.push('/activate');
+        router.push('/auth/activate');
       }, 0);
       return;
     }
 
+    // ✅ FIXED: Redirect to /auth/pending-approval (not /pending-approval) for unapproved users
     if (!userToCheck.isApproved) {
-      console.log('Redirecting to /pending-approval');
+      console.log('Redirecting to /auth/pending-approval (unapproved user)');
       setTimeout(() => {
-        router.push('/pending-approval');
+        router.push('/auth/pending-approval');
       }, 0);
       return;
     }
