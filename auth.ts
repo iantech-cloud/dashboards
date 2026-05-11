@@ -232,7 +232,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 accountProvider: account?.provider
               });
 
-              const isActivationPaid = profile.approval_status !== 'pending' || profile.rank !== 'Unactivated';
+              // Properly detect if activation payment was made
+              const isActivationPaid = profile.activation_paid_at !== null && profile.activation_paid_at !== undefined;
+              
+              console.log('[v0] JWT callback - User activation status:', {
+                email: profile.email,
+                is_verified: profile.is_verified,
+                is_active: profile.is_active,
+                is_approved: profile.is_approved,
+                activation_paid_at: profile.activation_paid_at,
+                isActivationPaid: isActivationPaid,
+                approval_status: profile.approval_status,
+                rank: profile.rank
+              });
 
               return {
                 ...token,
@@ -281,10 +293,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     // ==================== SESSION CALLBACK ====================
     async session({ session, token }) {
       if (!token || !token.userId) {
+        console.log('[v0] Session callback - No token or userId, returning empty session');
         return session;
       }
 
       const userId = token.userId;
+      
+      console.log('[v0] Session callback - Building session for user:', {
+        userId,
+        email: token.email,
+        is_verified: token.is_verified,
+        is_active: token.is_active,
+        is_approved: token.is_approved,
+        isActivationPaid: token.isActivationPaid
+      });
       
       session.user.id = userId;
       session.user.email = token.email as string || '';
@@ -307,6 +329,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       
       (session as any).dashboardRoute = token.dashboardRoute as string || '/dashboard';
       
+      console.log('[v0] Session callback - Session built successfully');
       return session;
     },
   },
