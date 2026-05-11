@@ -5,12 +5,10 @@ interface MongooseCache {
   promise: Promise<typeof mongoose> | null
 }
 
-// Ensure the MONGODB_URI is available in your environment file
-const MONGODB_URI = process.env.MONGODB_URI
-
-if (!MONGODB_URI) {
-  throw new Error("Please define the MONGODB_URI environment variable in your .env or .env.local file")
-}
+// MONGODB_URI is read lazily inside connectToDatabase() so that simply importing
+// this module (e.g. during Next.js page-data collection at build time) does not
+// throw when the env var is not yet injected. The check is enforced on first
+// actual connection attempt.
 
 /**
  * Global is used here to maintain a cached connection across hot reloads
@@ -38,6 +36,14 @@ export async function connectToDatabase(): Promise<Connection> {
   // If connection is already cached, return it
   if (cached.conn) {
     return cached.conn
+  }
+
+  // Lazy env-var check: only fail when actually trying to connect.
+  const MONGODB_URI = process.env.MONGODB_URI
+  if (!MONGODB_URI) {
+    throw new Error(
+      "Please define the MONGODB_URI environment variable in your .env or .env.local file",
+    )
   }
 
   if (!cached.promise) {
