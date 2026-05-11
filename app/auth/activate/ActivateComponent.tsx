@@ -44,14 +44,23 @@ export default function ActivateComponent() {
         searchParams.get('email') ||
         '';
 
+      console.log('[v0] Activation page init - email resolution:', {
+        fromSessionStorage: typeof window !== 'undefined' ? sessionStorage.getItem('activation_email') : 'N/A',
+        fromUrlParam: searchParams.get('email'),
+        resolved: resolvedEmail
+      });
+
       if (!resolvedEmail) {
+        console.log('[v0] Activation page - email missing, showing error');
         setPageState('email_missing');
         return;
       }
 
+      console.log('[v0] Activation page - email found:', resolvedEmail);
       setEmail(resolvedEmail);
 
       try {
+        console.log('[v0] Checking activation status for email:', resolvedEmail);
         const res = await fetch('/api/activate/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -59,7 +68,16 @@ export default function ActivateComponent() {
         });
         const data = await res.json();
 
+        console.log('[v0] Activation status response:', {
+          ok: res.ok,
+          success: data.success,
+          activation_paid: data.data?.activation_paid,
+          is_approved: data.data?.is_approved,
+          approval_status: data.data?.approval_status
+        });
+
         if (!res.ok || !data.success) {
+          console.log('[v0] Status check failed:', data.message);
           setMessage(data.message || 'Failed to load activation status.');
           setMessageType('error');
           setPageState('error');
@@ -67,16 +85,20 @@ export default function ActivateComponent() {
         }
 
         if (data.data?.activation_paid) {
+          console.log('[v0] User already activated - setting already_paid state');
           setPageState('already_paid');
           // Already paid — if approved, send to login; otherwise show waiting message
           if (data.data?.is_approved) {
+            console.log('[v0] User approved, redirecting to login in 2s');
             setTimeout(() => router.push('/auth/login'), 2000);
           }
           return;
         }
 
+        console.log('[v0] User not activated yet - showing activation form');
         setPageState('form');
-      } catch {
+      } catch (error) {
+        console.error('[v0] Network error checking status:', error);
         setMessage('Network error. Please refresh and try again.');
         setMessageType('error');
         setPageState('error');
@@ -109,10 +131,12 @@ export default function ActivateComponent() {
   // -------------------------------------------------------------------------
   const handleActivation = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('[v0] Activation form submitted with:', { email, phoneNumber });
     setSubmitting(true);
     setMessage('');
 
     try {
+      console.log('[v0] Initiating M-Pesa STK push for activation...');
       const res = await fetch('/api/activate/initiate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -120,7 +144,14 @@ export default function ActivateComponent() {
       });
       const data = await res.json();
 
+      console.log('[v0] M-Pesa initiate response:', {
+        ok: res.ok,
+        success: data.success,
+        hasCheckoutRequestId: !!data.data?.checkoutRequestId
+      });
+
       if (res.ok && data.success && data.data?.checkoutRequestId) {
+        console.log('[v0] M-Pesa STK push successful, redirecting to waiting page');
         // Clear the sessionStorage email — the waiting page tracks by checkoutRequestId
         sessionStorage.removeItem('activation_email');
 
@@ -134,10 +165,12 @@ export default function ActivateComponent() {
         });
         router.push(`/auth/activate/mpesa-waiting?${params.toString()}`);
       } else {
+        console.log('[v0] M-Pesa initiate failed:', data.message);
         setMessageType('error');
         setMessage(data.message || 'Failed to initiate payment. Please try again.');
       }
-    } catch {
+    } catch (error) {
+      console.error('[v0] Error during M-Pesa initiation:', error);
       setMessageType('error');
       setMessage('Network error during payment. Please try again.');
     } finally {
